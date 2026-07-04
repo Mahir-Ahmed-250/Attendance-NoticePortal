@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Theme Color: #022e54 mapped as the primary brand color (indigo) */
+  --color-indigo-50: #f0f4f8;
+  --color-indigo-100: #dce4ee;
+  --color-indigo-150: #ccd8e7;
+  --color-indigo-200: #b9cbe1;
+  --color-indigo-300: #8ea8cf;
+  --color-indigo-400: #5d81b8;
+  --color-indigo-500: #385d9f;
+  --color-indigo-600: #022e54; /* Exact theme color #022e54 */
+  --color-indigo-700: #012443;
+  --color-indigo-800: #011a31;
+  --color-indigo-900: #010f1e;
+  --color-indigo-950: #000810;
+}
+
+body {
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+

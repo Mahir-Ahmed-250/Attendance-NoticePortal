@@ -1,0 +1,6 @@
+{
+  "name": "Attendance & Notice Portal",
+  "description": "Multi-role system for managers to assign members and post attendance, mentors to review attendance and send feedback, and team members to track their own records and notices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
