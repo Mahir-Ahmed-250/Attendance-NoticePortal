@@ -2308,7 +2308,7 @@ export default function ManagerDashboard({
             >
               <div className="flex items-center justify-between px-2 mb-6 lg:mb-2">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
-                  Manager's Menu
+                  Mentor's Menu
                 </p>
                 {isMobileMenuOpen && (
                   <button 
