@@ -596,7 +596,7 @@ export default function MentorDashboard({
             Campus Coordinator Dashboard
           </h2>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Manage attendance and leave requests for your assigned team members.
+           
           </p>
           {!isSidebarOpen ? (
             <button
