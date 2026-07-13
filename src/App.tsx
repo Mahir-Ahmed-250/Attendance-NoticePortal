@@ -242,7 +242,7 @@ export default function App() {
     try {
       const saved = await api.requests.edit.create(newRequest);
       setAttendanceEditRequests(prev => [saved, ...(prev || [])]);
-      toast.success('Attendance edit request submitted to Manager.');
+      toast.success('Attendance Adjustment Request Submitted');
     } catch (err) {
       toast.error('Failed to submit request.');
     }
@@ -314,7 +314,7 @@ export default function App() {
     try {
       const saved = await api.requests.leave.create(newRequest);
       setLeaveRequests(prev => [saved, ...(prev || [])]);
-      toast.success('Leave request submitted to Manager.');
+      toast.success('Leave Request Submitted');
     } catch (err) {
       toast.error('Failed to submit leave request.');
     }

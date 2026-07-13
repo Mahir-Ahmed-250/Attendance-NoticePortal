@@ -305,7 +305,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
             <Megaphone className="w-5.5 h-5.5 text-indigo-600 animate-pulse" />
             Notices
           </h2>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">Official updates and program communications</p>
+        
         </div>
         {canPost && (onAddNotice || onUpdateNotice) && (
           <button
@@ -352,7 +352,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
           >
             <option value="All">All Campuses</option>
             {campuses?.map((c, index) => (
-              <option key={`${c}-${index}`} value={c}>📍 {c}</option>
+              <option key={`${c}-${index}`} value={c}> {c}</option>
             ))}
           </select>
         </div>
@@ -372,7 +372,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
               <thead>
                 <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-200">
                   <th className="p-4 w-12 text-center">#</th>
-                  <th className="p-4">Title & Bulletin</th>
+                  <th className="p-4">Title</th>
                   <th className="p-4">Category</th>
                   <th className="p-4">Campus</th>
                   <th className="p-4">Date</th>
@@ -393,20 +393,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                         <h4 className="text-xs font-black text-slate-800 leading-snug group-hover:text-indigo-600 transition-colors line-clamp-1">
                           {notice.title}
                         </h4>
-                        <p className="text-slate-400 text-[11px] line-clamp-2 leading-normal">
-                          {(() => {
-                            const contentStr = notice.content || '';
-                            if (contentStr.startsWith('{')) {
-                              try {
-                                const parsed = JSON.parse(contentStr);
-                                return (parsed.blocks || []).map((b: any) => b.data?.text || '').join(' ').substring(0, 100);
-                              } catch (e) {
-                                return contentStr.substring(0, 100);
-                              }
-                            }
-                            return contentStr.replace(/<[^>]*>/g, ' ').substring(0, 100);
-                          })()}
-                        </p>
+                       
                       </div>
                     </td>
                     <td className="p-4 text-xs">
@@ -417,11 +404,11 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                     <td className="p-4 text-xs">
                       {notice.campus ? (
                         <span className="bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md text-[9px] font-bold">
-                          📍 {notice.campus}
+                          {notice.campus}
                         </span>
                       ) : (
                         <span className="bg-indigo-50 text-indigo-600 border border-indigo-150 px-2 py-0.5 rounded-md text-[9px] font-bold">
-                          🌐 All Campuses
+                           All Campuses
                         </span>
                       )}
                     </td>
@@ -687,7 +674,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
               <div className="bg-slate-50 border-b border-slate-150 px-6 py-5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Megaphone className="w-5 h-5 text-indigo-600" />
-                  <span className="text-sm font-bold text-slate-500 uppercase tracking-wider">Official Bulletin Detail</span>
+                  <span className="text-sm font-bold text-slate-500 uppercase tracking-wider">Notice</span>
                 </div>
                 <button
                   onClick={() => setViewingNotice(null)}
@@ -708,11 +695,11 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                       </span>
                       {viewingNotice.campus ? (
                         <span className="bg-slate-100 text-slate-700 border border-slate-200 px-3 py-0.5 rounded-full text-xs font-extrabold tracking-wider">
-                          📍 {viewingNotice.campus}
+                         {viewingNotice.campus}
                         </span>
                       ) : (
                         <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-0.5 rounded-full text-xs font-extrabold tracking-wider">
-                          🌐 All Campuses
+                           All Campuses
                         </span>
                       )}
                     </div>
@@ -805,7 +792,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                       {category}
                     </span>
                     <span className="bg-slate-100 text-slate-600 px-3 py-0.5 rounded-full text-[10px] font-bold">
-                      📍 {campus || 'All Campuses'}
+                       {campus || 'All Campuses'}
                     </span>
                   </div>
 

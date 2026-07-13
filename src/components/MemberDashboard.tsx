@@ -255,28 +255,45 @@ export default function MemberDashboard({
 
   return (
     <div className="space-y-6">
-      {/* Member Profile Badge */}
-      <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-md border border-slate-850 relative overflow-hidden group">
-        {/* Subtle decorative background blur for premium Bento aesthetic */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none group-hover:bg-indigo-600/20 transition-all duration-700" />
-        
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
-          <div className="flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left">
-            <img
-              src={currentMember.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'}
-              alt={currentMember.name}
-              referrerPolicy="no-referrer"
-              className="w-16 h-16 rounded-full border-2 border-indigo-400/50 object-cover shrink-0 shadow-sm"
-            />
-            <div>
-              <span className="bg-indigo-500/15 text-indigo-300 text-[10px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border border-indigo-500/30 font-mono">
-                {currentMember.designation || 'Team Member Profile'}
+      {/* Member Profile Badge - Styled like Coordinator/Mentor Dashboard */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs relative overflow-hidden group">
+        <div className="flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left relative z-10">
+          <img
+            src={currentMember.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'}
+            alt={currentMember.name}
+            referrerPolicy="no-referrer"
+            className="w-16 h-16 rounded-full border-2 border-indigo-100 object-cover shrink-0 shadow-sm transition-transform duration-500 group-hover:scale-105"
+          />
+          <div>
+            <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-2">
+              <h1 className="text-xl font-black tracking-tight text-slate-900">{currentMember.name}</h1>
+              <span className="bg-indigo-50 text-indigo-600 text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-lg border border-indigo-100 font-mono">
+                {currentMember.designation || 'Team Member'}
               </span>
-              <h1 className="text-2xl font-black tracking-tight text-white mt-2.5">{currentMember.name}</h1>
+            </div>
+            
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 mt-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">
+              <span className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                {currentMember.campus || 'No Assigned Campus'}
+              </span>
+              <span className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                <User className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                PIN: {currentMember.pin}
+              </span>
+              {assignedMentor && (
+                <span className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  Coordinator: <strong className="text-slate-700 ml-0.5">{assignedMentor.name}</strong>
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-center sm:justify-start gap-2 mt-4">
               {!isSidebarOpen ? (
                 <button
                   onClick={() => setIsSidebarOpen(true)}
-                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-white/20 transition-all shadow-3xs group"
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" />
                   <span>Open Dashboard Menu</span>
@@ -285,28 +302,14 @@ export default function MemberDashboard({
               ) : (
                 <button
                   onClick={() => setIsSidebarOpen(false)}
-                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-white/10 transition-all shadow-3xs group"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
                 >
                   <ChevronLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
                   <span>Close Dashboard Menu</span>
                 </button>
               )}
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 mt-2 text-xs text-slate-300">
-                <span className="flex items-center gap-1.5 font-medium bg-slate-800/60 px-2.5 py-1 rounded-lg">
-                  <MapPin className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                  {currentMember.campus || 'No Assigned Campus'}
-                </span>
-                {assignedMentor && (
-                  <span className="flex items-center gap-1.5 font-medium bg-slate-800/60 px-2.5 py-1 rounded-lg">
-                    <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                    Campus Coordinator: <strong className="text-indigo-200">{assignedMentor.name} ({assignedMentor.pin})</strong>
-                  </span>
-                )}
-              </div>
             </div>
           </div>
-
-
         </div>
       </div>
 
@@ -411,10 +414,10 @@ export default function MemberDashboard({
             <div className="text-left">
               <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
                 <LayoutDashboard className="w-4.5 h-4.5 text-indigo-600" />
-                Member's Workspace
+            Team Member Dashboard
               </h2>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Manage your attendance and notices
+        
               </p>
             </div>
 
@@ -589,8 +592,8 @@ export default function MemberDashboard({
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md overflow-hidden">
             <div className="bg-slate-50/70 border-b border-slate-150 px-6 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-base font-extrabold text-slate-800 tracking-tight">Secure Personal Roster Sheet</h3>
-                <p className="text-xs text-slate-500 font-medium">Strictly private biometric log of {currentMember.name}</p>
+                <h3 className="text-base font-extrabold text-slate-800 tracking-tight">Members Attendance History</h3>
+                <p className="text-xs text-slate-500 font-medium">{currentMember.name}</p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <input 
