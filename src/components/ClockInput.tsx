@@ -199,7 +199,7 @@ export default function ClockInput({ value, onChange, placeholder = "e.g. 09:00 
                     mode === 'hour' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-100'
                   }`}
                 >
-                  ঘণ্টা (Hours)
+                  Hours
                 </button>
                 <button
                   type="button"
@@ -208,7 +208,7 @@ export default function ClockInput({ value, onChange, placeholder = "e.g. 09:00 
                     mode === 'minute' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:bg-slate-100'
                   }`}
                 >
-                  মিনিট (Minutes)
+                  Minutes
                 </button>
               </div>
 
@@ -329,7 +329,7 @@ export default function ClockInput({ value, onChange, placeholder = "e.g. 09:00 
                 onClick={() => setIsOpen(false)}
                 className="w-full mt-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/10 active:scale-[0.98]"
               >
-                <Check className="w-4 h-4" /> Done (সম্পূর্ণ)
+                <Check className="w-4 h-4" /> Done
               </button>
             </motion.div>
           </div>

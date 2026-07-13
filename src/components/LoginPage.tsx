@@ -1,101 +1,117 @@
 import React, { useState } from 'react';
-import { User, Mentor, TeamMember } from '../types';
-import { MOCK_MANAGERS } from '../data';
-import { Landmark, KeyRound, Mail, Shield, UserCheck, Users, HelpCircle } from 'lucide-react';
+import { User } from '../types';
+import { KeyRound, Mail, Loader2, ArrowRight, Landmark } from 'lucide-react';
+import { api } from '../lib/api';
+import toast from 'react-hot-toast';
 import { motion } from 'motion/react';
 
 interface LoginPageProps {
-  mentors: Mentor[];
-  members: TeamMember[];
   onLoginSuccess: (user: User) => void;
+  logo?: string | null;
 }
 
-export default function LoginPage({ mentors, members, onLoginSuccess }: LoginPageProps) {
+export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
 
-    if (!username || !password) {
+    if (!trimmedUser || !trimmedPass) {
       setError('Please fill in both PIN/Email and password.');
       return;
     }
 
-    const trimmedUser = username.trim().toLowerCase();
-    const trimmedPass = password.trim();
+    setLoading(true);
 
-    // 1. Check Managers
-    const matchedManager = MOCK_MANAGERS.find(
-      (m) => (m.pin?.toLowerCase() || '') === trimmedUser || (m.email?.toLowerCase() || '') === trimmedUser
-    );
-    if (matchedManager && matchedManager.password === trimmedPass) {
-      onLoginSuccess(matchedManager);
-      return;
+    try {
+      // Simulate network delay for UI feedback
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      
+      const response = await api.auth.login({ email: trimmedUser, password: trimmedPass });
+      onLoginSuccess(response.user);
+      if (response.token) {
+        localStorage.setItem('portal_token', response.token);
+      }
+      toast.success('Login successful!');
+    } catch (err: any) {
+      if (err.message.includes('Database not connected')) {
+        setError('Database not connected! Please set MONGODB_URI in Settings.');
+      } else if (err.message.includes('Invalid credentials') || err.message.includes('401')) {
+        toast.error('Wrong Pin or Password');
+      } else if (err.message.includes('permission') || err.message.includes('account is disabled')) {
+        setError('Your account is disabled. You do not have permission to log in, please contact your mentor.');
+      } else {
+        setError('Server error! Please try again later.');
+        console.error("Login Error Details:", err);
+      }
+    } finally {
+      setLoading(false);
     }
-
-    // 2. Check Mentors
-    const matchedMentor = mentors.find(
-      (m) => (m.pin?.toLowerCase() || '') === trimmedUser || (m.email?.toLowerCase() || '') === trimmedUser
-    );
-    if (matchedMentor && matchedMentor.password === trimmedPass) {
-      onLoginSuccess(matchedMentor);
-      return;
-    }
-
-    // 3. Check Members
-    const matchedMember = members.find(
-      (m) => (m.pin?.toLowerCase() || '') === trimmedUser || (m.email?.toLowerCase() || '') === trimmedUser
-    );
-    if (matchedMember && matchedMember.password === trimmedPass) {
-      onLoginSuccess(matchedMember);
-      return;
-    }
-
-    setError('Invalid PIN/Email or Password. Please try again or use the demo credentials below.');
-  };
-
-  const handleAutoFill = (pin: string, pass: string) => {
-    setUsername(pin);
-    setPassword(pass);
-    setError('');
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center">
-          <div className="bg-indigo-600 text-white p-3.5 rounded-3xl shadow-lg">
-            <Landmark className="w-8 h-8" />
-          </div>
-        </div>
-        <h2 className="mt-6 text-center text-3xl font-black tracking-tight text-slate-900 uppercase">
-          Attendance Portal
-        </h2>
-        <p className="mt-2 text-center text-sm text-slate-500 font-medium">
-          Secure Biometric & Announcement Desk
-        </p>
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 selection:bg-indigo-600 selection:text-white relative overflow-hidden">
+      {/* Background decorations */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-[20%] -right-[10%] w-[70%] h-[70%] rounded-full bg-indigo-500/10 blur-3xl mix-blend-multiply" />
+        <div className="absolute -bottom-[20%] -left-[10%] w-[70%] h-[70%] rounded-full bg-blue-500/10 blur-3xl mix-blend-multiply" />
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-6 shadow-xl rounded-3xl border border-slate-200/80 sm:px-10">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="sm:mx-auto sm:w-full sm:max-w-md relative z-10"
+      >
+        <div className="flex items-center justify-center gap-4 mb-6">
+          
+          <div className="text-left">
+            <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 leading-tight uppercase">
+              Exam Scripts Management
+
+            </h2>
+            <p className="text-[10px] text-slate-400 font-bold font-mono tracking-wider uppercase text-center">Attendance & Notice Management
+</p>
+          </div>
+        </div>
+        <p className="mt-3 text-center text-sm text-slate-500 font-medium">
+          Sign in to access your dashboard
+        </p>
+      </motion.div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+        className="mt-8 sm:mx-auto sm:w-full sm:max-w-md relative z-10"
+      >
+        <div className="bg-white py-8 px-6 shadow-2xl shadow-slate-200/50 rounded-3xl border border-slate-100 sm:px-10">
           <form className="space-y-6" onSubmit={handleLogin}>
             {error && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3.5 text-xs font-semibold flex items-start gap-2 animate-pulse">
-                <span className="shrink-0 font-extrabold font-mono">⚠️ ERROR:</span>
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="bg-red-50 text-red-600 rounded-xl p-4 text-sm font-medium flex items-start gap-3 border border-red-100"
+              >
+                <span className="shrink-0 font-bold mt-0.5">!</span>
                 <span>{error}</span>
-              </div>
+              </motion.div>
             )}
 
-            <div>
-              <label htmlFor="id_email" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                User PIN or Email Address
+            <div className="space-y-2">
+              <label htmlFor="id_email" className="block text-sm font-semibold text-slate-700">
+                PIN or Email
               </label>
-              <div className="relative rounded-md shadow-xs">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <Mail className="h-4 w-4 text-slate-400" />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Mail className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
                 </div>
                 <input
                   id="id_email"
@@ -103,19 +119,19 @@ export default function LoginPage({ mentors, members, onLoginSuccess }: LoginPag
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. manager@portal.com or member-1"
-                  className="block w-full pl-10 pr-3.5 py-3 border border-slate-250 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium placeholder-slate-400"
+                  placeholder="Your PIN or Email"
+                  className="block w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-colors placeholder:text-slate-400 text-slate-900 font-medium"
                 />
               </div>
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-semibold text-slate-700">
                 Password
               </label>
-              <div className="relative rounded-md shadow-xs">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                  <KeyRound className="h-4 w-4 text-slate-400" />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <KeyRound className="h-5 w-5 text-slate-400" strokeWidth={1.5} />
                 </div>
                 <input
                   id="password"
@@ -124,77 +140,36 @@ export default function LoginPage({ mentors, members, onLoginSuccess }: LoginPag
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="block w-full pl-10 pr-3.5 py-3 border border-slate-250 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium placeholder-slate-400"
+                  className="block w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-colors placeholder:text-slate-400 text-slate-900 font-medium"
                 />
               </div>
             </div>
 
-            <div>
-              <button
-                type="submit"
-                className="w-full flex justify-center py-3.5 px-4 border border-transparent rounded-xl text-sm font-extrabold uppercase tracking-widest text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all cursor-pointer shadow-md hover:shadow-lg"
-              >
-                Sign In Securely
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className={`w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl text-sm font-bold tracking-wide text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 transition-all shadow-md hover:shadow-lg ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Authenticating...</span>
+                </>
+              ) : (
+                <>
+                  <span>Sign In </span>
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
           </form>
-
-          {/* Quick Demo Accounts Drawer */}
-          <div className="mt-8 border-t border-slate-150 pt-6">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-3">
-              <HelpCircle className="w-4 h-4 text-slate-400" />
-              Demo Accounts Quick Fill
-            </h3>
-            
-            <div className="space-y-2">
-              {/* Manager */}
-              <div 
-                onClick={() => handleAutoFill('manager@portal.com', 'password')}
-                className="flex items-center justify-between p-2.5 rounded-xl border border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50 hover:border-indigo-200 transition-all cursor-pointer text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-indigo-600" />
-                  <div>
-                    <p className="font-extrabold text-slate-800">Alice Vance (Manager)</p>
-                    <p className="text-[10px] text-slate-500 font-medium">manager@portal.com</p>
-                  </div>
-                </div>
-                <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-md">Manager</span>
-              </div>
-
-              {/* Campus Coordinator */}
-              <div 
-                onClick={() => handleAutoFill('sarah.j@portal.com', 'password')}
-                className="flex items-center justify-between p-2.5 rounded-xl border border-sky-100 bg-sky-50/30 hover:bg-sky-50 hover:border-sky-200 transition-all cursor-pointer text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-sky-600" />
-                  <div>
-                    <p className="font-extrabold text-slate-800">Sarah Jenkins (Campus Coordinator)</p>
-                    <p className="text-[10px] text-slate-500 font-medium">sarah.j@portal.com</p>
-                  </div>
-                </div>
-                <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-2 py-0.5 rounded-md">Campus Coordinator</span>
-              </div>
-
-              {/* Member */}
-              <div 
-                onClick={() => handleAutoFill('alex.rivera@portal.com', 'password')}
-                className="flex items-center justify-between p-2.5 rounded-xl border border-emerald-100 bg-emerald-50/30 hover:bg-emerald-50 hover:border-emerald-200 transition-all cursor-pointer text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-emerald-600" />
-                  <div>
-                    <p className="font-extrabold text-slate-800">Alex Rivera (Member)</p>
-                    <p className="text-[10px] text-slate-500 font-medium">alex.rivera@portal.com</p>
-                  </div>
-                </div>
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md">Member</span>
-              </div>
-            </div>
-          </div>
         </div>
-      </div>
+        
+        <div className="mt-8 text-center text-xs text-slate-500 font-medium">
+          &copy; {new Date().getFullYear()} Exam Scripts Management
+
+        </div>
+      </motion.div>
     </div>
   );
 }

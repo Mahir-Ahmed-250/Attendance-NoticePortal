@@ -1,30 +1,30 @@
-# ডেভলপমেন্ট গাইডলাইন এবং ফিচার এক্সটেনশন ফ্রেমওয়ার্ক (Gradual Feature Development Guide)
+# Development Guidelines and Feature Extension Framework (Gradual Feature Development Guide)
 
-এই ডকুমেন্টটি আপনাকে এই পোর্টাল প্রজেক্টের নতুন নতুন ফিচার ধীরে ধীরে এবং নিরাপদে ডেভলপ করতে সাহায্য করবে। প্রজেক্টটির বর্তমান আর্কিটেকচার খুব চমৎকারভাবে মডুলার করা হয়েছে, যা নিচে বর্ণিত নিয়মে সম্প্রসারণ করা সম্ভব:
-
----
-
-## ১. ফোল্ডার স্ট্রাকচার এবং মডুলারিটি (Folder Structure & Modularity)
-
-আপনার প্রজেক্টের প্রধান ফাইলগুলো `/src` ফোল্ডারে রয়েছে:
-- `/src/types.ts`: সমস্ত টাইপ এবং ইন্টারফেস এখানে ডিক্লেয়ার করা হয়েছে। নতুন কোনো ডাটা মডেল বা ফিল্ড যোগ করতে চাইলে প্রথমেই এই ফাইলে টাইপ ডিফাইন করে নিন।
-- `/src/data.ts`: অ্যাপের প্রারম্ভিক মক ডাটা (যেমন: Initial Members, Mentors, Reports, Notices) এখানে সংরক্ষিত।
-- `/src/components/`: প্রতিটি ভিজ্যুয়াল ইন্টারফেস বা ড্যাশবোর্ড আলাদা ফাইলে বিভক্ত।
-  - `LoginPage.tsx`: লগইন এবং রোল সিলেকশন স্ক্রিন।
-  - `ManagerDashboard.tsx`: ম্যানেজারের জন্য সমস্ত অ্যাডমিন কন্ট্রোল।
-  - `MentorDashboard.tsx`: মেন্টরদের ড্যাশবোর্ড (উপস্থিতি যাচাই, ফিডব্যাক)।
-  - `MemberDashboard.tsx`: সাধারণ মেম্বারদের নিজস্ব বায়োমেট্রিক ও নোটিশ ভিউ।
-  - `NoticeBoard.tsx`: শেয়ারড নোটিশ বোর্ড সিস্টেম (যা ম্যানেজার ও মেন্টর উভয়ই পরিচালনা করতে পারে)।
-  - `ConfirmModal.tsx`: ডিলিট বা স্পর্শকাতর অ্যাকশনের জন্য পপ-আপ কনফার্মেশন।
+This document will help you develop new features for this portal project gradually and safely. The current architecture of the project is excellently modularized, allowing for expansion according to the rules described below:
 
 ---
 
-## ২. ধীরে ধীরে নতুন ফিচার যুক্ত করার ধাপসমূহ (Step-by-Step Feature Development System)
+## 1. Folder Structure and Modularity
 
-আপনি যদি ভবিষ্যতে নতুন কোনো ফিচার (যেমন: "ছুটির আবেদন", "পারফরম্যান্স স্কোর" বা "টাস্ক ট্র্যাকার") যোগ করতে চান, তবে নিচের ৩টি ধাপ অনুসরণ করুন:
+The main files of your project are located in the `/src` folder:
+- `/src/types.ts`: All types and interfaces are declared here. If you want to add a new data model or field, first define the type in this file.
+- `/src/data.ts`: Initial mock data of the app (e.g., Initial Members, Mentors, Reports, Notices) is stored here.
+- `/src/components/`: Each visual interface or dashboard is divided into separate files.
+  - `LoginPage.tsx`: Login and role selection screen.
+  - `ManagerDashboard.tsx`: All admin controls for the manager.
+  - `MentorDashboard.tsx`: Dashboard for mentors (attendance verification, feedback).
+  - `MemberDashboard.tsx`: Personal biometric and notice view for regular members.
+  - `NoticeBoard.tsx`: Shared notice board system (manageable by both manager and mentor).
+  - `ConfirmModal.tsx`: Pop-up confirmation for delete or sensitive actions.
 
-### ধাপ ক: টাইপ ডিফাইন করা (`types.ts` আপডেট)
-যেকোনো ফিচারের জন্য প্রয়োজনীয় ডাটা স্ট্রাকচার আগে নির্ধারণ করুন। উদাহরণস্বরূপ, যদি ছুটির আবেদন (Leave Request) যোগ করতে চান:
+---
+
+## 2. Steps for Gradually Adding New Features
+
+If you want to add a new feature in the future (e.g., "Leave Request", "Performance Score", or "Task Tracker"), follow these 3 steps:
+
+### Step A: Define Types (Update `types.ts`)
+Determine the necessary data structure for any feature first. For example, if you want to add a Leave Request:
 ```typescript
 export interface LeaveRequest {
   pin: string;
@@ -37,8 +37,8 @@ export interface LeaveRequest {
 }
 ```
 
-### ধাপ খ: গ্লোবাল স্টেট এবং হ্যান্ডলার যুক্ত করা (`App.tsx` আপডেট)
-নতুন ডেটার জন্য `useState` ডিক্লেয়ার করুন এবং সেটি পরিবর্তনের অ্যাকশন/হ্যান্ডলার ফাংশন তৈরি করুন:
+### Step B: Add Global State and Handlers (Update `App.tsx`)
+Declare `useState` for new data and create action/handler functions to change it:
 ```typescript
 const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
 
@@ -46,21 +46,21 @@ const handleApproveLeave = (requestPin: string) => {
   setLeaveRequests(prev => prev.map(req => 
     req.pin === requestPin ? { ...req, status: 'Approved' } : req
   ));
-  toast.success('ছুটির আবেদন মঞ্জুর করা হয়েছে!');
+  toast.success('Leave request approved!');
 };
 ```
 
-### ধাপ গ: সাব-কম্পোনেন্ট বা ড্যাশবোর্ডে প্রপ্স পাঠানো
-এখন সংশ্লিষ্ঠ ড্যাশবোর্ডে (যেমন: `ManagerDashboard` বা `MemberDashboard`) ডাটা ও হ্যান্ডলারগুলো প্রপ্স হিসেবে পাস করে UI ডিজাইন করুন।
+### Step C: Pass Props to Sub-components or Dashboards
+Now design the UI by passing data and handlers as props to the relevant dashboard (e.g., `ManagerDashboard` or `MemberDashboard`).
 
 ---
 
-## ৩. গুরুত্বপূর্ণ কোডিং নীতিসমূহ (Best Practices for Clean Code)
+## 3. Important Coding Principles (Best Practices for Clean Code)
 
-1. **ডাইরেক্ট স্টেট পরিবর্তন এড়ানো**: সবসময় রিঅ্যাক্টের ইমিউটেবল স্টেট প্যাটার্ন অনুসরণ করবেন (যেমন: `setNotices(prev => [...prev, newNotice])`)।
-2. **লিল্ট এবং টাইপ সেফটি**: যেকোনো কোড পরিবর্তনের পর টার্মিনালে `npm run lint` রান করে কোড টাইপ-সেফ কিনা তা নিশ্চিত করে নিন।
-3. **লোকাল স্টোরেজ ব্যাকআপ**: যদি কোনো গুরুত্বপূর্ণ ডেটা ব্রাউজার রিলোড দেওয়ার পরেও ধরে রাখতে চান, তবে `App.tsx` এ `useEffect` ব্যবহার করে `localStorage` এর সাথে সিঙ্ক করে নিন (যেমনটি ক্যাম্পাসের জন্য করা হয়েছে)।
+1. **Avoid Direct State Mutation**: Always follow React's immutable state pattern (e.g., `setNotices(prev => [...prev, newNotice])`).
+2. **Lint and Type Safety**: After any code change, run `npm run lint` in the terminal to ensure the code is type-safe.
+3. **Local Storage Backup**: If you want to persist any important data even after a browser reload, sync it with `localStorage` using `useEffect` in `App.tsx` (as done for campuses).
 
 ---
 
-এর ফলে আপনার সিস্টেমটি সবসময় স্থিতিশীল থাকবে এবং অ্যাপ ক্র্যাশ না করে নিরাপদে ধীরে ধীরে যেকোনো জটিল ফিচার যুক্ত করা সম্ভব হবে!
+As a result, your system will always remain stable, and it will be possible to add any complex feature safely and gradually without crashing the app!

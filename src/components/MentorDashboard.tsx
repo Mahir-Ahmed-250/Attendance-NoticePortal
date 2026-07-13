@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Mentor, TeamMember, AttendanceReport, AttendanceFeedback, AttendanceStatus, Notice, EmailMessage, ProfileRequest, User as UserType, AttendanceEditRequest, LeaveRequest, Campus } from '../types';
-import { getEffectiveStatus, calculateWorkingHours, formatDateLong } from '../utils';
-import { Calendar, User, FileText, AlertCircle, CheckCircle2, MessageSquare, Send, Clock, Sparkles, Mail, Inbox, ShieldCheck, Plus, Edit3, ClipboardPlus, FileCheck, Trash, Sliders, Bell, X, ChevronRight, Menu, ChevronLeft, LayoutDashboard, Check } from 'lucide-react';
+import { getEffectiveStatus, calculateWorkingHours, formatDateLong, parseTimeToMinutes } from '../utils';
+import { Calendar, User, FileText, AlertCircle, CheckCircle2, MessageSquare, Send, Clock, Sparkles, Mail, Inbox, ShieldCheck, Plus, Edit3, ClipboardPlus, FileCheck, Trash, Sliders, Bell, X, ChevronRight, Menu, ChevronLeft, LayoutDashboard, Check, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import NoticeBoard from './NoticeBoard';
 import ProfileSettings from './ProfileSettings';
 import ConfirmModal from './ConfirmModal';
@@ -36,6 +37,8 @@ interface MentorDashboardProps {
   profileRequests: ProfileRequest[];
   onSubmitProfileRequest: (requestedName: string, requestedPin: string) => void;
   onInstantUpdate: (updatedFields: Partial<UserType>) => void;
+  emails: EmailMessage[];
+  onMarkEmailAsRead: (emailPin: string) => void;
 }
 
 export default function MentorDashboard({
@@ -61,11 +64,14 @@ export default function MentorDashboard({
   campuses,
   profileRequests,
   onSubmitProfileRequest,
-  onInstantUpdate
+  onInstantUpdate,
+  emails,
+  onMarkEmailAsRead
 }: MentorDashboardProps) {
-  const allowedPerms = (currentMentor.permissions && currentMentor.permissions.length > 0) ? currentMentor.permissions : ['mentor_attendance', 'mentor_notices', 'mentor_history'];
+  const navigate = useNavigate();
+  const allowedPerms = (currentMentor.permissions && currentMentor.permissions.length > 0) ? currentMentor.permissions : ['mentor_attendance', 'mentor_notices', 'mentor_history', 'mentor_leave', 'mentor_post_notice'];
 
-  const [activeTab, setActiveTab] = useState<'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves'>(() => {
+  const [activeTab, setActiveTab] = useState<'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves' | 'emails'>(() => {
     if (allowedPerms.includes('mentor_attendance')) return 'attendance';
     if (allowedPerms.includes('mentor_notices')) return 'notices';
     if (allowedPerms.includes('mentor_history')) return 'edit_requests';
@@ -116,10 +122,68 @@ export default function MentorDashboard({
 
   // Form states for attendance edit requests
   const [showEditRequestFormFor, setShowEditRequestFormFor] = useState<{ reportPin: string; memberPin: string; memberName: string; date: string; currentStatus: AttendanceStatus; currentCheckIn?: string; currentCheckOut?: string } | null>(null);
+  const [viewedMemberPin, setViewedMemberPin] = useState<string | null>(null);
+  const [attendanceStartDate, setAttendanceStartDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  });
+  const [attendanceEndDate, setAttendanceEndDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const lastDay = new Date(y, m, 0).getDate();
+    const mStr = String(m).padStart(2, '0');
+    return `${y}-${mStr}-${lastDay}`;
+  });
+  const [tempStartDate, setTempStartDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  });
+  const [tempEndDate, setTempEndDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const lastDay = new Date(y, m, 0).getDate();
+    const mStr = String(m).padStart(2, '0');
+    return `${y}-${mStr}-${lastDay}`;
+  });
   const [editRequestedStatus, setEditRequestedStatus] = useState<AttendanceStatus>('Present');
   const [editRequestedCheckIn, setEditRequestedCheckIn] = useState<string>('');
   const [editRequestedCheckOut, setEditRequestedCheckOut] = useState<string>('');
   const [editRequestReason, setEditRequestReason] = useState('');
+
+  // Real-time Working Hours logic for MentorDashboard
+  let mentorWorkingHoursText = "";
+  let mentorWorkingHoursError = "";
+  let isMentorValidTime = true;
+
+  if (editRequestedCheckIn || editRequestedCheckOut) {
+    if (editRequestedCheckIn && editRequestedCheckOut) {
+      const inMins = parseTimeToMinutes(editRequestedCheckIn);
+      const outMins = parseTimeToMinutes(editRequestedCheckOut);
+
+      if (inMins === null) {
+        mentorWorkingHoursError = "Invalid In Time format! (e.g. 09:00 AM)";
+        isMentorValidTime = false;
+      } else if (outMins === null) {
+        mentorWorkingHoursError = "Out Time Missing";
+        isMentorValidTime = false;
+      } else {
+        let diffMins = outMins - inMins;
+        if (diffMins < 0) diffMins += 24 * 60;
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        mentorWorkingHoursText = `Working Hour: ${hours} Hour ${mins} Min`;
+      }
+    } else {
+      mentorWorkingHoursError = "Both In Time and Out Time must be provided!";
+      isMentorValidTime = false;
+    }
+  }
 
   // Form states for leave requests
   const [showLeaveRequestForm, setShowLeaveRequestForm] = useState(false);
@@ -169,8 +233,12 @@ export default function MentorDashboard({
   }).filter(report => report.records.length > 0);
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [notificationActiveTab, setNotificationActiveTab] = useState<'problematic' | 'requests'>('problematic');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 1024);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [notificationActiveTab, setNotificationActiveTab] = useState<'problematic' | 'notices'>('problematic');
+
+  const myEmails = emails.filter(e => e.toEmail === currentMentor.email || e.toEmail === `${currentMentor.pin}@portal.com`);
+  const unreadEmailCount = myEmails.filter(e => !e.isRead).length;
 
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>(() => {
     const saved = localStorage.getItem('mentor_dismissed_notifications');
@@ -207,14 +275,14 @@ export default function MentorDashboard({
           issue = 'Punch Missing';
         } else if (status === 'Absent') {
           issue = 'Absent';
-        } else if (status === '< 6hrs') {
-          issue = `< 6hrs (${Math.floor(hours || 0)}h ${Math.round(((hours || 0) % 1) * 60)}m)`;
+        } else if (status === '< 6hr') {
+          issue = `< 6hr (${Math.floor(hours || 0)}h ${Math.round(((hours || 0) % 1) * 60)}m)`;
         } else if (status === '< 10hrs') {
           issue = '< 10hrs (Low Hours)';
         } else if (status === 'Late Entry') {
-          issue = 'Late Entry (দেরিতে প্রবেশ)';
+          issue = 'Late Entry';
         } else if (status === 'Early Leave') {
-          issue = 'Early Leave (আগে প্রস্থান)';
+          issue = 'Early Leave';
         }
 
         const memberObj = members.find(m => m.pin === record.memberPin) || mentors.find(m => m.pin === record.memberPin);
@@ -239,8 +307,11 @@ export default function MentorDashboard({
     return issues.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [reportsWithMyTeam, dismissedNotifications]);
 
-  const handleTabChange = (tab: 'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves') => {
+  const totalNotificationBadgeCount = notificationProblematicAttendances.length + unreadEmailCount;
+
+  const handleTabChange = (tab: 'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves' | 'emails') => {
     setActiveTab(tab);
+    setViewedMemberPin(null);
     setLeaveSearchPin('');
     setLeaveFilterStatus('All');
     setLeaveFilterType('All');
@@ -335,6 +406,11 @@ export default function MentorDashboard({
   const handleEditRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!showEditRequestFormFor || !editRequestReason.trim()) return;
+
+    if (!isMentorValidTime) {
+      toast.error(mentorWorkingHoursError || 'Please provide valid time input!');
+      return;
+    }
 
     const newRequest: AttendanceEditRequest = {
       pin: `edit-req-${Date.now()}`,
@@ -472,17 +548,24 @@ export default function MentorDashboard({
       hasUnread: false
     },
     {
-      id: 'leaves' as const,
-      label: 'Leave Requests',
-      permission: 'mentor_attendance',
-      icon: <ClipboardPlus className="w-4 h-4" />,
-      hasUnread: false
+      id: 'emails' as const,
+      label: `Inbox (${myEmails.length}) [ইনবক্স]`,
+      permission: 'mentor_emails',
+      icon: <Inbox className="w-4 h-4" />,
+      hasUnread: unreadEmailCount > 0
     },
     {
       id: 'edit_requests' as const,
       label: 'Attendance Adjustment',
       permission: 'mentor_history',
       icon: <Clock className="w-4 h-4" />,
+      hasUnread: false
+    },
+    {
+      id: 'leaves' as const,
+      label: 'Leave Requests',
+      permission: 'mentor_leave',
+      icon: <ClipboardPlus className="w-4 h-4" />,
       hasUnread: false
     },
      {
@@ -510,10 +593,10 @@ export default function MentorDashboard({
         <div className="text-left">
           <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <LayoutDashboard className="w-4.5 h-4.5 text-indigo-600" />
-            ক্যাম্পাস কোঅর্ডিনেটর ড্যাশবোর্ড (Coordinator Dashboard)
+            Campus Coordinator Dashboard
           </h2>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            আপনার এসাইন করা টিম মেম্বারদের উপস্থিতি এবং লিভ রিকোয়েস্ট পরিচালনা করুন।
+            Manage attendance and leave requests for your assigned team members.
           </p>
           {!isSidebarOpen ? (
             <button
@@ -546,10 +629,10 @@ export default function MentorDashboard({
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
             >
-              <Bell className={`w-5 h-5 ${!isNotificationsOpen && notificationProblematicAttendances.length > 0 ? 'animate-bounce' : ''}`} />
-              {notificationProblematicAttendances.length > 0 && (
+              <Bell className={`w-5 h-5 ${!isNotificationsOpen && totalNotificationBadgeCount > 0 ? 'animate-bounce' : ''}`} />
+              {totalNotificationBadgeCount > 0 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white shadow-sm">
-                  {notificationProblematicAttendances.length}
+                  {totalNotificationBadgeCount}
                 </span>
               )}
             </button>
@@ -574,8 +657,8 @@ export default function MentorDashboard({
                   >
                     <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                       <div>
-                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Team Issues</h3>
-                        <p className="text-[10px] font-bold text-slate-400">টিম মেম্বারদের উপস্থিতি সমস্যা</p>
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">System Alerts (সিস্টেম অ্যালার্ট)</h3>
+                        <p className="text-[10px] font-bold text-slate-400">Notices and Team Issues</p>
                       </div>
                       <button 
                         onClick={() => setIsNotificationsOpen(false)}
@@ -585,63 +668,132 @@ export default function MentorDashboard({
                       </button>
                     </div>
 
-                    <div className="max-h-[400px] overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                      {notificationProblematicAttendances.length === 0 ? (
-                        <div className="py-12 text-center">
-                          <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                            <CheckCircle2 className="w-6 h-6" />
-                          </div>
-                          <p className="text-xs font-bold text-slate-500">No attendance issues found!</p>
-                          <p className="text-[10px] text-slate-400 mt-1">সবাই ঠিকমতো উপস্থিত আছেন।</p>
-                        </div>
-                      ) : (
-                        notificationProblematicAttendances.map((item, idx) => (
-                          <div 
-                            key={`${item.memberPin}-${item.date}-${idx}`}
-                            className="p-3 bg-white hover:bg-slate-50 rounded-2xl border border-slate-100 transition-all flex items-start gap-3 group relative cursor-pointer"
-                            onClick={() => {
-                              setFilterDate(item.date);
-                              setActiveTab('attendance');
-                              setIsNotificationsOpen(false);
-                            }}
-                          >
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
-                              item.issue === 'Absent' ? 'bg-rose-50 text-rose-500' :
-                              item.issue === 'Punch Missing' ? 'bg-amber-50 text-amber-600' :
-                              'bg-indigo-50 text-indigo-500'
-                            }`}>
-                               {item.issue === 'Absent' ? <AlertCircle className="w-5 h-5" /> : 
-                                item.issue === 'Punch Missing' ? <Clock className="w-5 h-5" /> : 
-                                <AlertCircle className="w-5 h-5" />}
-                            </div>
-                            <div className="flex-1 min-w-0 pr-6">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <span className="text-[11px] font-black text-indigo-600 font-mono tracking-tighter uppercase">{item.memberPin}</span>
-                                <span className="text-[9px] font-bold text-slate-400 uppercase">{item.date}</span>
-                              </div>
-                              <h4 className="text-[12px] font-black text-slate-800 truncate mb-0.5">{item.memberName}</h4>
-                              <p className={`text-[10px] font-bold ${
-                                item.issue === 'Absent' ? 'text-rose-500' :
-                                item.issue === 'Punch Missing' ? 'text-amber-600' :
-                                'text-indigo-500'
-                              }`}>
-                                {item.issue}
-                              </p>
-                            </div>
-                            
-                            <button
-                              onClick={(e) => handleMarkAsRead(`${item.memberPin}-${item.date}-${item.issue}`, e)}
-                              className="absolute top-2 right-2 p-1.5 bg-slate-50 text-slate-400 hover:bg-emerald-50 hover:text-emerald-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center"
-                              title="Mark as read"
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
+                    <div className="flex border-b border-slate-100 px-3 py-1 gap-4 bg-slate-50/30">
+                      <button 
+                        onClick={() => setNotificationActiveTab('problematic')}
+                        className={`py-2 text-[10px] font-black uppercase tracking-wider relative transition-all ${notificationActiveTab === 'problematic' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        Issues ({notificationProblematicAttendances.length})
+                        {notificationActiveTab === 'problematic' && <motion.div layoutId="notif-tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />}
+                      </button>
+                      <button 
+                        onClick={() => setNotificationActiveTab('notices')}
+                        className={`py-2 text-[10px] font-black uppercase tracking-wider relative transition-all ${notificationActiveTab === 'notices' ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        Notices ({unreadEmailCount})
+                        {notificationActiveTab === 'notices' && <motion.div layoutId="notif-tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full" />}
+                      </button>
+                    </div>
 
-                            <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-40 transition-all">
-                               <ChevronRight className="w-3 h-3 text-slate-300" />
+                    <div className="max-h-[400px] overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                      {notificationActiveTab === 'problematic' && (
+                        <>
+                          {notificationProblematicAttendances.length === 0 ? (
+                            <div className="py-12 text-center">
+                              <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                <CheckCircle2 className="w-6 h-6" />
+                              </div>
+                              <p className="text-xs font-bold text-slate-500">No attendance issues found!</p>
+                              <p className="text-[10px] text-slate-400 mt-1">Everyone is present and accounted for.</p>
                             </div>
-                          </div>
-                        ))
+                          ) : (
+                            notificationProblematicAttendances.map((item, idx) => (
+                              <div 
+                                key={`${item.memberPin}-${item.date}-${idx}`}
+                                className="p-3 bg-white hover:bg-slate-50 rounded-2xl border border-slate-100 transition-all flex items-start gap-3 group relative cursor-pointer"
+                                onClick={() => {
+                                  setFilterDate(item.date);
+                                  setActiveTab('attendance');
+                                  setIsNotificationsOpen(false);
+                                }}
+                              >
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
+                                  item.issue === 'Absent' ? 'bg-rose-50 text-rose-500' :
+                                  item.issue === 'Punch Missing' ? 'bg-amber-50 text-amber-600' :
+                                  'bg-indigo-50 text-indigo-500'
+                                }`}>
+                                   {item.issue === 'Absent' ? <AlertCircle className="w-5 h-5" /> : 
+                                    item.issue === 'Punch Missing' ? <Clock className="w-5 h-5" /> : 
+                                    <AlertCircle className="w-5 h-5" />}
+                                </div>
+                                <div className="flex-1 min-w-0 pr-6">
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <span className="text-[11px] font-black text-indigo-600 font-mono tracking-tighter uppercase">{item.memberPin}</span>
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase">{item.date}</span>
+                                  </div>
+                                  <h4 className="text-[12px] font-black text-slate-800 truncate mb-0.5">{item.memberName}</h4>
+                                  <p className={`text-[10px] font-bold ${
+                                    item.issue === 'Absent' ? 'text-rose-500' :
+                                    item.issue === 'Punch Missing' ? 'text-amber-600' :
+                                    'text-indigo-500'
+                                  }`}>
+                                    {item.issue}
+                                  </p>
+                                </div>
+                                
+                                <button
+                                  onClick={(e) => handleMarkAsRead(`${item.memberPin}-${item.date}-${item.issue}`, e)}
+                                  className="absolute top-2 right-2 p-1.5 bg-slate-50 text-slate-400 hover:bg-emerald-50 hover:text-emerald-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center"
+                                  title="Mark as read"
+                                >
+                                  <Check className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </>
+                      )}
+
+                      {notificationActiveTab === 'notices' && (
+                        <>
+                          {unreadEmailCount === 0 ? (
+                            <div className="py-12 text-center text-slate-400">
+                              <Inbox className="w-12 h-12 mx-auto text-slate-200 mb-2" />
+                              <p className="font-bold text-slate-500 text-xs">No new notices in inbox</p>
+                            </div>
+                          ) : (
+                            myEmails.filter(e => !e.isRead).map((msg) => (
+                            <div
+                              key={msg.pin}
+                              className="flex flex-col p-3 bg-slate-50 border border-slate-150 rounded-2xl transition-all hover:bg-white hover:border-indigo-200 group relative text-left"
+                            >
+                              <div 
+                                className="cursor-pointer"
+                                onClick={() => {
+                                  onMarkEmailAsRead(msg.pin);
+                                  setActiveTab("emails");
+                                  setIsNotificationsOpen(false);
+                                }}
+                              >
+                                <div className="flex justify-between items-start mb-1.5">
+                                  <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider font-mono">
+                                    {msg.fromName}
+                                  </span>
+                                  <span className="text-[8px] text-slate-400 font-bold">
+                                    {new Date(msg.date).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <h4 className="text-[11px] font-black text-slate-800 line-clamp-1 mb-1">
+                                  {msg.subject}
+                                </h4>
+                                <p className="text-[10px] text-slate-500 line-clamp-2 leading-tight italic">
+                                  "{msg.body}"
+                                </p>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMarkEmailAsRead(msg.pin);
+                                }}
+                                className="absolute top-2 right-2 p-1.5 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:border-emerald-200 rounded-lg opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-sm"
+                                title="Mark as read"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                            </div>
+                            ))
+                          )}
+                        </>
                       )}
                     </div>
                     
@@ -668,44 +820,81 @@ export default function MentorDashboard({
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
-        {/* Navigation Sidebar */}
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:gap-8 items-start">
+        {/* Mobile Sidebar Overlay */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 lg:hidden"
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Sidebar */}
         <AnimatePresence mode="wait">
-          {isSidebarOpen && (
+          {(isSidebarOpen || isMobileMenuOpen) && (
             <motion.div
               initial={{ width: 0, opacity: 0, x: -20 }}
-              animate={{ width: "240px", opacity: 1, x: 0 }}
+              animate={{ 
+                width: isMobileMenuOpen ? "280px" : "240px", 
+                opacity: 1, 
+                x: 0,
+                position: isMobileMenuOpen ? "fixed" : "sticky",
+                top: isMobileMenuOpen ? "0" : "1.5rem",
+                left: isMobileMenuOpen ? "0" : "auto",
+                height: isMobileMenuOpen ? "100vh" : "fit-content",
+                zIndex: isMobileMenuOpen ? 50 : 10
+              }}
               exit={{ width: 0, opacity: 0, x: -20 }}
-              className="lg:block space-y-3 bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs text-left overflow-hidden shrink-0 h-fit sticky top-6"
+              className={`bg-white p-4 sm:p-5 rounded-none lg:rounded-3xl border-r lg:border border-slate-200/80 shadow-xs text-left overflow-y-auto shrink-0`}
             >
-              <div className="flex items-center justify-between px-2 mb-2">
+              <div className="flex items-center justify-between px-2 mb-6 lg:mb-2">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
-                  কোঅর্ডিনেটর কন্ট্রোল
+                  Coordinator Controls
                 </p>
+                {isMobileMenuOpen && (
+                  <button 
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-2 text-slate-400 hover:text-slate-600 lg:hidden"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
               </div>
-
-              <div className="flex flex-col gap-1 overflow-x-auto lg:overflow-x-visible">
-                 {visibleTabs.map(t => (
+              <div className="flex flex-col gap-1">
+                {visibleTabs.map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => handleTabChange(t.id)}
-                    className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                    onClick={() => {
+                      handleTabChange(t.id);
+                      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                       activeTab === t.id
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
                     }`}
                   >
                     {t.icon}
-                    <span className="whitespace-normal text-left break-words line-clamp-3">{t.label}</span>
+                    <span className="whitespace-normal text-left leading-tight break-words pr-5">
+                      {t.label}
+                    </span>
                   </button>
                 ))}
                 
                 <button
-                  onClick={() => handleTabChange('profile')}
-                  className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                  onClick={() => {
+                    handleTabChange('profile');
+                    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                     activeTab === 'profile'
                       ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
                   }`}
                 >
                   <User className="w-4 h-4" />
@@ -716,8 +905,16 @@ export default function MentorDashboard({
           )}
         </AnimatePresence>
 
+        {/* Floating Mobile Toggle */}
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="lg:hidden fixed bottom-6 right-6 z-40 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+
         {/* Main Content Area */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 w-full">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -727,8 +924,314 @@ export default function MentorDashboard({
               transition={{ duration: 0.2 }}
               className="space-y-6"
             >
+              {/* Member Monthly Attendance View (if selected) */}
+              {viewedMemberPin !== null && (
+                <motion.div
+                  key="member-monthly-attendance"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs text-left space-y-6"
+                >
+                  {/* Back Button & Member Info */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-150 pb-5">
+                    <button
+                      onClick={() => setViewedMemberPin(null)}
+                      className="flex items-center gap-1.5 text-xs font-black text-indigo-600 hover:text-indigo-800 transition-colors bg-indigo-50/50 hover:bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 cursor-pointer w-fit animate-pulse"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Back to Campus Members
+                    </button>
+                    <div className="flex items-center gap-3">
+                      <UserAvatar user={members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin)} size="sm" />
+                      <div>
+                        <h3 className="text-sm font-black text-slate-800">
+                          {(members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin))?.name}
+                        </h3>
+                        <p className="text-[10px] text-slate-400 font-mono font-medium">
+                          PIN: {viewedMemberPin}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* The custom "My Attendance" interface exactly like the image */}
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white">
+                    {/* Title Header Bar */}
+                    <div className="bg-[#022e54] text-white px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+                      <h4 className="text-sm font-bold tracking-wide">My Attendance</h4>
+                      <span className="text-xs bg-white/10 px-3 py-1 rounded-full font-mono font-medium border border-white/20">
+                        {(members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin))?.name} (PIN: {viewedMemberPin})
+                      </span>
+                    </div>
+
+                    {/* Filter Bar */}
+                    <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col md:flex-row items-center justify-center gap-4 text-xs font-semibold text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span>Start Date</span>
+                        <input
+                          type="date"
+                          value={tempStartDate}
+                          onChange={(e) => setTempStartDate(e.target.value)}
+                          className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span>End Date</span>
+                        <input
+                          type="date"
+                          value={tempEndDate}
+                          onChange={(e) => setTempEndDate(e.target.value)}
+                          className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          setAttendanceStartDate(tempStartDate);
+                          setAttendanceEndDate(tempEndDate);
+                          toast.success("Attendance filtered successfully!");
+                        }}
+                        className="px-5 py-1.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white font-medium rounded-lg cursor-pointer transition-colors shadow-2xs"
+                      >
+                        Show
+                      </button>
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs min-w-[800px]">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500">
+                            <th className="p-3 border-r border-slate-150">Date</th>
+                            <th className="p-3 border-r border-slate-150">In Time</th>
+                            <th className="p-3 border-r border-slate-150">Out Time</th>
+                            <th className="p-3 border-r border-slate-150">Late Entry</th>
+                            <th className="p-3 border-r border-slate-150">Early Leave</th>
+                            <th className="p-3 border-r border-slate-150">W. Hour</th>
+                            <th className="p-3 border-r border-slate-150">Absent/Leave</th>
+                            <th className="p-3">Zone</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-600 bg-white">
+                          {(() => {
+                            const dateRange = (() => {
+                              const dates: string[] = [];
+                              const start = (() => {
+                                const parts = attendanceStartDate.split('-');
+                                if (parts.length === 3) {
+                                  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                }
+                                return new Date(attendanceStartDate);
+                              })();
+                              const end = (() => {
+                                const parts = attendanceEndDate.split('-');
+                                if (parts.length === 3) {
+                                  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                }
+                                return new Date(attendanceEndDate);
+                              })();
+                              if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+                              
+                              let current = new Date(start);
+                              while (current <= end) {
+                                const yyyy = current.getFullYear();
+                                const mm = String(current.getMonth() + 1).padStart(2, '0');
+                                const dd = String(current.getDate()).padStart(2, '0');
+                                dates.push(`${yyyy}-${mm}-${dd}`);
+                                current.setDate(current.getDate() + 1);
+                              }
+                              return dates.reverse();
+                            })();
+
+                            if (dateRange.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={8} className="p-8 text-center text-slate-400 font-semibold">
+                                    No records found for selected range.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return dateRange.map((dateStr) => {
+                              const dayReports = reports.filter(r => r.date === dateStr);
+                              let memberRecord: any = null;
+                              let zoneName = "-";
+                              for (const report of dayReports) {
+                                const found = report.records.find(rec => rec.memberPin === viewedMemberPin);
+                                if (found) {
+                                  memberRecord = found;
+                                  zoneName = report.campus || found.zone || "-";
+                                  break;
+                                }
+                              }
+
+                              const parsedDate = (() => {
+                                const parts = dateStr.split('-');
+                                if (parts.length === 3) {
+                                  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                }
+                                return new Date(dateStr);
+                              })();
+                              const isFriday = parsedDate.getDay() === 5; // Friday is weekend
+
+                              // custom format
+                              const displayDate = (() => {
+                                const parts = dateStr.split('-');
+                                if (parts.length !== 3) return dateStr;
+                                const year = parts[0];
+                                const monthIdx = parseInt(parts[1], 10) - 1;
+                                const day = parseInt(parts[2], 10);
+                                const monthNamesShort = [
+                                  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                                ];
+                                return `${day} ${monthNamesShort[monthIdx]}, ${year}`;
+                              })();
+
+                              if (memberRecord) {
+                                const isLateEntry = memberRecord.lateEntry && memberRecord.lateEntry !== '-' && memberRecord.lateEntry !== '0' && memberRecord.lateEntry.trim() !== '';
+                                const isEarlyLeave = memberRecord.earlyLeave && memberRecord.earlyLeave !== '-' && memberRecord.earlyLeave !== '0' && memberRecord.earlyLeave.trim() !== '';
+
+                                return (
+                                  <tr key={dateStr} className="hover:bg-slate-50/50 transition-colors">
+                                    <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">{displayDate}</td>
+                                    <td className="p-3 border-r border-slate-150 font-mono">{memberRecord.checkInTime || "-"}</td>
+                                    <td className="p-3 border-r border-slate-150 font-mono">{memberRecord.checkOutTime || "-"}</td>
+                                    <td className={`p-3 border-r border-slate-150 font-mono ${isLateEntry ? 'text-amber-600 font-bold' : ''}`}>{memberRecord.lateEntry || "-"}</td>
+                                    <td className={`p-3 border-r border-slate-150 font-mono ${isEarlyLeave ? 'text-amber-600 font-bold' : ''}`}>{memberRecord.earlyLeave || "-"}</td>
+                                    <td className="p-3 border-r border-slate-150 font-mono font-medium text-slate-800">{memberRecord.workingHour || "-"}</td>
+                                    <td className="p-3 border-r border-slate-150">
+                                      {memberRecord.absentOrLeave && memberRecord.absentOrLeave !== '-' ? (
+                                        <span className={`font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full ${
+                                          memberRecord.absentOrLeave.toLowerCase().includes('leave') ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                                          memberRecord.absentOrLeave.toLowerCase().includes('absent') ? 'bg-rose-50 text-rose-700 border border-rose-100' :
+                                          'bg-slate-50 text-slate-700 border border-slate-100'
+                                        }`}>
+                                          {memberRecord.absentOrLeave}
+                                        </span>
+                                      ) : "-"}
+                                    </td>
+                                    <td className="p-3 font-semibold text-slate-600">{zoneName}</td>
+                                  </tr>
+                                );
+                              } else {
+                                return (
+                                  <tr key={dateStr} className="bg-white hover:bg-slate-50/50 transition-colors">
+                                    <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">{displayDate}</td>
+                                    <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                    <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                    <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                    <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                    <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                    <td className="p-3 border-r border-slate-150">
+                                      {isFriday ? <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-slate-200">Weekend</span> : "-"}
+                                    </td>
+                                    <td className="p-3 text-slate-400">-</td>
+                                  </tr>
+                                );
+                              }
+                            });
+                          })()}
+                        </tbody>
+                        {/* Footer Total row exactly like the image */}
+                        <tfoot>
+                          {(() => {
+                            const dateRange = (() => {
+                              const dates: string[] = [];
+                              const start = (() => {
+                                const parts = attendanceStartDate.split('-');
+                                if (parts.length === 3) {
+                                  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                }
+                                return new Date(attendanceStartDate);
+                              })();
+                              const end = (() => {
+                                const parts = attendanceEndDate.split('-');
+                                if (parts.length === 3) {
+                                  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                                }
+                                return new Date(attendanceEndDate);
+                              })();
+                              if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+                              
+                              let current = new Date(start);
+                              while (current <= end) {
+                                const yyyy = current.getFullYear();
+                                const mm = String(current.getMonth() + 1).padStart(2, '0');
+                                const dd = String(current.getDate()).padStart(2, '0');
+                                dates.push(`${yyyy}-${mm}-${dd}`);
+                                current.setDate(current.getDate() + 1);
+                              }
+                              return dates.reverse();
+                            })();
+
+                            let totalLateMinutes = 0;
+                            let totalWorkingMinutes = 0;
+
+                            dateRange.forEach((dateStr) => {
+                              const dayReports = reports.filter(r => r.date === dateStr);
+                              for (const report of dayReports) {
+                                const found = report.records.find(rec => rec.memberPin === viewedMemberPin);
+                                if (found) {
+                                  if (found.lateEntry) {
+                                    const clean = found.lateEntry.trim();
+                                    const matchHHMM = clean.match(/^(\d+):(\d+)$/);
+                                    if (matchHHMM) {
+                                      totalLateMinutes += parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
+                                    } else {
+                                      const parsed = parseInt(clean, 10);
+                                      if (!isNaN(parsed)) totalLateMinutes += parsed;
+                                    }
+                                  }
+                                  if (found.workingHour) {
+                                    const clean = found.workingHour.trim();
+                                    const matchHHMM = clean.match(/^(\d+):(\d+)$/);
+                                    if (matchHHMM) {
+                                      totalWorkingMinutes += parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
+                                    } else {
+                                      const parsed = parseInt(clean, 10);
+                                      if (!isNaN(parsed)) totalWorkingMinutes += parsed;
+                                    }
+                                  }
+                                  break;
+                                }
+                              }
+                            });
+
+                            const formatMins = (totalMinutes: number): string => {
+                              if (totalMinutes <= 0) return '-';
+                              const hrs = Math.floor(totalMinutes / 60);
+                              const mins = totalMinutes % 60;
+                              return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                            };
+
+                            return (
+                              <tr className="bg-slate-50 font-bold border-t border-slate-200 text-slate-800">
+                                <td className="p-3 border-r border-slate-150">Total</td>
+                                <td className="p-3 border-r border-slate-150"></td>
+                                <td className="p-3 border-r border-slate-150"></td>
+                                <td className="p-3 border-r border-slate-150 font-mono">{formatMins(totalLateMinutes)}</td>
+                                <td className="p-3 border-r border-slate-150"></td>
+                                <td className="p-3 border-r border-slate-150 font-mono">{formatMins(totalWorkingMinutes)}</td>
+                                <td className="p-3 border-r border-slate-150"></td>
+                                <td className="p-3 font-mono text-slate-400">-</td>
+                              </tr>
+                            );
+                          })()}
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Copyright footer style exactly like the image */}
+                  <div className="text-center text-[11px] text-slate-400 py-2 border-t border-slate-100">
+                    © 2026 - ORG
+                  </div>
+                </motion.div>
+              )}
+
               {/* Tab 1: ATTENDANCE OVERVIEW */}
-              {activeTab === 'attendance' && (
+              {activeTab === 'attendance' && viewedMemberPin === null && (
                 <div className="space-y-6">
                   {/* Header & Controls */}
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
@@ -748,7 +1251,7 @@ export default function MentorDashboard({
                 onChange={e => setFilterDate(e.target.value)}
                 className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-slate-50 focus:ring-indigo-500 focus:outline-none"
               >
-                <option value="">All Dates (সব তারিখ)</option>
+                <option value="">All Dates</option>
                 {!Array.from(new Set(reportsWithMyTeam.map(r => r.date))).includes(localToday) && (
                   <option value={localToday}>{formatDateLong(localToday)}</option>
                 )}
@@ -764,15 +1267,15 @@ export default function MentorDashboard({
                 onChange={e => setFilterStatus(e.target.value)}
                 className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-slate-50 focus:ring-indigo-500 focus:outline-none"
               >
-                <option value="All">All Statuses (সব স্ট্যাটাস)</option>
-                <option value="Present">Present (উপস্থিত)</option>
-                <option value="Absent">Absent (অনুপস্থিত)</option>
-                <option value="Late Entry">Late Entry (বিলম্বিত প্রবেশ)</option>
-                <option value="Early Leave">Early Leave (দ্রুত প্রস্থান)</option>
-                <option value="Finger Punch Missing">Finger Punch Missing (পাঞ্চ মিসিং)</option>
-                <option value="< 6hrs">&lt; 6hrs (৬ ঘণ্টার কম)</option>
-                <option value="< 10hrs">&lt; 10hrs (১০ ঘণ্টার কম)</option>
-                <option value="Leave">Leave (ছুটি)</option>
+                <option value="All">All Statuses</option>
+                <option value="Present">Present</option>
+                <option value="Absent">Absent</option>
+                <option value="Late Entry">Late Entry</option>
+                <option value="Early Leave">Early Leave</option>
+                <option value="Finger Punch Missing">Finger Punch Missing</option>
+                <option value="< 6hr">&lt; 6hrs</option>
+                <option value="< 10hrs">&lt; 10hrs</option>
+                <option value="Leave">Leave</option>
               </select>
               
               <button
@@ -903,7 +1406,7 @@ export default function MentorDashboard({
                                         displayStatus === 'Present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                                         (displayStatus === 'Late' || displayStatus === 'Late Entry') ? 'bg-amber-50 text-amber-700 border-amber-200' :
                                         displayStatus === 'Early Leave' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                        (displayStatus === 'Finger Punch Missing' || displayStatus === '< 6hrs' || displayStatus === '< 10hrs') ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                        (displayStatus === 'Finger Punch Missing' || displayStatus === '< 6hr' || displayStatus === '< 10hrs') ? 'bg-rose-50 text-rose-700 border-rose-200' :
                                         displayStatus === 'Absent' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                                         displayStatus === 'Leave' || displayStatus.toLowerCase().includes('leave') ? 'bg-blue-50 text-blue-700 border-blue-200' :
                                         'bg-slate-50 text-slate-700 border-slate-200'
@@ -930,7 +1433,7 @@ export default function MentorDashboard({
 
                                              return (
                                                <div 
-                                                 key={idx} 
+                                                 key={`${cleanText}-${idx}`} 
                                                  className={`flex items-start gap-1 px-1.5 py-0.5 rounded border text-[10px] ${
                                                    isFingerPunchMissing 
                                                      ? "bg-red-50 text-red-700 border-red-100 font-medium" 
@@ -959,12 +1462,12 @@ export default function MentorDashboard({
                                           ) : existingEdit.status === 'Approved' ? (
                                             <span className="inline-flex items-center gap-1 text-emerald-600 text-[11px] bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                                               <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                              অনুমোদিত
+                                              Approved
                                             </span>
                                           ) : (
                                             <span className="inline-flex items-center gap-1 text-rose-600 text-[11px] bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
                                               <AlertCircle className="w-3 h-3 shrink-0" />
-                                              প্রত্যাখ্যাত
+                                              Rejected
                                             </span>
                                           )}
                                         </div>
@@ -976,17 +1479,17 @@ export default function MentorDashboard({
                                               memberPin: record.memberPin,
                                               memberName: record.memberName,
                                               date: report.date,
-                                              currentStatus: record.status,
+                                              currentStatus: getEffectiveStatus(record),
                                               currentCheckIn: record.checkInTime || '',
                                               currentCheckOut: record.checkOutTime || ''
                                             });
-                                            setEditRequestedStatus(record.status);
+                                            setEditRequestedStatus(getEffectiveStatus(record) as AttendanceStatus);
                                             setEditRequestedCheckIn(record.checkInTime || '');
                                             setEditRequestedCheckOut(record.checkOutTime || '');
                                             setEditRequestReason('');
                                           }}
                                           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer shadow-3xs"
-                                          title="Apply for Adjustment / সংশোধন আবেদন করুন"
+                                          title="Apply for Adjustment"
                                         >
                                           <Edit3 className="w-3 h-3" />
                                           <span>Apply for Adjustment</span>
@@ -1009,7 +1512,7 @@ export default function MentorDashboard({
       )}
 
               {/* Tab: LEAVE REQUESTS */}
-              {activeTab === 'leaves' && (() => {
+              {activeTab === 'leaves' && viewedMemberPin === null && (() => {
         const filteredAndSortedLeaves = (() => {
           let list = leaveRequests.filter(req => {
             // Access control
@@ -1217,7 +1720,7 @@ export default function MentorDashboard({
                             <th className="p-2 border border-[#e0e0e0] font-bold">From</th>
                             <th className="p-2 border border-[#e0e0e0] font-bold">To</th>
                             <th className="p-2 border border-[#e0e0e0] font-bold text-center">Days</th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">Reason (Details)</th>
+                            <th className="p-2 border border-[#e0e0e0] font-bold">Reason</th>
                             <th className="p-2 border border-[#e0e0e0] font-bold">Responsible Person Name</th>
                             <th className="p-2 border border-[#e0e0e0] font-bold">Responsible Person PIN</th>
                             <th className="p-2 border border-[#e0e0e0] font-bold w-40 min-w-[160px]">Leave Type</th>
@@ -1336,8 +1839,8 @@ export default function MentorDashboard({
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="text-md font-bold text-slate-800">অ্যাটেন্ডেন্স ইডিট রিকুয়েস্ট (Attendance Edit Request)</h3>
-                      <p className="text-xs text-slate-400 font-medium">ম্যানেজারের কাছে টিম মেম্বারের অ্যাটেনডেন্স ইডিট রিকুয়েস্ট পাঠান</p>
+                      <h3 className="text-md font-bold text-slate-800">Attendance Edit Request</h3>
+                      <p className="text-xs text-slate-400 font-medium">Submit an attendance edit request to the manager on behalf of the team member</p>
                     </div>
                     <button
                       onClick={() => setShowEditRequestFormFor(null)}
@@ -1348,16 +1851,16 @@ export default function MentorDashboard({
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-1">
-                    <p><strong>টিম মেম্বার:</strong> {showEditRequestFormFor.memberName}</p>
-                    <p><strong>তারিখ:</strong> {showEditRequestFormFor.date}</p>
-                    <p><strong>বর্তমান সময়:</strong> {showEditRequestFormFor.currentCheckIn || 'missing'} - {showEditRequestFormFor.currentCheckOut || 'missing'}</p>
-                    <p><strong>বর্তমান স্ট্যাটাস:</strong> <span className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-700 font-bold">{showEditRequestFormFor.currentStatus}</span></p>
+                    <p><strong>Team Member:</strong> {showEditRequestFormFor.memberName}</p>
+                    <p><strong>Date:</strong> {showEditRequestFormFor.date}</p>
+                    <p><strong>Current Time:</strong> {showEditRequestFormFor.currentCheckIn || 'missing'} - {showEditRequestFormFor.currentCheckOut || 'missing'}</p>
+                    <p><strong>Current Status:</strong> <span className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-700 font-bold">{showEditRequestFormFor.currentStatus}</span></p>
                   </div>
 
                   <form onSubmit={handleEditRequestSubmit} className="space-y-4 text-left">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">প্রবেশের সময় (Check-In Time)</label>
+                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Check-In Time</label>
                         <ClockInput
                           value={editRequestedCheckIn}
                           onChange={(val) => setEditRequestedCheckIn(val)}
@@ -1365,7 +1868,7 @@ export default function MentorDashboard({
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">প্রস্থানের সময় (Check-Out Time)</label>
+                        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Check-Out Time</label>
                         <ClockInput
                           value={editRequestedCheckOut}
                           onChange={(val) => setEditRequestedCheckOut(val)}
@@ -1374,14 +1877,30 @@ export default function MentorDashboard({
                       </div>
                     </div>
 
+                    {/* Live Clock Logic Display */}
                     <div>
-                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">মন্তব্য / কারণ (Comment / Reason)</label>
+                      {mentorWorkingHoursText && (
+                        <div className="text-xs font-black text-emerald-600 bg-emerald-50 border border-emerald-150 px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-2xs">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          {mentorWorkingHoursText}
+                        </div>
+                      )}
+                      {mentorWorkingHoursError && (
+                        <div className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-150 px-3 py-2 rounded-xl flex items-center gap-1.5 leading-normal shadow-2xs">
+                          <span className="w-2 h-2 rounded-full bg-rose-500" />
+                          {mentorWorkingHoursError}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Comment / Reason</label>
                       <textarea
                         required
                         rows={3}
                         value={editRequestReason}
                         onChange={(e) => setEditRequestReason(e.target.value)}
-                        placeholder="অ্যাটেনডেন্সটি ইডিট করার উপযুক্ত কারণ বা মন্তব্য লিখুন..."
+                        placeholder="Enter valid reason or comment for editing attendance..."
                         className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       />
                     </div>
@@ -1392,14 +1911,14 @@ export default function MentorDashboard({
                         onClick={() => setShowEditRequestFormFor(null)}
                         className="px-4 py-2 border border-slate-200 text-slate-500 rounded-lg text-xs hover:bg-slate-50"
                       >
-                        বাতিল
+                        Cancel
                       </button>
                       <button
                         type="submit"
                         className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer"
                       >
                         <Send className="w-3 h-3" />
-                        রিকুয়েস্ট পাঠান
+                        Submit Request
                       </button>
                     </div>
                   </form>
@@ -1741,17 +2260,17 @@ export default function MentorDashboard({
           </AnimatePresence>
 
       {/* Tab: CAMPUS MEMBERS DIRECTORY */}
-      {activeTab === 'members' && (
+      {activeTab === 'members' && viewedMemberPin === null && (
         <div className="space-y-6">
           {/* Header & Controls */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
             <div>
               <h2 className="text-lg font-extrabold tracking-tight text-slate-800 flex items-center gap-2">
                 <User className="w-5 h-5 text-indigo-500" />
-                ক্যাম্পাস মেম্বারবৃন্দ (Campus Members Directory)
+                Campus Members Directory
               </h2>
               <p className="text-xs text-slate-500 font-medium mt-1">
-                আপনার ক্যাম্পাসের সকল নিবন্ধিত মেম্বার ও কো-অর্ডিনেটরদের তালিকা।
+                List of all registered members and coordinators in your campus.
               </p>
             </div>
             
@@ -1774,7 +2293,7 @@ export default function MentorDashboard({
               m.email.toLowerCase().includes(memberSearch.toLowerCase())
             ).length === 0 ? (
               <div className="bg-slate-50 border border-slate-150 rounded-2xl p-12 text-center text-slate-400 text-xs font-semibold">
-                কোনো মেম্বার পাওয়া যায়নি। (No campus members found.)
+                No campus members found.
               </div>
             ) : (
               <div className="border border-slate-200 rounded-2xl overflow-hidden bg-[#f8f9fa] shadow-inner p-1">
@@ -1799,7 +2318,13 @@ export default function MentorDashboard({
                         .sort((a, b) => a.pin.localeCompare(b.pin, undefined, { numeric: true, sensitivity: 'base' }))
                         .map((m, index) => {
                           return (
-                            <tr key={m.pin} className="hover:bg-slate-50/50 text-slate-700 transition-colors">
+                            <tr 
+                              key={m.pin} 
+                              onClick={() => {
+                                navigate(`/attendance/${m.pin}`);
+                              }}
+                              className="hover:bg-indigo-50/50 cursor-pointer text-slate-700 transition-colors"
+                            >
                               <td className="p-3 text-center text-xs font-bold text-slate-400 font-mono border border-[#e0e0e0]">
                                 {index + 1}
                               </td>
@@ -1809,7 +2334,9 @@ export default function MentorDashboard({
                               <td className="p-3 text-xs font-extrabold text-slate-900 border border-[#e0e0e0]">
                                 <div className="flex items-center gap-2">
                                   <UserAvatar user={m} size="sm" />
-                                  <span>{m.name}</span>
+                                  <div className="flex flex-col">
+                                    <span>{m.name}</span>
+                                  </div>
                                 </div>
                               </td>
                               <td className="p-3 text-xs text-slate-500 font-medium border border-[#e0e0e0]">
@@ -1838,34 +2365,137 @@ export default function MentorDashboard({
       )}
 
       {/* Tab 2: NOTICE BOARD PUBLISHING */}
-      {visibleTabs.length > 0 && activeTab === 'notices' && allowedPerms.includes('mentor_notices') && (
+      {visibleTabs.length > 0 && activeTab === 'notices' && allowedPerms.includes('mentor_notices') && viewedMemberPin === null && (
         <div>
           <NoticeBoard
             notices={notices}
             onAddNotice={onAddNotice}
             onUpdateNotice={onUpdateNotice}
             onDeleteNoticeRequest={onDeleteNotice}
-            canPost={true}
-            currentUser={{ name: currentMentor.name, role: 'mentor' }}
+            canPost={allowedPerms.includes('mentor_post_notice')}
+            currentUser={{ name: currentMentor.name, role: 'mentor', pin: currentMentor.pin }}
             campuses={campuses?.map(c => c.name)}
           />
         </div>
       )}
 
+      {/* Tab Emails: Inbox */}
+      {activeTab === 'emails' && allowedPerms.includes('mentor_emails') && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md overflow-hidden min-h-[500px] flex flex-col">
+            <div className="bg-slate-50/70 border-b border-slate-150 px-6 py-5">
+              <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+                <Mail className="w-5 h-5 text-indigo-600" />
+                Secure Portal Messenger (সিকিউর পোর্টাল মেসেঞ্জার)
+              </h3>
+              <p className="text-xs text-slate-500 font-medium">Internal communications and official alerts</p>
+            </div>
+
+            <div className="flex flex-1 min-h-0">
+              {/* Message List */}
+              <div className={`flex-1 overflow-y-auto ${selectedEmail ? 'hidden sm:block' : 'block'}`}>
+                {myEmails.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400">
+                    <Inbox className="w-12 h-12 mx-auto text-slate-300 mb-2" />
+                    <p className="font-semibold text-slate-500">No messages in your inbox</p>
+                    <p className="text-xs text-slate-400 mt-1">Updates and alerts will appear here when posted by coordinators.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {myEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((msg) => (
+                      <div
+                        key={msg.pin}
+                        onClick={() => setSelectedEmail(msg)}
+                        className={`p-4 sm:p-5 cursor-pointer transition-all hover:bg-slate-50 border-l-4 ${
+                          selectedEmail?.pin === msg.pin ? 'border-indigo-600 bg-indigo-50/30' : 
+                          msg.isRead ? 'border-transparent' : 'border-amber-400 bg-amber-50/10'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="text-[10px] font-black uppercase text-indigo-600 tracking-widest">{msg.fromName}</span>
+                          <span className="text-[10px] text-slate-400 font-medium">{new Date(msg.date).toLocaleDateString()}</span>
+                        </div>
+                        <h4 className={`text-sm font-bold truncate ${msg.isRead ? 'text-slate-600' : 'text-slate-900'}`}>{msg.subject}</h4>
+                        <p className="text-xs text-slate-500 line-clamp-1 mt-1 leading-relaxed">{msg.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Message Preview */}
+              {selectedEmail ? (
+                <div className="flex-1 bg-slate-50/30 border-l border-slate-150 p-6 sm:p-8 overflow-y-auto block relative">
+                  <button 
+                    onClick={() => setSelectedEmail(null)}
+                    className="sm:hidden absolute top-4 right-4 p-2 bg-white border border-slate-200 rounded-lg"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="max-w-2xl mx-auto space-y-6">
+                    <div className="flex justify-between items-start border-b border-slate-200 pb-6">
+                      <div className="space-y-1.5">
+                        <h2 className="text-xl font-black text-slate-900 leading-tight">{selectedEmail.subject}</h2>
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-black border border-indigo-200">
+                            {selectedEmail.fromName.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-slate-800 uppercase tracking-wide">{selectedEmail.fromName}</p>
+                            <p className="text-[10px] text-slate-500 font-medium">To: {selectedEmail.toEmail}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(selectedEmail.date).toLocaleDateString()}</p>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">{new Date(selectedEmail.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-2xs">
+                      <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">
+                        {selectedEmail.body}
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-slate-200">
+                      <p className="text-[10px] text-slate-400 italic text-center leading-relaxed">
+                        This is a secure system-generated message. Please check the official Notice Board for further details and attachments related to this bulletin.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="hidden sm:flex flex-1 items-center justify-center text-slate-300 p-12 bg-slate-50/10">
+                  <div className="text-center">
+                    <Mail className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                    <p className="text-sm font-bold uppercase tracking-widest opacity-40">Select a message to view</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Tab 3: SUBMITTED FEEDBACK HISTORY */}
-      {visibleTabs.length > 0 && activeTab === 'edit_requests' && allowedPerms.includes('mentor_history') && (
+      {visibleTabs.length > 0 && activeTab === 'edit_requests' && allowedPerms.includes('mentor_history') && viewedMemberPin === null && (
         <div className="space-y-4">
           <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-md">
             <h2 className="text-xl font-extrabold tracking-tight text-slate-800 flex items-center gap-2.5 mb-6">
               <Clock className="w-5.5 h-5.5 text-indigo-500" />
-              Attendance Adjustment (অ্যাটেনডেন্স সংশোধন আবেদনসমূহ)
+              Attendance Adjustment Requests
             </h2>
 
             {attendanceEditRequests.filter(req => req.coordinatorPin === currentMentor.pin).length === 0 ? (
               <div className="bg-slate-50 border border-slate-150 rounded-2xl p-12 text-center text-slate-400">
                 <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                <p className="font-bold text-slate-600">কোনো সংশোধন আবেদন পাঠানো হয়নি</p>
-                <p className="text-xs text-slate-400 mt-1">আপনার পাঠানো সংশোধন আবেদনসমূহ এবং ম্যানেজারের মন্তব্য এখানে দেখতে পাবেন।</p>
+                <p className="font-bold text-slate-600">No adjustment requests sent</p>
+                <p className="text-xs text-slate-400 mt-1">Your sent adjustment requests and manager's comments will appear here.</p>
               </div>
             ) : (
               <div className="overflow-x-auto bg-white border border-slate-200 rounded-2xl shadow-xs">
@@ -1873,12 +2503,12 @@ export default function MentorDashboard({
                   <thead>
                     <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-200">
                       <th className="p-4 w-12 text-center">#</th>
-                      <th className="p-4">আবেদন আইডি ও তারিখ (PIN & Date)</th>
-                      <th className="p-4">মেম্বার ও তারিখ (Member & Date)</th>
-                      <th className="p-4">অনুরোধকৃত নতুন সময় (Requested Times)</th>
-                      <th className="p-4">মন্তব্য ও উত্তর (Comments & Response)</th>
-                      <th className="p-4 text-center">অবস্থা (Status)</th>
-                      <th className="p-4 text-center w-28">অ্যাকশন (Actions)</th>
+                      <th className="p-4">PIN & Date</th>
+                      <th className="p-4">Member & Date</th>
+                      <th className="p-4">Requested Times</th>
+                      <th className="p-4">Comments & Response</th>
+                      <th className="p-4 text-center">Status</th>
+                      <th className="p-4 text-center w-28">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-150 bg-white">
@@ -1919,7 +2549,7 @@ export default function MentorDashboard({
                                       <option value="Absent">Absent</option>
                                       <option value="Leave">Leave</option>
                                       <option value="Late">Late</option>
-                                      <option value="< 6hrs">&lt; 6hrs</option>
+                                      <option value="< 6hr">&lt; 6hrs</option>
                                       <option value="Half Day">Half Day</option>
                                     </select>
                                   </div>
@@ -1975,7 +2605,7 @@ export default function MentorDashboard({
                                     value={reqEditForm.reason || ''}
                                     onChange={(e) => setReqEditForm(prev => ({ ...prev, reason: e.target.value }))}
                                     className="w-full px-2 py-1.5 border border-indigo-200 rounded-lg text-xs bg-white focus:outline-none focus:border-indigo-500"
-                                    placeholder="কারণ লিখুন..."
+                                    placeholder="Enter reason..."
                                   />
                                 </div>
                               ) : (
@@ -2055,7 +2685,7 @@ export default function MentorDashboard({
       )}
 
       {/* Tab 5: PROFILE SETTINGS */}
-      {activeTab === 'profile' && (
+      {activeTab === 'profile' && viewedMemberPin === null && (
         <div>
           <ProfileSettings
             currentUser={currentMentor}

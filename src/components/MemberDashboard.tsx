@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { TeamMember, Mentor, AttendanceReport, AttendanceFeedback, Notice, AttendanceStatus, EmailMessage, ProfileRequest, User as UserType, LeaveRequest, AttendanceEditRequest } from '../types';
-import { getEffectiveStatus } from '../utils';
-import { Calendar, User, ShieldCheck, MapPin, Award, CheckCircle, AlertTriangle, FileText, Clock, Mail, Inbox, Download, ChevronLeft, ChevronRight, LayoutDashboard, Menu, X } from 'lucide-react';
+import { getEffectiveStatus, parseTimeToMinutes } from '../utils';
+import { Calendar, User, ShieldCheck, MapPin, Award, CheckCircle, AlertTriangle, FileText, Clock, Mail, Inbox, Download, ChevronLeft, ChevronRight, LayoutDashboard, Menu, X, Bell, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ProfileSettings from './ProfileSettings';
 import NoticeBoard from './NoticeBoard';
+import ClockInput from './ClockInput';
 import * as XLSX from 'xlsx';
 
 interface MemberDashboardProps {
@@ -13,13 +14,18 @@ interface MemberDashboardProps {
   reports: AttendanceReport[];
   feedbacks: AttendanceFeedback[];
   notices: Notice[];
-    profileRequests: ProfileRequest[];
+  onAddNotice: (notice: Notice) => void;
+  onUpdateNotice: (notice: Notice) => void;
+  onDeleteNoticeRequest: (noticeId: string) => void;
+  profileRequests: ProfileRequest[];
   onSubmitProfileRequest: (requestedName: string, requestedPin: string) => void;
   onInstantUpdate: (updatedFields: Partial<UserType>) => void;
   leaveRequests: LeaveRequest[];
   onSubmitLeaveRequest: (req: LeaveRequest) => void;
   attendanceEditRequests: AttendanceEditRequest[];
   onSubmitAttendanceEditRequest: (req: AttendanceEditRequest) => void;
+  emails: EmailMessage[];
+  onMarkEmailAsRead: (emailPin: string) => void;
 }
 
 export default function MemberDashboard({
@@ -28,22 +34,31 @@ export default function MemberDashboard({
   reports,
   feedbacks,
   notices,
-    profileRequests,
+  onAddNotice,
+  onUpdateNotice,
+  onDeleteNoticeRequest,
+  profileRequests,
   onSubmitProfileRequest,
   onInstantUpdate,
   leaveRequests,
   onSubmitLeaveRequest,
   attendanceEditRequests,
-  onSubmitAttendanceEditRequest
+  onSubmitAttendanceEditRequest,
+  emails,
+  onMarkEmailAsRead
 }: MemberDashboardProps) {
-  const allowedPerms = (currentMember.permissions && currentMember.permissions.length > 0) ? currentMember.permissions : ['member_attendance', 'member_notices'];
+  const allowedPerms = (currentMember.permissions && currentMember.permissions.length > 0) ? currentMember.permissions : ['member_attendance', 'member_notices', 'member_emails'];
 
-  const [activeTab, setActiveTab] = useState<'attendance' | 'notices' | 'profile' | 'leave_requests' | 'attendance_adjustments'>(() => {
+  const [activeTab, setActiveTab] = useState<'attendance' | 'notices' | 'profile' | 'leave_requests' | 'emails'>(() => {
     if (allowedPerms.includes('member_attendance')) return 'attendance';
     if (allowedPerms.includes('member_notices')) return 'notices';
+    if (allowedPerms.includes('member_emails')) return 'emails';
         return 'profile'; // Fallback to profile which is always accessible
   });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 1024);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notificationActiveTab, setNotificationActiveTab] = useState<'notices'>('notices');
   const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
   const [filterMonth, setFilterMonth] = useState('');
 
@@ -57,11 +72,42 @@ export default function MemberDashboard({
   const [adjDate, setAdjDate] = useState('');
   const [adjRequestedStatus, setAdjRequestedStatus] = useState<AttendanceStatus>('Present');
   const [adjReason, setAdjReason] = useState('');
+  const [adjCheckIn, setAdjCheckIn] = useState('');
+  const [adjCheckOut, setAdjCheckOut] = useState('');
+
+  // Real-time Working Hours logic for MemberDashboard
+  let memberWorkingHoursText = "";
+  let memberWorkingHoursError = "";
+  let isMemberValidTime = true;
+
+  if (adjCheckIn || adjCheckOut) {
+    if (adjCheckIn && adjCheckOut) {
+      const inMins = parseTimeToMinutes(adjCheckIn);
+      const outMins = parseTimeToMinutes(adjCheckOut);
+
+      if (inMins === null) {
+        memberWorkingHoursError = "Invalid In Time format! (e.g. 09:00 AM)";
+        isMemberValidTime = false;
+      } else if (outMins === null) {
+        memberWorkingHoursError = "Out Time Missing";
+        isMemberValidTime = false;
+      } else {
+        let diffMins = outMins - inMins;
+        if (diffMins < 0) diffMins += 24 * 60;
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        memberWorkingHoursText = `Working Hour: ${hours} Hour ${mins} Min`;
+      }
+    } else {
+      memberWorkingHoursError = "Both In Time and Out Time must be provided!";
+      isMemberValidTime = false;
+    }
+  }
   
   const handleLeaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!leaveStartDate || !leaveEndDate || !leaveReason.trim()) {
-      alert('সবগুলো ঘর পূরণ করুন!');
+      alert('Please fill in all fields!');
       return;
     }
     const req: LeaveRequest = {
@@ -87,9 +133,15 @@ export default function MemberDashboard({
   const handleAdjustmentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjDate || !adjReason.trim()) {
-      alert('সবগুলো ঘর পূরণ করুন!');
+      alert('Please fill in all fields!');
       return;
     }
+
+    if (!isMemberValidTime) {
+      alert(memberWorkingHoursError || 'Please provide valid time input!');
+      return;
+    }
+
     const report = reports.find(r => r.date === adjDate && r.campus === currentMember.campus);
     const req: AttendanceEditRequest = {
       pin: `edit-req-${Date.now()}`,
@@ -100,13 +152,18 @@ export default function MemberDashboard({
       coordinatorPin: currentMember.mentorPin || '',
       coordinatorName: mentors.find(m => m.pin === currentMember.mentorPin)?.name || '',
       requestedStatus: adjRequestedStatus,
+      requestedCheckIn: adjCheckIn || undefined,
+      requestedCheckOut: adjCheckOut || undefined,
       reason: adjReason.trim(),
+      campus: currentMember.campus,
       status: 'Pending',
       createdAt: new Date().toISOString()
     };
     onSubmitAttendanceEditRequest(req);
     setAdjDate('');
     setAdjReason('');
+    setAdjCheckIn('');
+    setAdjCheckOut('');
     alert('Attendance adjustment request submitted!');
   };
 
@@ -114,7 +171,9 @@ export default function MemberDashboard({
   const assignedMentor = mentors.find(m => m.pin === currentMember.mentorPin);
 
   // Get emails for this team member
-    
+  const myEmails = emails.filter(e => e.toEmail === currentMember.email || e.toEmail === `${currentMember.pin}@portal.com`);
+  const unreadEmailCount = myEmails.filter(e => !e.isRead).length;
+
   // Extract ONLY their own attendance records
   let myAttendanceRecords = reports
     .map(report => {
@@ -159,10 +218,6 @@ export default function MemberDashboard({
   const missingCount = myAttendanceRecords.filter(r => r.status === 'Finger Punch Missing').length;
   const absentCount = myAttendanceRecords.filter(r => r.status === 'Absent').length;
   
-  const attendancePercentage = totalReports > 0 
-    ? Math.round(((presentCount + lateCount) / totalReports) * 100) 
-    : 100;
-
   // Filter notices (only general, or those matching their campus)
   const myFilteredNotices = notices.filter(n => {
     return !n.campus || n.campus === currentMember.campus;
@@ -182,10 +237,17 @@ export default function MemberDashboard({
     },
     {
       id: 'notices' as const,
-      label: `My Bulletins (${myFilteredNotices.length})`,
+      label: `My Notice (${myFilteredNotices.length})`,
       permission: 'member_notices',
       icon: <FileText className="w-4 h-4" />,
       hasUnread: false
+    },
+    {
+      id: 'emails' as const,
+      label: `My Inbox (${myEmails.length}) [ইনবক্স]`,
+      permission: 'member_emails',
+      icon: <Inbox className="w-4 h-4" />,
+      hasUnread: unreadEmailCount > 0
     },
   ];
 
@@ -244,59 +306,222 @@ export default function MemberDashboard({
             </div>
           </div>
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center shrink-0 min-w-[140px] shadow-2xs hover:bg-white/10 transition-colors">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Attendance Ratio</p>
-            <p className="text-3xl font-black text-indigo-400 mt-1">{attendancePercentage}%</p>
-            <p className="text-[10px] text-slate-500 font-medium mt-0.5 font-mono">Approved Sessions</p>
-          </div>
+
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-8 items-start">
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:gap-8 items-start">
+        {/* Mobile Sidebar Overlay */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 lg:hidden"
+            />
+          )}
+        </AnimatePresence>
+
         {/* Sidebar */}
         <AnimatePresence mode="wait">
-          {isSidebarOpen && (
+          {(isSidebarOpen || isMobileMenuOpen) && (
             <motion.div
               initial={{ width: 0, opacity: 0, x: -20 }}
-              animate={{ width: "260px", opacity: 1, x: 0 }}
+              animate={{ 
+                width: isMobileMenuOpen ? "280px" : "260px", 
+                opacity: 1, 
+                x: 0,
+                position: isMobileMenuOpen ? "fixed" : "sticky",
+                top: isMobileMenuOpen ? "0" : "1.5rem",
+                left: isMobileMenuOpen ? "0" : "auto",
+                height: isMobileMenuOpen ? "100vh" : "fit-content",
+                zIndex: isMobileMenuOpen ? 50 : 10
+              }}
               exit={{ width: 0, opacity: 0, x: -20 }}
-              className="lg:block space-y-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs text-left overflow-hidden shrink-0 h-fit sticky top-6"
+              className={`bg-white p-4 sm:p-5 rounded-none lg:rounded-3xl border-r lg:border border-slate-200/80 shadow-xs text-left overflow-y-auto shrink-0`}
             >
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider px-2 font-mono">মেন্যু প্যানেল (Sidebar Menu)</p>
-              <div className="flex flex-col sm:flex-row lg:flex-col gap-1 overflow-x-auto sm:overflow-x-visible">
-                {visibleTabs.map(t => (
+              <div className="flex items-center justify-between px-2 mb-6 lg:mb-2">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                  Sidebar Menu
+                </p>
+                {isMobileMenuOpen && (
+                  <button 
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-2 text-slate-400 hover:text-slate-600 lg:hidden"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                {visibleTabs.map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => setActiveTab(t.id)}
-                    className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                      activeTab === t.id 
-                        ? 'bg-indigo-600 text-white shadow-sm' 
-                        : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
+                    onClick={() => {
+                      setActiveTab(t.id as any);
+                      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                      activeTab === t.id
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
                     }`}
                   >
                     {t.icon}
-                    <span className="truncate">{t.label}</span>
+                    <span className="whitespace-normal text-left leading-tight break-words pr-5">
+                      {t.label}
+                    </span>
                   </button>
                 ))}
                 
                 <button
-                  onClick={() => setActiveTab('profile')}
-                  className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                  onClick={() => {
+                    setActiveTab('profile');
+                    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                     activeTab === 'profile'
                       ? 'bg-indigo-600 text-white shadow-sm'
                       : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
                   }`}
                 >
                   <User className="w-4 h-4 shrink-0" />
-                  <span className="truncate">প্রোফাইল সেটিংস (Profile)</span>
+                  <span className="whitespace-nowrap">Profile Settings</span>
                 </button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
+        {/* Floating Mobile Toggle */}
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="lg:hidden fixed bottom-6 right-6 z-40 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+
         {/* Content Area */}
-        <div className="flex-1 w-full min-w-0 space-y-6">
+        <div className="flex-1 w-full min-w-0 space-y-4 sm:space-y-6 relative">
+          
+          {/* Top Bar for Member */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs mb-6">
+            <div className="text-left">
+              <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <LayoutDashboard className="w-4.5 h-4.5 text-indigo-600" />
+                Member's Workspace
+              </h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                Manage your attendance and notices
+              </p>
+            </div>
+
+            <div className="relative self-end sm:self-auto">
+              <button
+                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                className={`p-3 rounded-2xl transition-all relative flex items-center justify-center border group ${
+                  isNotificationsOpen 
+                    ? 'bg-white text-indigo-600 border-indigo-200 shadow-lg' 
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Bell className={`w-5 h-5 ${!isNotificationsOpen && unreadEmailCount > 0 ? 'animate-bounce' : ''}`} />
+                {unreadEmailCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                    {unreadEmailCount}
+                  </span>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {isNotificationsOpen && (
+                  <>
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => setIsNotificationsOpen(false)}
+                      className="fixed inset-0 z-40 lg:hidden bg-slate-900/60 backdrop-blur-sm"
+                    />
+                    
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 mt-3 w-[280px] sm:w-[350px] bg-white rounded-3xl shadow-2xl border border-slate-200 z-50 overflow-hidden"
+                    >
+                      <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                        <div>
+                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">System Notices (সিস্টেম নোটিশ)</h3>
+                          <p className="text-[10px] font-bold text-slate-400">Recent alerts and bulletins</p>
+                        </div>
+                        <button onClick={() => setIsNotificationsOpen(false)}>
+                          <X className="w-4 h-4 text-slate-400" />
+                        </button>
+                      </div>
+
+                      <div className="max-h-[300px] overflow-y-auto p-2 space-y-2">
+                        {unreadEmailCount === 0 ? (
+                          <div className="py-8 text-center text-slate-400">
+                            <Inbox className="w-10 h-10 mx-auto text-slate-200 mb-2" />
+                            <p className="text-xs font-bold">Inbox is empty (ইনবক্স খালি)</p>
+                          </div>
+                        ) : (
+                          myEmails.filter(e => !e.isRead).map(msg => (
+                            <div 
+                              key={msg.pin}
+                              className="p-3 bg-slate-50 hover:bg-indigo-50 border border-slate-100 hover:border-indigo-100 rounded-2xl transition-all group flex items-start justify-between gap-2"
+                            >
+                              <div 
+                                className="cursor-pointer flex-1 min-w-0"
+                                onClick={() => {
+                                  onMarkEmailAsRead(msg.pin);
+                                  setActiveTab('emails');
+                                  setSelectedEmail(msg);
+                                  setIsNotificationsOpen(false);
+                                }}
+                              >
+                                <div className="flex justify-between items-start mb-1">
+                                  <span className="text-[9px] font-black text-indigo-600 uppercase">{msg.fromName}</span>
+                                  <span className="text-[8px] text-slate-400 font-bold">{new Date(msg.date).toLocaleDateString()}</span>
+                                </div>
+                                <h4 className="text-[11px] font-bold text-slate-800 truncate group-hover:text-indigo-700">{msg.subject}</h4>
+                                <p className="text-[10px] text-slate-500 line-clamp-1 italic mt-0.5">"{msg.body}"</p>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMarkEmailAsRead(msg.pin);
+                                }}
+                                className="p-1.5 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:border-emerald-200 rounded-lg transition-colors shadow-sm shrink-0"
+                                title="Mark as Read"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      
+                      <div className="p-3 border-t border-slate-100 bg-slate-50/30 text-center">
+                        <button 
+                          onClick={() => {
+                            setActiveTab('emails');
+                            setIsNotificationsOpen(false);
+                          }}
+                          className="text-[10px] font-black uppercase text-indigo-600 hover:text-indigo-700 tracking-widest"
+                        >
+                          View All Messages (সব মেসেজ দেখুন)
+                        </button>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
 
       {/* Tab 1: OWN ATTENDANCE LOG */}
       {activeTab === 'attendance' && allowedPerms.includes('member_attendance') && (
@@ -436,7 +661,7 @@ export default function MemberDashboard({
                               displayStatus === 'Present' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                               (displayStatus === 'Late' || displayStatus === 'Late Entry') ? 'bg-amber-50 text-amber-700 border-amber-200' :
                               displayStatus === 'Early Leave' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                              (displayStatus === 'Finger Punch Missing' || displayStatus === '< 6hrs' || displayStatus === '< 10hrs') ? 'bg-rose-50 text-rose-700 border-rose-200 ' :
+                              (displayStatus === 'Finger Punch Missing' || displayStatus === '< 6hr' || displayStatus === '< 10hrs') ? 'bg-rose-50 text-rose-700 border-rose-200 ' :
                               displayStatus === 'Absent' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                               displayStatus === 'Leave' || displayStatus.toLowerCase().includes('leave') ? 'bg-blue-50 text-blue-700 border-blue-200' :
                               'bg-slate-50 text-slate-700 border-slate-200'
@@ -470,7 +695,7 @@ export default function MemberDashboard({
 
                                   return (
                                     <div 
-                                      key={index} 
+                                      key={`${cleanText}-${index}`} 
                                       className={`flex items-start gap-1 px-1.5 py-0.5 rounded border ${
                                         isFingerPunchMissing 
                                           ? "bg-red-50 text-red-700 border-red-100 font-medium" 
@@ -524,16 +749,119 @@ export default function MemberDashboard({
         >
           <NoticeBoard
             notices={myFilteredNotices}
-            canPost={false}
-            currentUser={{ name: currentMember.name, role: 'member' }}
+            onAddNotice={onAddNotice}
+            onUpdateNotice={onUpdateNotice}
+            onDeleteNoticeRequest={onDeleteNoticeRequest}
+            canPost={allowedPerms.includes('member_post_notice')}
+            currentUser={{ name: currentMember.name, role: 'member', pin: currentMember.pin }}
             campuses={currentMember.campus ? [currentMember.campus] : []}
           />
         </motion.div>
       )}
 
 
+      {/* Tab 3: SIMULATED SECURE EMAIL INBOX */}
+      {activeTab === 'emails' && allowedPerms.includes('member_emails') && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md overflow-hidden min-h-[500px] flex flex-col">
+            <div className="bg-slate-50/70 border-b border-slate-150 px-6 py-5">
+              <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+                <Mail className="w-5 h-5 text-indigo-600" />
+                Secure Portal Messenger
+              </h3>
+              <p className="text-xs text-slate-500 font-medium">Internal communications and official alerts</p>
+            </div>
 
-      {/* Tab 3: SIMULATED SECURE EMAIL INBOX removed */}
+            <div className="flex flex-1 min-h-0">
+              {/* Message List */}
+              <div className={`flex-1 overflow-y-auto ${selectedEmail ? 'hidden sm:block' : 'block'}`}>
+                {myEmails.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400">
+                    <Inbox className="w-12 h-12 mx-auto text-slate-300 mb-2" />
+                    <p className="font-semibold text-slate-500">No messages in your inbox</p>
+                    <p className="text-xs text-slate-400 mt-1">Updates and alerts will appear here when posted by coordinators.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {myEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((msg) => (
+                      <div
+                        key={msg.pin}
+                        onClick={() => setSelectedEmail(msg)}
+                        className={`p-4 sm:p-5 cursor-pointer transition-all hover:bg-slate-50 border-l-4 ${
+                          selectedEmail?.pin === msg.pin ? 'border-indigo-600 bg-indigo-50/30' : 
+                          msg.isRead ? 'border-transparent' : 'border-amber-400 bg-amber-50/10'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="text-[10px] font-black uppercase text-indigo-600 tracking-widest">{msg.fromName}</span>
+                          <span className="text-[10px] text-slate-400 font-medium">{new Date(msg.date).toLocaleDateString()}</span>
+                        </div>
+                        <h4 className={`text-sm font-bold truncate ${msg.isRead ? 'text-slate-600' : 'text-slate-900'}`}>{msg.subject}</h4>
+                        <p className="text-xs text-slate-500 line-clamp-1 mt-1 leading-relaxed">{msg.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Message Preview */}
+              {selectedEmail ? (
+                <div className="flex-1 bg-slate-50/30 border-l border-slate-150 p-6 sm:p-8 overflow-y-auto block relative">
+                  <button 
+                    onClick={() => setSelectedEmail(null)}
+                    className="sm:hidden absolute top-4 right-4 p-2 bg-white border border-slate-200 rounded-lg"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <div className="max-w-2xl mx-auto space-y-6">
+                    <div className="flex justify-between items-start border-b border-slate-200 pb-6">
+                      <div className="space-y-1.5">
+                        <h2 className="text-xl font-black text-slate-900 leading-tight">{selectedEmail.subject}</h2>
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-black border border-indigo-200">
+                            {selectedEmail.fromName.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-slate-800 uppercase tracking-wide">{selectedEmail.fromName}</p>
+                            <p className="text-[10px] text-slate-500 font-medium">To: {selectedEmail.toEmail}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{new Date(selectedEmail.date).toLocaleDateString()}</p>
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">{new Date(selectedEmail.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-2xs">
+                      <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">
+                        {selectedEmail.body}
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-slate-200">
+                      <p className="text-[10px] text-slate-400 italic text-center leading-relaxed">
+                        This is a secure system-generated message. Please check the official Notice Board for further details and attachments related to this bulletin.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="hidden sm:flex flex-1 items-center justify-center text-slate-300 p-12 bg-slate-50/10">
+                  <div className="text-center">
+                    <Mail className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                    <p className="text-sm font-bold uppercase tracking-widest opacity-40">Select a message to view</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      )}
 
 
 

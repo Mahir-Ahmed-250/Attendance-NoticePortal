@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { Model } from 'mongoose';
 
 const UserSchema = new mongoose.Schema({
   pin: { type: String, required: true, unique: true },
@@ -130,12 +130,19 @@ const LeaveRequestSchema = new mongoose.Schema({
   responsiblePersonName: String,
 });
 
-export const User = mongoose.model('User', UserSchema);
-export const Email = mongoose.model('Email', EmailSchema);
-export const AttendanceReport = mongoose.model('AttendanceReport', AttendanceReportSchema);
-export const Notice = mongoose.model('Notice', NoticeSchema);
-export const Feedback = mongoose.model('Feedback', FeedbackSchema);
-export const Campus = mongoose.model('Campus', CampusSchema);
-export const ProfileRequest = mongoose.model('ProfileRequest', ProfileRequestSchema);
-export const AttendanceEditRequest = mongoose.model('AttendanceEditRequest', AttendanceEditRequestSchema);
-export const LeaveRequest = mongoose.model('LeaveRequest', LeaveRequestSchema);
+const ConfigurationSchema = new mongoose.Schema({
+  key: { type: String, required: true, unique: true },
+  value: { type: String, required: true },
+});
+
+export const Configuration: Model<any> = mongoose.models.Configuration || mongoose.model('Configuration', ConfigurationSchema);
+export const User: Model<any> = mongoose.models.User || mongoose.model('User', UserSchema);
+
+export const Email: Model<any> = mongoose.models.Email || mongoose.model('Email', EmailSchema);
+export const AttendanceReport: Model<any> = mongoose.models.AttendanceReport || mongoose.model('AttendanceReport', AttendanceReportSchema);
+export const Notice: Model<any> = mongoose.models.Notice || mongoose.model('Notice', NoticeSchema);
+export const Feedback: Model<any> = mongoose.models.Feedback || mongoose.model('Feedback', FeedbackSchema);
+export const Campus: Model<any> = mongoose.models.Campus || mongoose.model('Campus', CampusSchema);
+export const ProfileRequest: Model<any> = mongoose.models.ProfileRequest || mongoose.model('ProfileRequest', ProfileRequestSchema);
+export const AttendanceEditRequest: Model<any> = mongoose.models.AttendanceEditRequest || mongoose.model('AttendanceEditRequest', AttendanceEditRequestSchema);
+export const LeaveRequest: Model<any> = mongoose.models.LeaveRequest || mongoose.model('LeaveRequest', LeaveRequestSchema);

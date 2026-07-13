@@ -35,7 +35,7 @@ export interface EmailMessage {
   isRead: boolean;
 }
 
-export type AttendanceStatus = 'Present' | 'Absent' | 'Finger Punch Missing' | 'Late' | 'Late Entry' | 'Early Leave' | 'Half Day' | '< 6hrs' | '< 10hrs' | 'Leave' | string;
+export type AttendanceStatus = 'Present' | 'Absent' | 'Finger Punch Missing' | 'Late' | 'Late Entry' | 'Early Leave' | 'Half Day' | '< 6hr' | '< 10hrs' | 'Leave' | string;
 
 export interface MemberAttendance {
   memberPin: string;
@@ -72,6 +72,7 @@ export interface Notice {
   postedBy: {
     name: string;
     role: Role;
+    pin: string;
   };
   campus?: string; // Optional filter
 }
@@ -136,6 +137,8 @@ export interface AttendanceEditRequest {
   status: 'Pending' | 'Approved' | 'Rejected';
   createdAt: string;
   managerComment?: string;
+  campus?: string;
+  remarks?: string;
 }
 
 export interface LeaveRequest {

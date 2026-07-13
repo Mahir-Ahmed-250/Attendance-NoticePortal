@@ -1,28 +1,29 @@
+export function parseTimeToMinutes(timeStr: string): number | null {
+  if (!timeStr) return null;
+  const clean = timeStr.trim();
+  const ampmMatch = clean.match(/^(\d+):(\d+)(?::\d+)?\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    let hr = parseInt(ampmMatch[1], 10);
+    const min = parseInt(ampmMatch[2], 10);
+    const ampm = ampmMatch[3].toUpperCase();
+    if (ampm === "PM" && hr < 12) hr += 12;
+    if (ampm === "AM" && hr === 12) hr = 0;
+    return hr * 60 + min;
+  }
+  const hhmmMatch = clean.match(/^(\d+):(\d+)(?::\d+)?$/);
+  if (hhmmMatch) {
+    const hr = parseInt(hhmmMatch[1], 10);
+    const min = parseInt(hhmmMatch[2], 10);
+    return hr * 60 + min;
+  }
+  return null;
+}
+
 export function calculateWorkingHours(
   checkIn?: string,
   checkOut?: string,
 ): number | null {
   if (!checkIn || !checkOut || checkIn === "-" || checkOut === "-") return null;
-
-  const parseTimeToMinutes = (timeStr: string): number | null => {
-    const clean = timeStr.trim();
-    const ampmMatch = clean.match(/^(\d+):(\d+)(?::\d+)?\s*(AM|PM)$/i);
-    if (ampmMatch) {
-      let hr = parseInt(ampmMatch[1], 10);
-      const min = parseInt(ampmMatch[2], 10);
-      const ampm = ampmMatch[3].toUpperCase();
-      if (ampm === "PM" && hr < 12) hr += 12;
-      if (ampm === "AM" && hr === 12) hr = 0;
-      return hr * 60 + min;
-    }
-    const hhmmMatch = clean.match(/^(\d+):(\d+)(?::\d+)?$/);
-    if (hhmmMatch) {
-      const hr = parseInt(hhmmMatch[1], 10);
-      const min = parseInt(hhmmMatch[2], 10);
-      return hr * 60 + min;
-    }
-    return null;
-  };
 
   const start = parseTimeToMinutes(checkIn);
   const end = parseTimeToMinutes(checkOut);
@@ -37,35 +38,47 @@ export function calculateWorkingHours(
   return diff / 60;
 }
 
-export function getEffectiveStatus(record: any): string {
+export function getEffectiveStatus(record: any, dateStr?: string): string {
     const hasIn = record.checkInTime && record.checkInTime !== "-" && record.checkInTime.trim() !== "";
     const hasOut = record.checkOutTime && record.checkOutTime !== "-" && record.checkOutTime.trim() !== "";
     
+    let isFriday = false;
+    if (dateStr) {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const parsedDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        isFriday = parsedDate.getDay() === 5;
+      } else {
+        const parsedDate = new Date(dateStr);
+        isFriday = parsedDate.getDay() === 5;
+      }
+    }
+
+    // 1. If there's exactly one punch (either checkIn but no checkOut, or checkOut but no checkIn),
+    // then it's a Finger Punch Missing, even on weekends/holidays.
+    if ((hasIn && !hasOut) || (!hasIn && hasOut)) {
+      return "Finger Punch Missing";
+    }
+
     // Ignore "Daily allowance" as a status from absentOrLeave
     const rawAbsentOrLeave = record.absentOrLeave || "";
     const isDailyAllowance = rawAbsentOrLeave.toLowerCase().includes("daily allowance");
     const cleanAbsentOrLeave = isDailyAllowance ? "" : rawAbsentOrLeave.trim();
-
-    // 1. WEEKEND/Holiday or normal day with IN but NO OUT -> Finger Punch Missing
-    if (hasIn && !hasOut) {
-      return "Finger Punch Missing";
-    }
 
     // 2. Absent/Leave -> absentOrLeave column != "-" (excluding Daily allowance)
     if (cleanAbsentOrLeave && cleanAbsentOrLeave !== "-" && cleanAbsentOrLeave !== "") {
       return cleanAbsentOrLeave;
     }
 
-    // 3. If no InTime and no OutTime -> Absent
+    // 3. If no InTime and no OutTime -> Weekend (if Friday) else Absent
     if (!hasIn && !hasOut) {
-      return "Absent";
+      return isFriday ? "Weekend" : "Absent";
     }
 
-    // 4. W.Hour < 10hrs -> < 10hrs
+    // 4. Calculate Hours
     let hours = calculateWorkingHours(record.checkInTime, record.checkOutTime);
     
     if (hours === null && record.workingHour && record.workingHour !== "-" && record.workingHour.trim() !== "") {
-       // Try parsing "8h 30m" or "08:30"
        const hMatch = record.workingHour.match(/(\d+)h/);
        if (hMatch) {
          hours = parseInt(hMatch[1]);
@@ -77,26 +90,18 @@ export function getEffectiveStatus(record: any): string {
        }
     }
 
-    if (hours !== null && hours < 6) {
-       return "< 6hrs";
+    // 5. Priority Status by W.Hour
+    if (hours !== null) {
+      if (hours < 6) return "< 6hr";
+      if (hours < 10) return "< 10hrs";
     }
 
+    // 6. Check for Late/Early only if hours are 10+ or null
     const isLate = record.lateEntry && record.lateEntry !== "-" && record.lateEntry !== "0" && record.lateEntry.trim() !== "";
     const isEarly = record.earlyLeave && record.earlyLeave !== "-" && record.earlyLeave !== "0" && record.earlyLeave.trim() !== "";
 
-    if ((isLate || isEarly) && hours !== null && hours < 10) {
-       return "< 10hrs";
-    }
-
-    // 5. If lateEntry column has minutes -> Late Entry
-    if (isLate) {
-      return "Late Entry";
-    }
-
-    // 6. If earlyLeave column has minutes -> Early Leave
-    if (isEarly) {
-      return "Early Leave";
-    }
+    if (isLate) return "Late Entry";
+    if (isEarly) return "Early Leave";
 
     return record.status || "Present";
 }

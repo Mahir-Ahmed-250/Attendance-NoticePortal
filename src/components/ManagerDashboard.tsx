@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Mentor,
   TeamMember,
@@ -13,11 +13,13 @@ import {
   LeaveRequest,
   Campus,
   Role,
+  EmailMessage,
 } from "../types";
-import { calculateWorkingHours, getEffectiveStatus, formatDateLong } from "../utils";
+import { calculateWorkingHours, getEffectiveStatus, formatDateLong, parseTimeToMinutes } from "../utils";
 import {
   Calendar,
   MapPin,
+  Menu,
   Users,
   CheckCircle, XCircle,
   UserCheck,
@@ -55,8 +57,11 @@ import {
   Bell,
   AlertTriangle,
   UserMinus,
+  ArrowLeft,
+  Inbox,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import ProfileSettings from "./ProfileSettings";
 import NoticeBoard from "./NoticeBoard";
 import ConfirmModal from "./ConfirmModal";
@@ -160,6 +165,8 @@ interface ManagerDashboardProps {
     deputyMemberAccess?: Record<string, string[]>,
   ) => void;
   onDeleteCampus: (campusName: string) => void;
+  emails: EmailMessage[];
+  onMarkEmailAsRead: (emailPin: string) => void;
 }
 
 export default function ManagerDashboard({
@@ -205,7 +212,10 @@ export default function ManagerDashboard({
   onAddCampus,
   onUpdateCampus,
   onDeleteCampus,
+  emails,
+  onMarkEmailAsRead
 }: ManagerDashboardProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<
     | "attendance"
     | "feedback"
@@ -216,15 +226,66 @@ export default function ManagerDashboard({
     | "campuses"
     | "attendance-viewer"
     | "members"
-    | "edit-requests"
+    | "edit_requests"
     | "leave-requests"
   >("attendance");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [viewedMemberPin, setViewedMemberPin] = useState<string | null>(null);
+  const [attendanceStartDate, setAttendanceStartDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  });
+  const [attendanceEndDate, setAttendanceEndDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const lastDay = new Date(y, m, 0).getDate();
+    const mStr = String(m).padStart(2, '0');
+    return `${y}-${mStr}-${lastDay}`;
+  });
+  const [tempStartDate, setTempStartDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  });
+  const [tempEndDate, setTempEndDate] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const lastDay = new Date(y, m, 0).getDate();
+    const mStr = String(m).padStart(2, '0');
+    return `${y}-${mStr}-${lastDay}`;
+  });
   const [rosterSearch, setRosterSearch] = useState("");
   const [bulkPinInput, setBulkPinInput] = useState("");
   const [rosterCampusFilter, setRosterCampusFilter] = useState("all");
   const [rosterUnassignedOnly, setRosterUnassignedOnly] = useState(false);
-  const [notificationActiveTab, setNotificationActiveTab] = useState<"requests" | "problematic" | "missing">("requests");
+  const [notificationActiveTab, setNotificationActiveTab] = useState<
+    "requests" | "problematic" | "missing" | "notices"
+  >("requests");
+
+  // --- SINGLE PIN PASTE AND DISMISS STATES ---
+  const [dismissedNotifications, setDismissedNotifications] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("manager_dismissed_notifications");
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const handleDismissNotification = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDismissedNotifications((prev) => {
+      const updated = [...prev, id];
+      localStorage.setItem("manager_dismissed_notifications", JSON.stringify(updated));
+      return updated;
+    });
+    toast.success("পঠিত হিসেবে চিহ্নিত করা হয়েছে!");
+  };
 
   // --- NOTIFICATION READ STATES ---
   const [readRequestPins, setReadRequestPins] = useState<string[]>(() => {
@@ -257,7 +318,7 @@ export default function ManagerDashboard({
       const unique = new Set([...prev, ...allPendingPins]);
       return Array.from(unique);
     });
-    toast.success("সব নতুন রিকুয়েস্ট পঠিত হিসেবে চিহ্নিত করা হয়েছে!");
+      toast.success("All new requests marked as read!");
   };
 
   // --- DELETE CONFIRMATION STATES ---
@@ -323,17 +384,18 @@ export default function ManagerDashboard({
   const [leaveFilterType, setLeaveFilterType] = useState("All");
   const [leaveFilterMonth, setLeaveFilterMonth] = useState("All");
   const [leaveSortBy, setLeaveSortBy] = useState("newest");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 1024);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedLeavePins, setSelectedLeavePins] = useState<string[]>([]);
+  const [selectedEditReqPins, setSelectedEditReqPins] = useState<string[]>([]);
 
   const startEditRequest = (req: AttendanceEditRequest) => {
     setEditingReqPin(req.pin);
     setReqEditForm({ ...req });
   };
 
-  const saveEditRequest = () => {
-    if (!reqEditForm.pin) return;
-    onUpdateAttendanceEditRequest(reqEditForm as AttendanceEditRequest);
+  const saveEditRequest = (updatedReq: Partial<AttendanceEditRequest>) => {
+    onUpdateAttendanceEditRequest(updatedReq as AttendanceEditRequest);
     setEditingReqPin(null);
   };
 
@@ -397,7 +459,7 @@ export default function ManagerDashboard({
       classes = "bg-slate-100 text-slate-600 border-slate-200";
     } else if (status === "Leave" || status.toLowerCase().includes("leave")) {
       classes = "bg-blue-50 text-blue-700 border-blue-200";
-    } else if (status === "< 6hrs") {
+    } else if (status === "< 6hr") {
       classes = "bg-rose-50 text-rose-700 border-rose-200";
     } else if (status === "< 10hrs") {
       classes = "bg-rose-50 text-rose-700 border-rose-200";
@@ -484,8 +546,8 @@ export default function ManagerDashboard({
           issue = "Finger Punch Missing";
         } else if (status === "Absent") {
           issue = "Absent";
-        } else if (status === "< 6hrs") {
-          issue = `< 6hrs (${Math.floor(hours)}h ${Math.round((hours % 1) * 60)}m)`;
+        } else if (status === "< 6hr") {
+          issue = `< 6hr (${Math.floor(hours)}h ${Math.round((hours % 1) * 60)}m)`;
         }
 
         if (issue) {
@@ -522,7 +584,7 @@ export default function ManagerDashboard({
     campus: "",
     mentorPin: "",
     designation: "",
-    permissions: ["member_attendance", "member_notices"],
+    permissions: ["member_attendance", "member_notices", "member_post_notice"],
     avatarUrl: "",
     role: "member" as Role,
   }));
@@ -1058,7 +1120,7 @@ export default function ManagerDashboard({
 
     setParsedPreviewRows(parsedList);
     if (parsedList.length > 0) {
-        toast.success("ডাটা প্রসেস করা হয়েছে! অনুগ্রহ করে নিচের টেবিলে কলাম প্রিভিউ দেখে নিন।");
+        toast.success("Data processed! Please review the column preview in the table below.");
     }
   };
 
@@ -1130,13 +1192,13 @@ export default function ManagerDashboard({
       postedCampuses.push(`${campusName} (${records.length} জন)`);
     });
 
-    toast.success("সরাসরি উপস্থিতি রিপোর্ট পোস্ট করা হয়েছে!");
+    toast.success("Attendance report posted directly!");
     setBulkText("");
     setBulkError("");
     setParsedPreviewRows([]);
 
     let summaryStr =
-      `তারিখ: ${reportDate}\nসরাসরি সফলভাবে পোস্ট করা হয়েছে:\n` +
+      `Date: ${reportDate}\nSuccessfully posted directly:\n` +
       postedCampuses.map((c) => `• ${c}`).join("\n");
     setImportSummary(summaryStr);
     setActiveTab("attendance-viewer");
@@ -1145,7 +1207,7 @@ export default function ManagerDashboard({
   // Confirm and Publish the parsed bulk attendance
   const handleConfirmPublishBulkAttendance = () => {
     if (parsedPreviewRows.length === 0) {
-      toast.error("কোনো ডাটা প্রিভিউ নেই।");
+      toast.error("No data preview available.");
       return;
     }
 
@@ -1208,16 +1270,16 @@ export default function ManagerDashboard({
       postedCampuses.push(`${campusName} (${records.length} জন)`);
     });
 
-    toast.success("উপস্থিতি রিপোর্ট সফলভাবে পোস্ট করা হয়েছে!");
+    toast.success("Attendance report posted successfully!");
     setBulkText("");
     setBulkError("");
     setParsedPreviewRows([]);
 
     let summaryStr =
-      `তারিখ: ${reportDate}\nসফলভাবে পোস্ট করা হয়েছে:\n` +
+      `Date: ${reportDate}\nSuccessfully posted:\n` +
       postedCampuses.map((c) => `• ${c}`).join("\n");
     if (unmatchedCount > 0) {
-      summaryStr += `\n\n* ${unmatchedCount} টি পিন সিস্টেমে ম্যাচ না করায় 'Unknown Campus' হিসেবে যুক্ত করা হয়েছে। পিনসমূহ: ${skippedPins.join(", ")}`;
+      summaryStr += `\n\n* ${unmatchedCount} PINs did not match any system record and were added as 'Unknown Campus'. PINs: ${skippedPins.join(", ")}`;
     }
     setImportSummary(summaryStr);
     setActiveTab("attendance-viewer");
@@ -1239,7 +1301,6 @@ export default function ManagerDashboard({
       name: memberForm.name.trim(),
       email: memberForm.email.trim(),
       designation: memberForm.designation.trim(),
-      password: memberForm.password.trim() || "password",
       campus: memberForm.campus,
       mentorPin:
         memberForm.mentorPin ||
@@ -1250,6 +1311,12 @@ export default function ManagerDashboard({
       permissions: memberForm.permissions,
       avatarUrl: memberForm.avatarUrl || undefined,
     };
+
+    if (memberForm.password.trim()) {
+      memberData.password = memberForm.password.trim();
+    } else if (crudMode === "create") {
+      memberData.password = "password";
+    }
 
     if (!memberData.campus) {
       toast.error(
@@ -1339,7 +1406,7 @@ export default function ManagerDashboard({
       campus: "",
       mentorPin: "",
       designation: "",
-      permissions: ["member_attendance", "member_notices"],
+      permissions: ["member_attendance", "member_notices", "member_post_notice"],
       avatarUrl: "",
       role: "member",
     });
@@ -1600,31 +1667,34 @@ export default function ManagerDashboard({
           issue = "Finger Punch Missing";
         } else if (status === "Absent") {
           issue = "Absent";
-        } else if (status === "< 6hrs") {
-          issue = `< 6hrs (${Math.floor(hours || 0)}h ${Math.round(((hours || 0) % 1) * 60)}m)`;
+        } else if (status === "< 6hr") {
+          issue = `< 6hr (${Math.floor(hours || 0)}h ${Math.round(((hours || 0) % 1) * 60)}m)`;
         } else if (status === "< 10hrs") {
           issue = "< 10hrs (Low Hours)";
         } else if (status === "Late Entry") {
-          issue = "Late Entry (দেরিতে প্রবেশ)";
+          issue = "Late Entry";
         } else if (status === "Early Leave") {
-          issue = "Early Leave (আগে প্রস্থান)";
+          issue = "Early Leave";
         }
 
         if (issue) {
-          problematic.push({
-            date: report.date,
-            campus: report.campus,
-            memberPin: record.memberPin,
-            memberName: record.memberName,
-            issue: issue,
-            record: record,
-            reportPin: report.pin,
-          });
+          const notificationId = `${record.memberPin}-${report.date}-${issue}`;
+          if (!dismissedNotifications.includes(notificationId)) {
+            problematic.push({
+              date: report.date,
+              campus: report.campus,
+              memberPin: record.memberPin,
+              memberName: record.memberName,
+              issue: issue,
+              record: record,
+              reportPin: report.pin,
+            });
+          }
         }
       });
     });
     return problematic;
-  }, [reports]);
+  }, [reports, dismissedNotifications]);
 
   const notificationMissingAttendances = React.useMemo(() => {
     const missing: {
@@ -1645,17 +1715,20 @@ export default function ManagerDashboard({
 
       campusMembers.forEach((member) => {
         if (!campusRecordPins.has(member.pin)) {
-          missing.push({
-            date: report.date,
-            campus: report.campus,
-            memberPin: member.pin,
-            memberName: member.name,
-          });
+          const notificationId = `${member.pin}-${report.date}-absent`;
+          if (!dismissedNotifications.includes(notificationId)) {
+            missing.push({
+              date: report.date,
+              campus: report.campus,
+              memberPin: member.pin,
+              memberName: member.name,
+            });
+          }
         }
       });
     });
     return missing;
-  }, [reports, members, mentors]);
+  }, [reports, members, mentors, dismissedNotifications]);
 
   const unreadProfileReqs = profileRequests.filter(
     (r) => r.status === "Pending" && !readRequestPins.includes(r.pin),
@@ -1669,11 +1742,15 @@ export default function ManagerDashboard({
 
   const totalUnreadRequestsCount =
     unreadProfileReqs.length + unreadEditReqs.length + unreadLeaveReqs.length;
+  const myEmails = emails.filter(e => e.toEmail === currentUser.email || e.toEmail === `${currentUser.pin}@portal.com`);
+  const unreadEmailCount = myEmails.filter(e => !e.isRead).length;
+
   const totalNotificationBadgeCount =
     missingAttendanceData.currentMonthMissing.length +
     notificationProblematicAttendances.length +
     notificationMissingAttendances.length +
-    totalUnreadRequestsCount;
+    totalUnreadRequestsCount +
+    unreadEmailCount;
 
 
   const filteredAndSortedLeaveRequests = React.useMemo(() => {
@@ -1793,7 +1870,7 @@ export default function ManagerDashboard({
                   <div className="flex items-center gap-2">
                     <Bell className="w-4.5 h-4.5 text-indigo-600" />
                     <h3 className="text-xs font-black text-indigo-950 uppercase tracking-wider font-mono">
-                      বিজ্ঞপ্তি ও রিকুয়েস্ট (Notifications & Requests)
+                      Notifications & Requests
                     </h3>
                   </div>
                   <button
@@ -1811,6 +1888,7 @@ export default function ManagerDashboard({
                     { id: "requests", label: "Requests", count: totalUnreadRequestsCount },
                     { id: "problematic", label: "Issues", count: notificationProblematicAttendances.length },
                     { id: "missing", label: "Missing", count: notificationMissingAttendances.length + missingAttendanceData.currentMonthMissing.length },
+                    { id: "notices", label: "Notices ", count: unreadEmailCount },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -1848,21 +1926,21 @@ export default function ManagerDashboard({
                       <div className="flex items-center justify-between">
                         <h4 className="text-[11px] font-black text-indigo-950 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                           <Plus className="w-3.5 h-3.5 text-amber-500" />
-                          নতুন রিকুয়েস্ট সমূহ ({totalUnreadRequestsCount})
+                          New Requests ({totalUnreadRequestsCount})
                         </h4>
                         {totalUnreadRequestsCount > 0 && (
                           <button
                             onClick={markAllRequestsAsRead}
                             className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-wider cursor-pointer"
                           >
-                            সব পঠিত চিহ্নিত করুন
+                            Mark all as read
                           </button>
                         )}
                       </div>
 
                       {totalUnreadRequestsCount === 0 ? (
                         <div className="p-3 bg-slate-50 rounded-2xl text-center text-[10px] text-slate-400 italic">
-                          কোনো নতুন অনিষ্পন্ন রিকুয়েস্ট নেই। (No new pending requests)
+                          No new pending requests.
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -1881,11 +1959,11 @@ export default function ManagerDashboard({
                                 <Shield className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                                 <div>
                                   <p className="text-[11px] font-bold text-slate-800">
-                                    প্রোফাইল সংশোধন আবেদন
+                                    Profile Correction Request
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium">
-                                    {req.requestedName} (পিন: {req.requestedPin})
-                                    নাম/পিন সংশোধনের আবেদন করেছেন।
+                                    {req.requestedName} (PIN: {req.requestedPin})
+                                    Requested a name/PIN change.
                                   </p>
                                 </div>
                               </div>
@@ -1908,7 +1986,7 @@ export default function ManagerDashboard({
                             <div
                               key={req.pin}
                               onClick={() => {
-                                setActiveTab("edit-requests");
+                                setActiveTab("edit_requests");
                                 setIsNotificationsOpen(false);
                                 window.scrollTo({ top: 300, behavior: "smooth" });
                               }}
@@ -1918,12 +1996,10 @@ export default function ManagerDashboard({
                                 <Edit3 className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
                                 <div>
                                   <p className="text-[11px] font-bold text-slate-800">
-                                    উপস্থিতি সংশোধন আবেদন
+                                    Attendance Correction Request
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium">
-                                    {req.coordinatorName} কো-অর্ডিনেটর{" "}
-                                    {req.memberName} এর উপস্থিতি পরিবর্তনের জন্য
-                                    অনুরোধ করেছেন।
+                                    Coordinator {req.coordinatorName} requested an attendance change for {req.memberName}.
                                   </p>
                                 </div>
                               </div>
@@ -1956,11 +2032,10 @@ export default function ManagerDashboard({
                                 <ClipboardList className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                                 <div>
                                   <p className="text-[11px] font-bold text-slate-800">
-                                    ছুটির আবেদন
+                                    Leave Request
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium">
-                                    {req.memberName} ({req.leaveType}) ছুটির জন্য
-                                    আবেদন করেছেন। (তারিখ: {req.startDate})
+                                    {req.memberName} requested {req.leaveType} leave. (Date: {req.startDate})
                                   </p>
                                 </div>
                               </div>
@@ -1977,7 +2052,62 @@ export default function ManagerDashboard({
                               </button>
                             </div>
                           ))}
+
                         </div>
+                      )}
+                    </div>
+                  )}
+
+                  {notificationActiveTab === "notices" && (
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {unreadEmailCount === 0 ? (
+                        <div className="py-12 text-center text-slate-400">
+                          <Inbox className="w-12 h-12 mx-auto text-slate-200 mb-2" />
+                          <p className="font-bold text-slate-500">No new notices</p>
+                        </div>
+                      ) : (
+                        myEmails.filter(e => !e.isRead).map((msg) => (
+                          <div
+                            key={msg.pin}
+                            className="flex flex-col p-4 bg-slate-50 border border-slate-150 rounded-2xl transition-all hover:bg-white hover:border-indigo-200 group relative text-left"
+                          >
+                            <div 
+                              className="cursor-pointer"
+                              onClick={() => {
+                                onMarkEmailAsRead(msg.pin);
+                                setActiveTab("notices");
+                                setIsNotificationsOpen(false);
+                                window.scrollTo({ top: 300, behavior: "smooth" });
+                              }}
+                            >
+                              <div className="flex justify-between items-start mb-1.5">
+                                <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider font-mono">
+                                  {msg.fromName}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-bold">
+                                  {new Date(msg.date).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <h4 className="text-xs font-black text-slate-800 line-clamp-1 mb-1">
+                                {msg.subject}
+                              </h4>
+                              <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed italic">
+                                "{msg.body}"
+                              </p>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onMarkEmailAsRead(msg.pin);
+                                toast.success("পঠিত হিসেবে চিহ্নিত করা হয়েছে!");
+                              }}
+                              className="absolute bottom-3 right-3 p-2 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:border-emerald-200 rounded-xl opacity-0 group-hover:opacity-100 transition-all shadow-sm"
+                              title="Mark as Read"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))
                       )}
                     </div>
                   )}
@@ -1987,18 +2117,18 @@ export default function ManagerDashboard({
                     <div className="space-y-4">
                       <h4 className="text-[11px] font-black text-rose-950 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                         <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                        সমস্যামূলক উপস্থিতি ({notificationProblematicAttendances.length})
+                        Problematic Attendance ({notificationProblematicAttendances.length})
                       </h4>
 
                       {notificationProblematicAttendances.length === 0 ? (
                         <div className="p-3 bg-slate-50 rounded-2xl text-center text-[10px] text-slate-400 italic">
-                          কোনো সমস্যামূলক উপস্থিতি রেকর্ড নেই। (No problematic attendance records)
+                          No problematic attendance records.
                         </div>
                       ) : (
                         <div className="space-y-2">
                           {notificationProblematicAttendances.map((m) => (
                             <div
-                              key={`${m.date}-${m.memberPin}`}
+                              key={`${m.date}-${m.memberPin}-${m.issue}`}
                               onClick={() => {
                                 setAttendanceViewerDate(m.date);
                                 setAttendanceViewerCampus(m.campus);
@@ -2006,19 +2136,30 @@ export default function ManagerDashboard({
                                 setIsNotificationsOpen(false);
                                 window.scrollTo({ top: 300, behavior: "smooth" });
                               }}
-                              className="flex flex-col gap-1 p-3 bg-rose-50/30 border border-rose-100/50 hover:bg-rose-50/50 rounded-2xl transition-all cursor-pointer text-left"
+                              className="flex items-center justify-between gap-2.5 p-3 bg-rose-50/30 border border-rose-100/50 hover:bg-rose-50/50 rounded-2xl transition-all cursor-pointer text-left"
                             >
-                              <div className="flex items-center justify-between">
-                                <p className="text-[11px] font-bold text-slate-800">
-                                  {m.memberName} ({m.memberPin})
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[11px] font-bold text-slate-800 truncate">
+                                    {m.memberName} ({m.memberPin})
+                                  </p>
+                                  <span className="text-[8px] font-black bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded shrink-0">
+                                    {m.issue}
+                                  </span>
+                                </div>
+                                <p className="text-[9px] text-slate-500 font-medium flex items-center gap-1 mt-1">
+                                  <Calendar className="w-3 h-3" /> {m.date} | 📍 {m.campus}
                                 </p>
-                                <span className="text-[8px] font-black bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">
-                                  {m.issue}
-                                </span>
                               </div>
-                              <p className="text-[9px] text-slate-500 font-medium flex items-center gap-1">
-                                <Calendar className="w-3 h-3" /> {m.date} | 📍 {m.campus}
-                              </p>
+                              <button
+                                onClick={(e) => {
+                                  handleDismissNotification(`${m.memberPin}-${m.date}-${m.issue}`, e);
+                                }}
+                                className="p-1.5 hover:bg-rose-100/80 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
+                                title="Mark as Read"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -2032,18 +2173,18 @@ export default function ManagerDashboard({
                       <div className="space-y-4">
                         <h4 className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                           <UserMinus className="w-3.5 h-3.5 text-amber-600" />
-                          অনুপস্থিত মেম্বার রেকর্ড ({notificationMissingAttendances.length})
+                          Absent Member Records ({notificationMissingAttendances.length})
                         </h4>
 
                         {notificationMissingAttendances.length === 0 ? (
                           <div className="p-3 bg-slate-50 rounded-2xl text-center text-[10px] text-slate-400 italic">
-                            কোনো অনুপস্থিত রেকর্ড নেই। (No missing attendance records)
+                            No absent records.
                           </div>
                         ) : (
                           <div className="space-y-2">
                             {notificationMissingAttendances.map((m) => (
                               <div
-                                key={`${m.date}-${m.memberPin}`}
+                                key={`${m.date}-${m.memberPin}-absent`}
                                 onClick={() => {
                                   setAttendanceViewerDate(m.date);
                                   setAttendanceViewerCampus(m.campus);
@@ -2051,16 +2192,25 @@ export default function ManagerDashboard({
                                   setIsNotificationsOpen(false);
                                   window.scrollTo({ top: 300, behavior: "smooth" });
                                 }}
-                                className="flex flex-col gap-1 p-3 bg-amber-50/30 border border-amber-100/50 hover:bg-amber-50/50 rounded-2xl transition-all cursor-pointer text-left"
+                                className="flex items-center justify-between gap-2.5 p-3 bg-amber-50/30 border border-amber-100/50 hover:bg-amber-50/50 rounded-2xl transition-all cursor-pointer text-left"
                               >
-                                <div className="flex items-center justify-between">
-                                  <p className="text-[11px] font-bold text-slate-800">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[11px] font-bold text-slate-800 truncate font-sans">
                                     {m.memberName} ({m.memberPin})
                                   </p>
+                                  <p className="text-[9px] text-slate-500 font-medium flex items-center gap-1 mt-1 font-sans">
+                                    <Calendar className="w-3 h-3" /> {m.date} | 📍 {m.campus}
+                                  </p>
                                 </div>
-                                <p className="text-[9px] text-slate-500 font-medium flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" /> {m.date} | 📍 {m.campus}
-                                </p>
+                                <button
+                                  onClick={(e) => {
+                                    handleDismissNotification(`${m.memberPin}-${m.date}-absent`, e);
+                                  }}
+                                  className="p-1.5 hover:bg-amber-100/80 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
+                                  title="Mark as Read"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -2070,10 +2220,10 @@ export default function ManagerDashboard({
                       <div className="space-y-4 pt-4 border-t border-slate-100">
                         <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                           <AlertCircle className="w-3.5 h-3.5 text-indigo-600" />
-                          উপস্থিতি এলার্ট ({missingAttendanceData.currentMonthMissing.length})
+                          Attendance Alert ({missingAttendanceData.currentMonthMissing.length})
                         </h4>
                         <p className="text-[9px] text-slate-500 font-medium">
-                          চলতি মাসের যেসকল ক্যাম্পাসের উপস্থিতি রিপোর্ট পোস্ট করা বাকি আছে
+                          Campus attendance reports still pending for this month
                         </p>
 
                         {(() => {
@@ -2081,7 +2231,7 @@ export default function ManagerDashboard({
                           if (list.length === 0) {
                             return (
                               <div className="py-2 text-center text-[10px] font-bold text-emerald-600">
-                                🎉 সব রিপোর্ট পোস্ট করা হয়েছে।
+                                🎉 All reports posted!
                               </div>
                             );
                           }
@@ -2090,28 +2240,24 @@ export default function ManagerDashboard({
                               {list.map((item) => (
                                 <div
                                   key={item.date}
-                                  className="bg-indigo-50/20 border border-indigo-100/70 rounded-2xl p-3 flex flex-col gap-2 text-left"
+                                  onClick={() => {
+                                    setReportDate(item.date);
+                                    if (item.campuses.length > 0) {
+                                      setReportCampus(item.campuses[0]);
+                                    }
+                                    setActiveTab("attendance");
+                                    setIsNotificationsOpen(false);
+                                    window.scrollTo({ top: 300, behavior: "smooth" });
+                                  }}
+                                  className="bg-indigo-50/20 border border-indigo-100/70 rounded-2xl p-3 flex items-center justify-between gap-2 text-left cursor-pointer hover:bg-indigo-50/50 transition-colors group"
                                 >
                                   <p className="text-[10px] font-black text-indigo-950 flex items-center gap-1 font-mono">
-                                    <Calendar className="w-3 h-3 text-indigo-600" />
+                                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
                                     {item.date}
                                   </p>
-                                  <div className="flex flex-wrap gap-1 pt-1">
-                                    {item.campuses.map((campusName) => (
-                                      <button
-                                        key={campusName}
-                                        onClick={() => {
-                                          setReportDate(item.date);
-                                          setReportCampus(campusName);
-                                          setActiveTab("attendance");
-                                          setIsNotificationsOpen(false);
-                                          window.scrollTo({ top: 300, behavior: "smooth" });
-                                        }}
-                                        className="text-[8px] font-bold bg-white border border-indigo-150 text-indigo-950 px-1.5 py-0.5 rounded shadow-3xs hover:bg-indigo-600 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        📍 {campusName}
-                                      </button>
-                                    ))}
+                                  <div className="flex items-center gap-1 text-[8px] font-bold text-indigo-400 uppercase tracking-tighter group-hover:text-indigo-600 transition-colors">
+                                    Click to post
+                                    <ChevronRight className="w-3 h-3" />
                                   </div>
                                 </div>
                               ))}
@@ -2127,179 +2273,104 @@ export default function ManagerDashboard({
           )}
         </div>
       </div>
-      <div className="flex flex-col lg:flex-row gap-8 items-start">
-        {/* Sidebar */}
-        <AnimatePresence mode="wait">
-          {isSidebarOpen && (
+
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:gap-8 items-start">
+        {/* Mobile Sidebar Overlay */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
             <motion.div
-              initial={{ width: 0, opacity: 0, x: -20 }}
-              animate={{ width: "260px", opacity: 1, x: 0 }}
-              exit={{ width: 0, opacity: 0, x: -20 }}
-              className="lg:block space-y-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs text-left overflow-hidden shrink-0 h-fit sticky top-6"
-            >
-              <div className="flex items-center justify-between px-2 mb-2">
-                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
-                  Mentor's Menu
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row lg:flex-col gap-1 overflow-x-auto sm:overflow-x-visible">
-            <button
-              onClick={() => setActiveTab("attendance")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "attendance"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <FileSpreadsheet className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Post Attendance
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("attendance-viewer")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "attendance-viewer"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Team Member Attendance
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("members")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "members"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Team Members List
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("edit-requests")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "edit-requests"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <Edit3 className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words pr-5">
-                Attendance Adjustments
-              </span>
-              {attendanceEditRequests.filter((r) => r.status === "Pending")
-                .length > 0 && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 bg-indigo-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white font-mono">
-                  {
-                    attendanceEditRequests.filter((r) => r.status === "Pending")
-                      .length
-                  }
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("leave-requests")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "leave-requests"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <ClipboardList className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words pr-5">
-                Leave Requests
-              </span>
-              {leaveRequests.filter((r) => r.status === "Pending").length >
-                0 && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white font-mono">
-                  {leaveRequests.filter((r) => r.status === "Pending").length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("roster")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "roster"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Member Management
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("campuses")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "campuses"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <MapPin className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Campus Settings
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("notices")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "notices"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <Megaphone className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Notice Board
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("verification")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "verification"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <Shield className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words pr-5">
-                Profile Verification Requests
-              </span>
-              {profileRequests.filter((r) => r.status === "Pending").length >
-                0 && (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white font-mono">
-                  {profileRequests.filter((r) => r.status === "Pending").length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("profile")}
-              className={`flex-1 sm:flex-initial lg:w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                activeTab === "profile"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              <User className="w-4 h-4 shrink-0" />
-              <span className="whitespace-normal text-left leading-tight break-words">
-                Profile Settings
-              </span>
-            </button>
-          </div>
-        </motion.div>
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 lg:hidden"
+            />
           )}
         </AnimatePresence>
+
+        {/* Sidebar */}
+        <AnimatePresence mode="wait">
+          {(isSidebarOpen || isMobileMenuOpen) && (
+            <motion.div
+              initial={{ width: 0, opacity: 0, x: -20 }}
+              animate={{ 
+                width: isMobileMenuOpen ? "280px" : "260px", 
+                opacity: 1, 
+                x: 0,
+                position: isMobileMenuOpen ? "fixed" : "sticky",
+                top: isMobileMenuOpen ? "0" : "1.5rem",
+                left: isMobileMenuOpen ? "0" : "auto",
+                height: isMobileMenuOpen ? "100vh" : "fit-content",
+                zIndex: isMobileMenuOpen ? 50 : 10
+              }}
+              exit={{ width: 0, opacity: 0, x: -20 }}
+              className={`bg-white p-4 sm:p-5 rounded-none lg:rounded-3xl border-r lg:border border-slate-200/80 shadow-xs text-left overflow-y-auto shrink-0`}
+            >
+              <div className="flex items-center justify-between px-2 mb-6 lg:mb-2">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                  Manager's Menu
+                </p>
+                {isMobileMenuOpen && (
+                  <button 
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-2 text-slate-400 hover:text-slate-600 lg:hidden"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                {[
+                  { id: "attendance", icon: FileSpreadsheet, label: "Post Attendance" },
+                  { id: "attendance-viewer", icon: Users, label: "Team Member Attendance" },
+                  { id: "members", icon: Users, label: "Team Members List" },
+                  { id: "edit_requests", icon: Edit3, label: "Attendance Adjustments", count: attendanceEditRequests.filter(r => r.status === "Pending").length, color: "indigo" },
+                  { id: "leave-requests", icon: ClipboardList, label: "Leave Requests", count: leaveRequests.filter(r => r.status === "Pending").length, color: "rose" },
+                  { id: "roster", icon: Users, label: "Member Management" },
+                  { id: "campuses", icon: MapPin, label: "Campus Settings" },
+                  { id: "notices", icon: Megaphone, label: "Notice Board" },
+                  { id: "verification", icon: Shield, label: "Profile Verification Requests", count: profileRequests.filter(r => r.status === "Pending").length, color: "rose" },
+                  { id: "profile", icon: User, label: "Profile Settings" }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id as any);
+                      setViewedMemberPin(null);
+                      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                      activeTab === tab.id
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-normal text-left leading-tight break-words pr-5">
+                      {tab.label}
+                    </span>
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span className={`absolute right-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 ${tab.color === 'rose' ? 'bg-rose-500' : 'bg-indigo-500'} text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white font-mono`}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Floating Mobile Toggle */}
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="lg:hidden fixed bottom-6 right-6 z-40 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+
         {/* Content Area */}
-        <div className={`flex-1 min-w-0 space-y-6 relative transition-all duration-300`}>
+        <div className={`flex-1 min-w-0 space-y-4 sm:space-y-6 relative transition-all duration-300 w-full`}>
           <ConfirmModal
             isOpen={!!confirmDeleteCampusName}
             onClose={() => setConfirmDeleteCampusName(null)}
@@ -2308,8 +2379,8 @@ export default function ManagerDashboard({
                 onDeleteCampus(confirmDeleteCampusName);
               setConfirmDeleteCampusName(null);
             }}
-            title="ক্যাম্পাস ডিলিট করুন (Delete Campus)"
-            message={`আপনি কি নিশ্চিতভাবে "${confirmDeleteCampusName}" ক্যাম্পাসটি ডিলিট করতে চান? এই কর্মটি আর ফিরিয়ে আনা যাবে না।`}
+            title="Delete Campus"
+            message={`Are you sure you want to delete "${confirmDeleteCampusName}" campus? This action cannot be undone.`}
           />
           <ConfirmModal
             isOpen={!!confirmDeleteMemberPin}
@@ -2367,8 +2438,8 @@ export default function ManagerDashboard({
               }
               setConfirmDeleteAttendance(null);
             }}
-            title="উপস্থিতি রেকর্ড ডিলিট করুন (Delete Attendance Record)"
-            message={`আপনি কি নিশ্চিতভাবে "${confirmDeleteAttendance?.memberName} (${confirmDeleteAttendance?.memberPin})" এর উপস্থিতি রেকর্ডটি ডিলিট করতে চান? এই কর্মটি আর ফিরিয়ে আনা যাবে না।`}
+            title="Delete Attendance Record"
+            message={`Are you sure you want to delete the attendance record for "${confirmDeleteAttendance?.memberName} (${confirmDeleteAttendance?.memberPin})"? This action cannot be undone.`}
           />
           <ConfirmModal
             isOpen={!!confirmDeleteReportInfo}
@@ -2382,8 +2453,8 @@ export default function ManagerDashboard({
               }
               setConfirmDeleteReportInfo(null);
             }}
-            title="রিপোর্ট ডিলিট করুন (Delete Report)"
-            message={`আপনি কি নিশ্চিতভাবে "${confirmDeleteReportInfo?.date}" তারিখের (${confirmDeleteReportInfo?.campus === "All" ? "সব ক্যাম্পাসের" : confirmDeleteReportInfo?.campus}) সকল উপস্থিতি রেকর্ড ডিলিট করতে চান? এই কর্মটি আর ফিরিয়ে আনা যাবে না।`}
+            title="Delete Report"
+            message={`Are you sure you want to delete all attendance records for "${confirmDeleteReportInfo?.date}" (${confirmDeleteReportInfo?.campus === "All" ? "all campuses" : confirmDeleteReportInfo?.campus})? This action cannot be undone.`}
           />
 
           <ConfirmModal
@@ -2394,12 +2465,12 @@ export default function ManagerDashboard({
                 const updated = [...parsedPreviewRows];
                 updated.splice(confirmDeletePreviewRowIndex, 1);
                 setParsedPreviewRows(updated);
-                toast.success("রেকর্ড বাতিল করা হয়েছে!");
+                toast.success("Record cancelled!");
               }
               setConfirmDeletePreviewRowIndex(null);
             }}
-            title="রেকর্ড বাতিল করুন (Delete Preview Record)"
-            message="আপনি কি নিশ্চিতভাবে এই প্রিভিউ রেকর্ডটি ডিলিট করতে চান?"
+            title="Delete Preview Record"
+            message="Are you sure you want to delete this preview record?"
           />
 
           {/* Edit Preview Record Modal */}
@@ -2413,7 +2484,7 @@ export default function ManagerDashboard({
                 <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                   <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
                     <Edit className="w-5 h-5 text-indigo-600" />
-                    প্রিভিউ রেকর্ড এডিট করুন (Edit Preview Record)
+                    Edit Preview Record
                   </h3>
                   <button
                     type="button"
@@ -2431,7 +2502,7 @@ export default function ManagerDashboard({
                     updated[editingPreviewRow.index] = editingPreviewRow.record;
                     setParsedPreviewRows(updated);
                     setEditingPreviewRow(null);
-                    toast.success("রেকርድ আপডেট করা হয়েছে!");
+                    toast.success("Record updated successfully!");
                   }}
                   className="space-y-4"
                 >
@@ -2616,14 +2687,14 @@ export default function ManagerDashboard({
                       onClick={() => setEditingPreviewRow(null)}
                       className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
                     >
-                      বাতিল
+                      Cancel
                     </button>
                     <button
                       type="submit"
                       className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-1.5"
                     >
                       <Save className="w-4 h-4" />
-                      সংরক্ষণ করুন
+                      Save Changes
                     </button>
                   </div>
                 </form>
@@ -2631,8 +2702,314 @@ export default function ManagerDashboard({
             </div>
           )}
 
+          {/* Member Monthly Attendance View (if selected) */}
+          {viewedMemberPin !== null && (
+            <motion.div
+              key="member-monthly-attendance"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs text-left space-y-6"
+            >
+              {/* Back Button & Member Info */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-150 pb-5">
+                <button
+                  onClick={() => setViewedMemberPin(null)}
+                  className="flex items-center gap-1.5 text-xs font-black text-indigo-600 hover:text-indigo-800 transition-colors bg-indigo-50/50 hover:bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 cursor-pointer w-fit animate-pulse"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Back to Members List
+                </button>
+                <div className="flex items-center gap-3">
+                  <UserAvatar user={members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin)} size="sm" />
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800">
+                      {(members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin))?.name}
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-mono font-medium">
+                      PIN: {viewedMemberPin}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* The custom "My Attendance" interface exactly like the image */}
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white">
+                {/* Title Header Bar */}
+                <div className="bg-[#022e54] text-white px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+                  <h4 className="text-sm font-bold tracking-wide">My Attendance</h4>
+                  <span className="text-xs bg-white/10 px-3 py-1 rounded-full font-mono font-medium border border-white/20">
+                    {(members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin))?.name} (PIN: {viewedMemberPin})
+                  </span>
+                </div>
+
+                {/* Filter Bar */}
+                <div className="bg-slate-50 border-b border-slate-200 p-4 flex flex-col md:flex-row items-center justify-center gap-4 text-xs font-semibold text-slate-700">
+                  <div className="flex items-center gap-2">
+                    <span>Start Date</span>
+                    <input
+                      type="date"
+                      value={tempStartDate}
+                      onChange={(e) => setTempStartDate(e.target.value)}
+                      className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>End Date</span>
+                    <input
+                      type="date"
+                      value={tempEndDate}
+                      onChange={(e) => setTempEndDate(e.target.value)}
+                      className="px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      setAttendanceStartDate(tempStartDate);
+                      setAttendanceEndDate(tempEndDate);
+                      toast.success("Attendance filtered successfully!");
+                    }}
+                    className="px-5 py-1.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white font-medium rounded-lg cursor-pointer transition-colors shadow-2xs"
+                  >
+                    Show
+                  </button>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs min-w-[800px]">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500">
+                        <th className="p-3 border-r border-slate-150">Date</th>
+                        <th className="p-3 border-r border-slate-150">In Time</th>
+                        <th className="p-3 border-r border-slate-150">Out Time</th>
+                        <th className="p-3 border-r border-slate-150">Late Entry</th>
+                        <th className="p-3 border-r border-slate-150">Early Leave</th>
+                        <th className="p-3 border-r border-slate-150">W. Hour</th>
+                        <th className="p-3 border-r border-slate-150">Absent/Leave</th>
+                        <th className="p-3">Zone</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-600 bg-white">
+                      {(() => {
+                        const dateRange = (() => {
+                          const dates: string[] = [];
+                          const start = (() => {
+                            const parts = attendanceStartDate.split('-');
+                            if (parts.length === 3) {
+                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                            }
+                            return new Date(attendanceStartDate);
+                          })();
+                          const end = (() => {
+                            const parts = attendanceEndDate.split('-');
+                            if (parts.length === 3) {
+                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                            }
+                            return new Date(attendanceEndDate);
+                          })();
+                          if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+                          
+                          let current = new Date(start);
+                          while (current <= end) {
+                            const yyyy = current.getFullYear();
+                            const mm = String(current.getMonth() + 1).padStart(2, '0');
+                            const dd = String(current.getDate()).padStart(2, '0');
+                            dates.push(`${yyyy}-${mm}-${dd}`);
+                            current.setDate(current.getDate() + 1);
+                          }
+                          return dates.reverse();
+                        })();
+
+                        if (dateRange.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={8} className="p-8 text-center text-slate-400 font-semibold">
+                                No records found for selected range.
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return dateRange.map((dateStr) => {
+                          const dayReports = reports.filter(r => r.date === dateStr);
+                          let memberRecord: any = null;
+                          let zoneName = "-";
+                          for (const report of dayReports) {
+                            const found = report.records.find(rec => rec.memberPin === viewedMemberPin);
+                            if (found) {
+                              memberRecord = found;
+                              zoneName = report.campus || found.zone || "-";
+                              break;
+                            }
+                          }
+
+                          const parsedDate = (() => {
+                            const parts = dateStr.split('-');
+                            if (parts.length === 3) {
+                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                            }
+                            return new Date(dateStr);
+                          })();
+                          const isFriday = parsedDate.getDay() === 5; // Friday is weekend
+
+                          // custom format
+                          const displayDate = (() => {
+                            const parts = dateStr.split('-');
+                            if (parts.length !== 3) return dateStr;
+                            const year = parts[0];
+                            const monthIdx = parseInt(parts[1], 10) - 1;
+                            const day = parseInt(parts[2], 10);
+                            const monthNamesShort = [
+                              "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                            ];
+                            return `${day} ${monthNamesShort[monthIdx]}, ${year}`;
+                          })();
+
+                          if (memberRecord) {
+                            const isLateEntry = memberRecord.lateEntry && memberRecord.lateEntry !== '-' && memberRecord.lateEntry !== '0' && memberRecord.lateEntry.trim() !== '';
+                            const isEarlyLeave = memberRecord.earlyLeave && memberRecord.earlyLeave !== '-' && memberRecord.earlyLeave !== '0' && memberRecord.earlyLeave.trim() !== '';
+
+                            return (
+                              <tr key={dateStr} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">{displayDate}</td>
+                                <td className="p-3 border-r border-slate-150 font-mono">{memberRecord.checkInTime || "-"}</td>
+                                <td className="p-3 border-r border-slate-150 font-mono">{memberRecord.checkOutTime || "-"}</td>
+                                <td className={`p-3 border-r border-slate-150 font-mono ${isLateEntry ? 'text-amber-600 font-bold' : ''}`}>{memberRecord.lateEntry || "-"}</td>
+                                <td className={`p-3 border-r border-slate-150 font-mono ${isEarlyLeave ? 'text-amber-600 font-bold' : ''}`}>{memberRecord.earlyLeave || "-"}</td>
+                                <td className="p-3 border-r border-slate-150 font-mono font-medium text-slate-800">{memberRecord.workingHour || "-"}</td>
+                                <td className="p-3 border-r border-slate-150">
+                                  {memberRecord.absentOrLeave && memberRecord.absentOrLeave !== '-' ? (
+                                    <span className={`font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full ${
+                                      memberRecord.absentOrLeave.toLowerCase().includes('leave') ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                                      memberRecord.absentOrLeave.toLowerCase().includes('absent') ? 'bg-rose-50 text-rose-700 border border-rose-100' :
+                                      'bg-slate-50 text-slate-700 border border-slate-100'
+                                    }`}>
+                                      {memberRecord.absentOrLeave}
+                                    </span>
+                                  ) : "-"}
+                                </td>
+                                <td className="p-3 font-semibold text-slate-600">{zoneName}</td>
+                              </tr>
+                            );
+                          } else {
+                            return (
+                              <tr key={dateStr} className="bg-white hover:bg-slate-50/50 transition-colors">
+                                <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">{displayDate}</td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                                <td className="p-3 border-r border-slate-150">
+                                  {isFriday ? <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-slate-200">Weekend</span> : "-"}
+                                </td>
+                                <td className="p-3 text-slate-400">-</td>
+                              </tr>
+                            );
+                          }
+                        });
+                      })()}
+                    </tbody>
+                    {/* Footer Total row exactly like the image */}
+                    <tfoot>
+                      {(() => {
+                        const dateRange = (() => {
+                          const dates: string[] = [];
+                          const start = (() => {
+                            const parts = attendanceStartDate.split('-');
+                            if (parts.length === 3) {
+                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                            }
+                            return new Date(attendanceStartDate);
+                          })();
+                          const end = (() => {
+                            const parts = attendanceEndDate.split('-');
+                            if (parts.length === 3) {
+                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                            }
+                            return new Date(attendanceEndDate);
+                          })();
+                          if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+                          
+                          let current = new Date(start);
+                          while (current <= end) {
+                            const yyyy = current.getFullYear();
+                            const mm = String(current.getMonth() + 1).padStart(2, '0');
+                            const dd = String(current.getDate()).padStart(2, '0');
+                            dates.push(`${yyyy}-${mm}-${dd}`);
+                            current.setDate(current.getDate() + 1);
+                          }
+                          return dates.reverse();
+                        })();
+
+                        let totalLateMinutes = 0;
+                        let totalWorkingMinutes = 0;
+
+                        dateRange.forEach((dateStr) => {
+                          const dayReports = reports.filter(r => r.date === dateStr);
+                          for (const report of dayReports) {
+                            const found = report.records.find(rec => rec.memberPin === viewedMemberPin);
+                            if (found) {
+                              if (found.lateEntry) {
+                                const clean = found.lateEntry.trim();
+                                const matchHHMM = clean.match(/^(\d+):(\d+)$/);
+                                if (matchHHMM) {
+                                  totalLateMinutes += parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
+                                } else {
+                                  const parsed = parseInt(clean, 10);
+                                  if (!isNaN(parsed)) totalLateMinutes += parsed;
+                                }
+                              }
+                              if (found.workingHour) {
+                                const clean = found.workingHour.trim();
+                                const matchHHMM = clean.match(/^(\d+):(\d+)$/);
+                                if (matchHHMM) {
+                                  totalWorkingMinutes += parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
+                                } else {
+                                  const parsed = parseInt(clean, 10);
+                                  if (!isNaN(parsed)) totalWorkingMinutes += parsed;
+                                }
+                              }
+                              break;
+                            }
+                          }
+                        });
+
+                        const formatMins = (totalMinutes: number): string => {
+                          if (totalMinutes <= 0) return '-';
+                          const hrs = Math.floor(totalMinutes / 60);
+                          const mins = totalMinutes % 60;
+                          return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                        };
+
+                        return (
+                          <tr className="bg-slate-50 font-bold border-t border-slate-200 text-slate-800">
+                            <td className="p-3 border-r border-slate-150">Total</td>
+                            <td className="p-3 border-r border-slate-150"></td>
+                            <td className="p-3 border-r border-slate-150"></td>
+                            <td className="p-3 border-r border-slate-150 font-mono">{formatMins(totalLateMinutes)}</td>
+                            <td className="p-3 border-r border-slate-150"></td>
+                            <td className="p-3 border-r border-slate-150 font-mono">{formatMins(totalWorkingMinutes)}</td>
+                            <td className="p-3 border-r border-slate-150"></td>
+                            <td className="p-3 font-mono text-slate-400">-</td>
+                          </tr>
+                        );
+                      })()}
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Copyright footer style exactly like the image */}
+              <div className="text-center text-[11px] text-slate-400 py-2 border-t border-slate-100">
+                © 2026 - ORG
+              </div>
+            </motion.div>
+          )}
+
           {/* Tab 1: POST ATTENDANCE */}
-          {activeTab === "attendance" && (
+          {activeTab === "attendance" && viewedMemberPin === null && (
             <motion.div
               key="tab-attendance"
               initial={{ opacity: 0, y: 10 }}
@@ -2674,7 +3051,7 @@ export default function ManagerDashboard({
                       rows={8}
                       value={bulkText}
                       onChange={(e) => setBulkText(e.target.value)}
-                      
+                      placeholder=""
                       className="w-full p-4 border border-slate-200 rounded-2xl text-xs font-mono bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     />
                   </div>
@@ -2710,7 +3087,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 2: TEAM MEMBER ATTENDANCE VIEWER */}
-          {activeTab === "attendance-viewer" && (
+          {activeTab === "attendance-viewer" && viewedMemberPin === null && (
             <motion.div
               key="tab-attendance-viewer"
               initial={{ opacity: 0, y: 10 }}
@@ -2783,7 +3160,7 @@ export default function ManagerDashboard({
                 </div>
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
-                    Select Status (স্ট্যাটাস ফিল্টার)
+                    Select Status Filter
                   </label>
                   <select
                     value={attendanceViewerStatus}
@@ -2796,7 +3173,7 @@ export default function ManagerDashboard({
                     <option value="Leave">Leave</option>
                     <option value="Late Entry">Late Entry</option>
                     <option value="Early Leave">Early Leave</option>
-                    <option value="< 6hrs">&lt; 6hrs</option>
+                    <option value="< 6hr">&lt; 6hrs</option>
                     <option value="< 10hrs">&lt; 10hrs</option>
                     <option value="Finger Punch Missing">Punch Missing</option>
                   </select>
@@ -3120,7 +3497,7 @@ export default function ManagerDashboard({
 
                                   return (
                                     <div 
-                                      key={index} 
+                                      key={`${cleanText}-${index}`} 
                                       className={`flex items-start gap-1 px-1.5 py-0.5 rounded border ${
                                         isFingerPunchMissing 
                                           ? "bg-red-50 text-red-700 border-red-100 font-medium" 
@@ -3235,7 +3612,7 @@ export default function ManagerDashboard({
                           <option value="Absent">Absent</option>
                           <option value="Leave">Leave</option>
                           <option value="Late Entry">Late Entry</option>
-                          <option value="< 6hrs">&lt; 6hrs</option>
+                          <option value="< 6hr">&lt; 6hrs</option>
                           <option value="< 10hrs">&lt; 10hrs</option>
                           <option value="Half Day">Half Day</option>
                           <option value="Finger Punch Missing">
@@ -3526,7 +3903,7 @@ export default function ManagerDashboard({
                           <option value="Absent">Absent</option>
                           <option value="Leave">Leave</option>
                           <option value="Late Entry">Late Entry</option>
-                          <option value="< 6hrs">&lt; 6hrs</option>
+                          <option value="< 6hr">&lt; 6hrs</option>
                           <option value="< 10hrs">&lt; 10hrs</option>
                           <option value="Half Day">Half Day</option>
                           <option value="Finger Punch Missing">
@@ -3761,7 +4138,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 3: TEAM MEMBERS LIST */}
-          {activeTab === "members" && (
+          {activeTab === "members" && viewedMemberPin === null && (
             <motion.div
               key="tab-members"
               initial={{ opacity: 0, y: 10 }}
@@ -3822,15 +4199,23 @@ export default function ManagerDashboard({
                           (m) => m.pin === member.mentorPin,
                         );
                         return (
-                          <tr key={member.pin}>
+                          <tr 
+                            key={member.pin}
+                            onClick={() => {
+                              navigate(`/attendance/${member.pin}`);
+                            }}
+                            className="hover:bg-indigo-50/50 cursor-pointer transition-colors"
+                          >
                             <td className="p-4 text-xs font-mono text-slate-500">
                               {index + 1}
                             </td>
-                            <td className="p-4 text-xs font-mono font-bold text-slate-700">
+                            <td className="p-4 text-xs font-mono font-bold text-indigo-600">
                               {member.pin}
                             </td>
                             <td className="p-4 text-xs font-semibold text-slate-800">
-                              {member.name}
+                              <div className="flex flex-col">
+                                <span className="font-extrabold text-slate-900">{member.name}</span>
+                              </div>
                             </td>
                             <td className="p-4 text-xs font-medium text-slate-600">
                               {member.campus}
@@ -3848,7 +4233,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab: CAMPUS SETTINGS */}
-          {activeTab === "campuses" && (
+          {activeTab === "campuses" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -4042,7 +4427,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 4: FEEDBACK / REVIEW TICKETS */}
-          {activeTab === "feedback" && (
+          {activeTab === "feedback" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -4051,11 +4436,11 @@ export default function ManagerDashboard({
               <div>
                 <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-indigo-600" />
-                  রিভিউ এবং অভিযোগ টিকেট (Roster Feedback Tickets)
+                  Roster Feedback Tickets
                 </h2>
                 <p className="text-xs text-slate-500 font-medium mt-1">
-                  ক্যাম্পাস কোঅর্ডিনেটর এবং মেম্বারদের পাঠানো লেট বা অ্যাবসেন্ট
-                  সংক্রান্ত রিভিউ রিকোয়েস্ট সমাধান করুন এবং মন্তব্য দিন।
+                  Resolve review requests and provide comments for late or absent
+                  reports sent by campus coordinators and members.
                 </p>
               </div>
 
@@ -4064,11 +4449,10 @@ export default function ManagerDashboard({
                   <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-slate-400">
                     <CheckCircle className="w-12 h-12 text-emerald-500/80 mx-auto mb-3" />
                     <p className="text-sm font-bold text-slate-600">
-                      সব অভিযোগ রিভিউ শেষ! (All clear! No feedbacks posted yet)
+                      All clear! No feedbacks posted yet
                     </p>
                     <p className="text-xs text-slate-400 mt-1 font-medium">
-                      কোনো টিম মেম্বার বা ক্যাম্পাস কোঅর্ডিনেটর অভিযোগ দায়ের
-                      করেনি।
+                      No team member or campus coordinator has filed a complaint.
                     </p>
                   </div>
                 ) : (
@@ -4084,7 +4468,7 @@ export default function ManagerDashboard({
                               Ticket PIN: {fb.pin}
                             </span>
                             <h4 className="text-sm font-black text-slate-800 mt-2">
-                              অভিযোগকারী:{" "}
+                              Requester:{" "}
                               <span className="text-indigo-600">
                                 {fb.memberName}
                               </span>{" "}
@@ -4100,19 +4484,19 @@ export default function ManagerDashboard({
                             }`}
                           >
                             {fb.status === "Pending"
-                              ? "মুলতুবি (Pending)"
-                              : "মিমাংসিত (Resolved)"}
+                              ? "Pending"
+                              : "Resolved"}
                           </span>
                         </div>
 
                         <div className="space-y-2 mb-4">
                           <div className="text-xs text-slate-600 font-medium">
                             <strong className="text-slate-700">
-                              উপস্থিতি তারিখ:
+                              Attendance Date:
                             </strong>{" "}
                             {fb.date} •{" "}
                             <strong className="text-slate-700">
-                              ক্যাম্পাস:
+                              Campus:
                             </strong>{" "}
                             {
                               members.find((m) => m.pin === fb.memberPin)
@@ -4121,7 +4505,7 @@ export default function ManagerDashboard({
                           </div>
                           <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl">
                             <p className="text-xs font-bold text-rose-700">
-                              আবেদনকারীর বার্তা (Reason for review):
+                              Reason for review:
                             </p>
                             <p className="text-xs text-rose-800 font-medium mt-1">
                               "{fb.mentorComment}"
@@ -4148,20 +4532,20 @@ export default function ManagerDashboard({
                                   className="w-full px-3 py-2 border border-slate-200 bg-white rounded-lg text-xs font-bold"
                                 >
                                   <option value="Present">
-                                    Present (উপস্থিত)
+                                    Present
                                   </option>
                                   <option value="Leave">
-                                    Leave (ছুটি)
+                                    Leave
                                   </option>
                                   <option value="Finger Punch Missing">
-                                    Punch Missing (পাঞ্চিং সমস্যা)
+                                    Punch Missing
                                   </option>
-                                  <option value="Late Entry">Late Entry (বিলম্ব)</option>
+                                  <option value="Late Entry">Late Entry</option>
                                   <option value="Half Day">
-                                    Half Day (অর্ধদিবস)
+                                    Half Day
                                   </option>
                                   <option value="Absent">
-                                    Absent (অনুপস্থিত)
+                                    Absent
                                   </option>
                                 </select>
                               </div>
@@ -4191,7 +4575,7 @@ export default function ManagerDashboard({
                                 }
                                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
                               >
-                                স্ট্যাটাস পরিবর্তন করুন (Verify & Change)
+                                Verify & Change Status
                               </button>
                               <button
                                 onClick={() =>
@@ -4199,7 +4583,7 @@ export default function ManagerDashboard({
                                 }
                                 className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
                               >
-                                শুধু বার্তা হিসেবে গ্রহণ (Reviewed Only)
+                                Reviewed Only (Accept as Message)
                               </button>
                             </div>
                           </div>
@@ -4222,7 +4606,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 4: ROSTER CRUD MANAGEMENT WITH MODAL CREATION/UPDATES */}
-          {activeTab === "roster" && (
+          {activeTab === "roster" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -4262,7 +4646,7 @@ export default function ManagerDashboard({
 
                               if (data.length === 0) {
                                 toast.error(
-                                  "এক্সেল ফাইলে কোনো ডেটা পাওয়া যায়নি!",
+                                  "No data found in Excel file!",
                                 );
                                 return;
                               }
@@ -4327,6 +4711,7 @@ export default function ManagerDashboard({
                                     permissions: [
                                       "member_attendance",
                                       "member_notices",
+                                      "member_post_notice"
                                     ],
                                     avatarUrl: "",
                                   });
@@ -4335,12 +4720,12 @@ export default function ManagerDashboard({
                               });
 
                               toast.success(
-                                `${successCount} জন মেম্বার সফলভাবে ইম্পোর্ট করা হয়েছে!`,
+                                `${successCount} members imported successfully!`,
                               );
                             } catch (err) {
                               console.error(err);
                               toast.error(
-                                "এক্সেল ফাইলটি প্রসেস করতে সমস্যা হয়েছে!",
+                                "Error processing Excel file!",
                               );
                             }
                           };
@@ -4353,7 +4738,7 @@ export default function ManagerDashboard({
                           document.getElementById("excel-upload")?.click()
                         }
                         className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer shadow-xs whitespace-nowrap"
-                        title="Excel ফাইল আপলোডের মাধ্যমে মেম্বার ক্রিয়েট করুন"
+                        title="Create members via Excel upload"
                       >
                         <FileSpreadsheet className="w-4 h-4" />
                         Excel Import
@@ -4382,6 +4767,7 @@ export default function ManagerDashboard({
                             permissions: [
                               "member_attendance",
                               "member_notices",
+                              "member_post_notice"
                             ],
                             avatarUrl: "",
                             role: "member",
@@ -4423,7 +4809,7 @@ export default function ManagerDashboard({
                 <div className="mb-6 flex flex-col md:flex-row gap-4">
                   <input
                     type="text"
-                    placeholder="মেম্বারদের নাম, ইমেইল বা পিন দিয়ে খুঁজুন... (Search by name, PIN, or email)"
+                    placeholder="Search by name, PIN, or email..."
                     value={rosterSearch}
                     onChange={(e) => setRosterSearch(e.target.value)}
                     className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
@@ -4483,7 +4869,7 @@ export default function ManagerDashboard({
                       }}
                       className="text-xs font-black text-white bg-indigo-600 px-3 py-1.5 rounded-lg"
                     >
-                      Bulk Toggle
+                      Multiple Deactivate
                     </button>
                   </div>
                 </div>
@@ -4498,7 +4884,6 @@ export default function ManagerDashboard({
                         <th className="p-4">PIN</th>
                         <th className="p-4">Campus</th>
                         <th className="p-4">Campus Coordinator</th>
-                        <th className="p-4">Permissions</th>
                         <th className="p-4 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -4644,7 +5029,7 @@ export default function ManagerDashboard({
                                   const isHead =
                                     myCampus?.headCoordinatorPin === member.pin;
                                   if (isHead)
-                                    return `${managers[0]?.name || "Admin"} (${managers[0]?.pin || "M-01"}) (Manager)`;
+                                    return `${managers[0]?.name || "Admin"} (${managers[0]?.pin || "M-01"})`;
 
                                   // If they report to a specific mentorPin
                                   const assignedCoordinator = [
@@ -4671,28 +5056,6 @@ export default function ManagerDashboard({
                                   return "Unassigned";
                                 })()}
                               </td>
-                              <td className="p-4">
-                                <div className="flex flex-wrap gap-1.5 max-w-xs">
-                                  {memberPerms.includes("member_attendance") ? (
-                                    <span className="text-[9px] bg-green-50 border border-green-150 text-green-700 font-bold px-1.5 py-0.5 rounded">
-                                      Attendance
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] bg-slate-50 border border-slate-150 text-slate-350 font-medium px-1.5 py-0.5 rounded line-through">
-                                      Attendance
-                                    </span>
-                                  )}
-                                  {memberPerms.includes("member_notices") ? (
-                                    <span className="text-[9px] bg-sky-50 border border-sky-100 text-sky-700 font-bold px-1.5 py-0.5 rounded">
-                                      Bulletins
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] bg-slate-50 border border-slate-150 text-slate-350 font-medium px-1.5 py-0.5 rounded line-through">
-                                      Bulletins
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
                               <td className="p-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
@@ -4706,16 +5069,23 @@ export default function ManagerDashboard({
                                         name: member.name,
                                         email: member.email,
                                         designation: member.designation || "",
-                                        password: member.password || "password",
+                                        password: "",
                                         campus:
                                           member.campus ||
                                           campuses[0]?.name ||
                                           "",
                                         mentorPin: member.mentorPin || "",
-                                        permissions: member.permissions || [
+                                        permissions: member.permissions || (member.role === 'mentor' ? [
+                                          "mentor_attendance",
+                                          "mentor_notices",
+                                          "mentor_history",
+                                          "mentor_leave",
+                                          "mentor_post_notice"
+                                        ] : [
                                           "member_attendance",
                                           "member_notices",
-                                        ],
+                                          "member_post_notice"
+                                        ]),
                                         avatarUrl: member.avatarUrl || "",
                                         role: member.role || "member",
                                       });
@@ -4773,11 +5143,10 @@ export default function ManagerDashboard({
                       <div>
                         <h3 className="text-lg font-black text-slate-800 flex items-center gap-2 mb-1">
                           <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                          Excel Import Guide (এক্সেল ইম্পোর্ট গাইড)
+                          Excel Import Guide
                         </h3>
                         <p className="text-xs text-slate-500 font-medium">
-                          কিভাবে একসাথে অনেক মেম্বার বা কো-অর্ডিনেটর যুক্ত করবেন
-                          তার নির্দেশিকা।
+                          Guide on how to add many members or coordinators at once.
                         </p>
                       </div>
                       <button
@@ -4791,79 +5160,47 @@ export default function ManagerDashboard({
                     <div className="space-y-4">
                       <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
                         <span className="font-extrabold text-emerald-900 uppercase tracking-wider block mb-2 text-xs">
-                          ১. এক্সেল ফাইলের ফরম্যাট (Columns):
+                          1. Excel File Format (Columns):
                         </span>
                         <p className="text-xs text-emerald-800 mb-2">
-                          আপনার এক্সেল শিটের প্রথম লাইনে অবশ্যই নিচের কলাম
-                          হেডারগুলো থাকতে হবে (বানান হুবহু মিলতে হবে):
+                                                 The first line of your Excel sheet must contain the following
+                          headers (exact spelling is required):
                         </p>
                         <ul className="list-disc list-inside font-bold text-slate-700 space-y-1 text-xs pl-1">
                           <li>
                             PIN{" "}
                             <span className="font-normal text-slate-500">
-                              (আইডি/রোল নম্বর)
+                           
                             </span>
                           </li>
                           <li>
                             Name{" "}
                             <span className="font-normal text-slate-500">
-                              (মেম্বার বা কো-অর্ডিনেটরের নাম)
+                             
                             </span>
                           </li>
                           <li>
                             Email{" "}
                             <span className="font-normal text-slate-500">
-                              (মেম্বার বা কো-অর্ডিনেটরের ইমেইল)
+                             
                             </span>
                           </li>
                           <li>
                             Campus{" "}
                             <span className="font-normal text-slate-500">
-                              (ক্যাম্পাসের নাম, যেমন: Main)
+                        
                             </span>
                           </li>
                           <li>
                             Designation{" "}
                             <span className="font-normal text-slate-500">
-                              (পদবী, যেমন: Coordinator, Lead - অপশনাল)
+                          
                             </span>
                           </li>
-                          <li>
-                            Coordinator{" "}
-                            <span className="font-normal text-slate-500">
-                              (ক্যাম্পাস কো-অর্ডিনেটরের নাম, যেমন: Elena Rostova
-                              - অপশনাল)
-                            </span>
-                          </li>
+                         
                         </ul>
                       </div>
-                      <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                        <span className="font-extrabold text-indigo-900 uppercase tracking-wider block mb-2 text-xs">
-                          ২. আপলোড করার নিয়ম:
-                        </span>
-                        <ol className="list-decimal list-inside space-y-1.5 text-xs text-indigo-800 pl-1 leading-relaxed">
-                          <li>
-                            প্রথমে আপনি <strong>Team Members</strong> নাকি{" "}
-                            <strong>Campus Coordinators</strong> ইম্পোর্ট করবেন,
-                            সেই ট্যাবটি উপরে সিলেক্ট করুন।
-                          </li>
-                          <li>
-                            ডানদিকের{" "}
-                            <strong className="text-indigo-600 font-black">
-                              Excel Import
-                            </strong>{" "}
-                            বাটনে ক্লিক করে আপনার প্রস্তুতকৃত এক্সেল ফাইলটি
-                            নির্বাচন করুন।
-                          </li>
-                          <li>
-                            সিস্টেম স্বয়ংক্রিয়ভাবে ডাটা ইম্পোর্ট করবে।
-                            মেম্বারদের ক্ষেত্রে তাদের `Coordinator` কলামে থাকা
-                            কো-অর্ডিনেটর এসাইন হয়ে যাবে। যদি কোনো মিল না পাওয়া
-                            যায়, তবে ক্যাম্পাসের প্রথম কো-অর্ডিনেটর অটোমেটিক
-                            অ্যাসাইন হবে!
-                          </li>
-                        </ol>
-                      </div>
+                     
                     </div>
 
                     <div className="mt-6 flex justify-end">
@@ -4995,7 +5332,7 @@ export default function ManagerDashboard({
                             </label>
                             <input
                               type="text"
-                              required
+                              required={crudMode === "create"}
                               placeholder="Password"
                               value={memberForm.password}
                               onChange={(e) =>
@@ -5063,7 +5400,7 @@ export default function ManagerDashboard({
                                   key={`mgr-option-${m.pin}`}
                                   value={m.pin}
                                 >
-                                  {m.name} (Manager)
+                                  {m.name} 
                                 </option>
                               ))}
                               {/* coordinators assigned to this campus */}
@@ -5085,7 +5422,7 @@ export default function ManagerDashboard({
                           {/* Base64 Avatar Uploader */}
                           <div>
                             <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
-                              প্রোফাইল ছবি (Base64 Profile Picture)
+                              Profile Picture (Base64 Profile Picture)
                             </label>
                             <div
                               className="border-2 border-dashed border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/10 rounded-2xl p-4 text-center cursor-pointer transition-all relative group mb-2"
@@ -5096,7 +5433,7 @@ export default function ManagerDashboard({
                                 if (file) {
                                   if (file.size > 200 * 1024) {
                                     alert(
-                                      "ইমেজ সাইজ ২০০ KB এর বেশি হতে পারবে না।"
+                                      "Image size cannot exceed 200 KB."
                                     );
                                     return;
                                   }
@@ -5127,7 +5464,7 @@ export default function ManagerDashboard({
                                   if (file) {
                                     if (file.size > 200 * 1024) {
                                       alert(
-                                        "ইমেজ সাইজ ২০০ KB এর বেশি হতে পারবে না।"
+                                        "Image size cannot exceed 200 KB."
                                       );
                                       return;
                                     }
@@ -5162,7 +5499,7 @@ export default function ManagerDashboard({
                                   </div>
                                 )}
                                 <span className="text-[10px] font-extrabold text-slate-600 mt-0.5">
-                                  ড্র্যাগ অথবা ক্লিক করে ছবি দিন
+                                  Drag or click to upload photo
                                 </span>
                                 <span className="text-[9px] text-slate-400">
                                   Converted to Base64 instantly
@@ -5171,7 +5508,7 @@ export default function ManagerDashboard({
                             </div>
                             <input
                               type="url"
-                              placeholder="অথবা সরাসরি ইমেজ লিংক দিতে পারেন..."
+                              placeholder="Or provide a direct image link..."
                               value={
                                 memberForm.avatarUrl &&
                                 memberForm.avatarUrl.startsWith("data:")
@@ -5196,7 +5533,26 @@ export default function ManagerDashboard({
                             
                             {memberForm.role === 'mentor' ? (
                               <div className="space-y-3">
-                                
+                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_attendance")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_attendance"] : prev.permissions.filter((p) => p !== "mentor_attendance") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  View Team Attendance
+                                </label>
+                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_leave")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_leave"] : prev.permissions.filter((p) => p !== "mentor_leave") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  Manage Leave Requests
+                                </label>
+                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_history")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_history"] : prev.permissions.filter((p) => p !== "mentor_history") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  Manage Adjustments
+                                </label>
+                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_notices")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_notices"] : prev.permissions.filter((p) => p !== "mentor_notices") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  View Notice Board
+                                </label>
+                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_post_notice")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_post_notice"] : prev.permissions.filter((p) => p !== "mentor_post_notice") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  Post Notices
+                                </label>
                               </div>
                             ) : (
                               <div className="space-y-3">
@@ -5222,7 +5578,7 @@ export default function ManagerDashboard({
                                     }}
                                     className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
                                   />
-                                  Attendance (উপস্থিতি ফর্ম)
+                                  Attendance Form
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
                                   <input
@@ -5246,7 +5602,31 @@ export default function ManagerDashboard({
                                     }}
                                     className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
                                   />
-                                  Bulletins / Notice Board (নোটিশ বোর্ড)
+                                  Bulletins / Notice Board
+                                </label>
+                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "member_post_notice",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "member_post_notice",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) => p !== "member_post_notice",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
+                                  />
+                                  Post Notices 
                                 </label>
                               </div>
                             )}
@@ -5278,7 +5658,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 4b: NOTICE BOARD ACCESSIBLE TO MANAGER */}
-          {activeTab === "notices" && (
+          {activeTab === "notices" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -5297,7 +5677,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 5: PROFILE VERIFICATION REQUESTS */}
-          {activeTab === "verification" && (
+          {activeTab === "verification" && viewedMemberPin === null && (
             <motion.div
               key="tab-verification"
               initial={{ opacity: 0, y: 10 }}
@@ -5351,7 +5731,7 @@ export default function ManagerDashboard({
                               </span>
                             </div>
                             <h4 className="text-sm font-black text-slate-800">
-                              অনুরোধকারী:{" "}
+                              Requester:{" "}
                               <span className="text-indigo-600">
                                 {request.currentName}
                               </span>{" "}
@@ -5366,24 +5746,24 @@ export default function ManagerDashboard({
                             <div className="mt-3 grid grid-cols-2 gap-4 bg-slate-50 border border-slate-100 p-3 rounded-xl max-w-md">
                               <div>
                                 <p className="text-[9px] font-bold uppercase text-slate-400">
-                                  বর্তমান তথ্য (Current)
+                                  Current Information (Current)
                                 </p>
                                 <p className="text-xs font-semibold text-slate-600 mt-1">
-                                  নাম: {request.currentName}
+                                  Name: {request.currentName}
                                 </p>
                                 <p className="text-xs font-mono text-slate-600 mt-0.5">
-                                  পিন: {request.currentPin}
+                                  PIN: {request.currentPin}
                                 </p>
                               </div>
                               <div className="border-l border-slate-200 pl-4">
                                 <p className="text-[9px] font-bold uppercase text-indigo-500">
-                                  অনুরোধকৃত তথ্য (Requested)
+                                  Requested Information (Requested)
                                 </p>
                                 <p className="text-xs font-black text-indigo-700 mt-1">
-                                  নাম: {request.requestedName}
+                                  Name: {request.requestedName}
                                 </p>
                                 <p className="text-xs font-mono font-black text-indigo-700 mt-0.5">
-                                  পিন: {request.requestedPin}
+                                  PIN: {request.requestedPin}
                                 </p>
                               </div>
                             </div>
@@ -5394,25 +5774,25 @@ export default function ManagerDashboard({
                               onClick={() => {
                                 onApproveProfileRequest(request.pin);
                                 alert(
-                                  "প্রোফাইল সংশোধন অনুরোধ সফলভাবে ভেরিফাই ও সাবমিট করা হয়েছে! (Approved successfully!)",
+                                  "Profile correction request successfully verified and submitted!",
                                 );
                               }}
                               className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl cursor-pointer transition-colors shadow-2xs whitespace-nowrap"
                             >
                               <ThumbsUp className="w-4 h-4" />
-                              ভেরিফাই ও সাবমিট
+                              Verify & Submit
                             </button>
                             <button
                               onClick={() => {
                                 onRejectProfileRequest(request.pin);
                                 toast.success(
-                                  "অনুরোধটি বাতিল করা হয়েছে। (Rejected successfully!)",
+                                  "Request has been rejected.",
                                 );
                               }}
                               className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 text-xs font-bold rounded-xl cursor-pointer transition-colors whitespace-nowrap"
                             >
                               <ThumbsDown className="w-4 h-4" />
-                              প্রত্যাখ্যাত করুন
+                              Reject Request
                             </button>
                             <button
                               onClick={() => {
@@ -5421,7 +5801,7 @@ export default function ManagerDashboard({
                               className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 text-xs font-bold rounded-xl cursor-pointer transition-colors whitespace-nowrap"
                             >
                               <Trash className="w-4 h-4 text-slate-500" />
-                              মুছে ফেলুন
+                              Delete Request
                             </button>
                           </div>
                         </div>
@@ -5451,10 +5831,10 @@ export default function ManagerDashboard({
                         >
                           <div className="text-left space-y-0.5">
                             <p className="font-bold text-slate-700">
-                              {req.requestedName} (পিন: {req.requestedPin})
+                              {req.requestedName} (PIN: {req.requestedPin})
                             </p>
                             <p className="text-[10px] text-slate-400 font-medium">
-                              অনুরোধকারী পিন: {req.userPin} • {req.userRole}
+                              Requester PIN: {req.userPin} • {req.userRole}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -5466,8 +5846,8 @@ export default function ManagerDashboard({
                               }`}
                             >
                               {req.status === "Approved"
-                                ? "অনুমোদিত"
-                                : "প্রত্যাখ্যাত"}
+                                ? "Approved"
+                                : "Rejected"}
                             </span>
                             <button
                               onClick={() => {
@@ -5488,7 +5868,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Attendance Edit Requests Panel */}
-          {activeTab === "edit-requests" && (
+          {activeTab === "edit_requests" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -5509,7 +5889,7 @@ export default function ManagerDashboard({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                   <div className="p-4 bg-indigo-50/45 rounded-2xl border border-indigo-100/50">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      পেন্ডিং ইডিট রিকুয়েস্ট
+                      Pending Edit Requests
                     </p>
                     <p className="text-2xl font-black text-indigo-700 mt-1">
                       {
@@ -5521,7 +5901,7 @@ export default function ManagerDashboard({
                   </div>
                   <div className="p-4 bg-emerald-50/45 rounded-2xl border border-emerald-100/50">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      অনুমোদিত (Approved)
+                      Approved
                     </p>
                     <p className="text-2xl font-black text-emerald-700 mt-1">
                       {
@@ -5533,7 +5913,7 @@ export default function ManagerDashboard({
                   </div>
                   <div className="p-4 bg-rose-50/45 rounded-2xl border border-rose-100/50">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      প্রত্যাখ্যাত (Rejected)
+                      Rejected
                     </p>
                     <p className="text-2xl font-black text-rose-700 mt-1">
                       {
@@ -5549,301 +5929,265 @@ export default function ManagerDashboard({
                   <div className="bg-slate-50 border border-slate-150 rounded-2xl p-12 text-center text-slate-400">
                     <AlertCircle className="w-12 h-12 mx-auto text-slate-300 mb-3" />
                     <p className="font-bold text-slate-600">
-                      কোনো অ্যাটেনডেন্স ইডিট রিকুয়েস্ট পাওয়া যায়নি
+                      No attendance edit requests found
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
-                      ক্যাম্পাস কো-অর্ডিনেটর কোনো সংশোধনের জন্য আবেদন করলে তা
-                      এখানে প্রদর্শিত হবে।
+                      If a campus coordinator applies for a correction, it will
+                      be displayed here.
                     </p>
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-[#f8f9fa] shadow-inner p-1">
-                    <div className="w-full overflow-x-auto">
-                      <table className="w-full text-left border-collapse min-w-[1400px] bg-white border border-[#e0e0e0]">
-                        <thead>
-                          <tr className="bg-[#f8f9fa] text-[10px] font-black uppercase tracking-wider text-[#3c4043] border-b border-[#e0e0e0]">
-                            <th className="p-2 text-center w-12 border border-[#e0e0e0] font-bold">
-                              SL
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              PIN
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Name
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Date
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              In time
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Out time
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Reason (Details)
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Campus
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Status
-                            </th>
-                            <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Remarks
-                            </th>
-                            <th className="p-2 text-center w-28 border border-[#e0e0e0] font-bold">
-                              Actions
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-150 bg-white">
-                          {attendanceEditRequests.map((req, index) => {
-                            const isEditing = editingReqPin === req.pin;
-                            const report = reports.find(
-                              (r) => r.pin === req.reportPin,
-                            );
-                            const record = report?.records.find(
-                              (rec) => rec.memberPin === req.memberPin,
-                            );
-                            const inTime = record?.checkInTime || "--:--";
-                            const outTime = record?.checkOutTime || "--:--";
-                            const memberCampus =
-                              members.find(
-                                (m) =>
-                                  m.pin ===
-                                  (isEditing
-                                    ? reqEditForm.memberPin
-                                    : req.memberPin),
-                              )?.campus || "N/A";
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      {selectedEditReqPins.length > 0 && (
+                        <button
+                          onClick={() => {
+                            selectedEditReqPins.forEach((pin) => {
+                              const req = attendanceEditRequests.find((r) => r.pin === pin);
+                              if (req && req.status === "Pending") {
+                                onResolveAttendanceEditRequest(req.pin, "Approved", req.managerComment || "");
+                              }
+                            });
+                            setSelectedEditReqPins([]);
+                            toast.success(`${selectedEditReqPins.length} requests successfully approved!`);
+                          }}
+                          className="px-4 py-2 bg-emerald-600 text-white text-xs font-black uppercase tracking-wider rounded-xl hover:bg-emerald-700 transition-colors flex items-center gap-1.5 shadow-md cursor-pointer"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          Bulk Approve ({selectedEditReqPins.length})
+                        </button>
+                      )}
+                    </div>
+                    <div className="border border-slate-200 rounded-2xl overflow-hidden bg-[#f8f9fa] shadow-inner p-1">
+                      <div className="w-full overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[1400px] bg-white border border-[#e0e0e0]">
+                          <thead>
+                            <tr className="bg-[#f8f9fa] text-[10px] font-black uppercase tracking-wider text-[#3c4043] border-b border-[#e0e0e0]">
+                              <th className="p-2 text-center w-12 border border-[#e0e0e0] font-bold">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    attendanceEditRequests.filter(r => r.status === "Pending").length > 0 &&
+                                    attendanceEditRequests
+                                      .filter(r => r.status === "Pending")
+                                      .every(r => selectedEditReqPins.includes(r.pin))
+                                  }
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      const pendingPins = attendanceEditRequests
+                                        .filter(r => r.status === "Pending")
+                                        .map(r => r.pin);
+                                      setSelectedEditReqPins(pendingPins);
+                                    } else {
+                                      setSelectedEditReqPins([]);
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer animate-none"
+                                />
+                              </th>
+                              <th className="p-2 text-center w-12 border border-[#e0e0e0] font-bold">
+                                SL
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                PIN
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Name
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Date
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                In time
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Out time
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Reason
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Campus
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Status
+                              </th>
+                              <th className="p-2 border border-[#e0e0e0] font-bold">
+                                Remarks
+                              </th>
+                              <th className="p-2 text-center w-28 border border-[#e0e0e0] font-bold">
+                                Actions
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-150 bg-white">
+                            {attendanceEditRequests.map((req, index) => {
+                              const report = reports.find(
+                                (r) => r.pin === req.reportPin,
+                              );
+                              const record = report?.records.find(
+                                (rec) => rec.memberPin === req.memberPin,
+                              );
+                              const inTime = record?.checkInTime || "--:--";
+                              const outTime = record?.checkOutTime || "--:--";
+                              const memberCampus =
+                                members.find((m) => m.pin === req.memberPin)?.campus || "N/A";
 
-                            return (
-                              <tr
-                                key={req.pin}
-                                className={`hover:bg-[#f1f3f4]/80 transition-colors ${
-                                  req.status === "Pending"
-                                    ? "bg-amber-50/20"
-                                    : ""
-                                }`}
-                              >
-                                <td className="p-2 text-center text-[11px] font-bold text-slate-400 font-mono border border-[#e0e0e0]">
-                                  {index + 1}
-                                </td>
-                                <td className="p-2 text-[11px] font-mono font-bold text-slate-700 border border-[#e0e0e0]">
-                                  {isEditing ? (
+                              return (
+                                <tr
+                                  key={req.pin}
+                                  className={`hover:bg-[#f1f3f4]/80 transition-colors ${
+                                    req.status === "Pending"
+                                      ? "bg-amber-50/20"
+                                      : ""
+                                  }`}
+                                >
+                                  <td className="p-2 text-center border border-[#e0e0e0]">
                                     <input
-                                      type="text"
-                                      value={reqEditForm.memberPin || ""}
-                                      onChange={(e) =>
-                                        setReqEditForm((prev) => ({
-                                          ...prev,
-                                          memberPin: e.target.value,
-                                        }))
-                                      }
-                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono font-bold"
-                                    />
-                                  ) : (
-                                    req.memberPin
-                                  )}
-                                </td>
-                                <td className="p-2 text-[11px] font-semibold text-slate-800 border border-[#e0e0e0]">
-                                  {isEditing ? (
-                                    <input
-                                      type="text"
-                                      value={reqEditForm.memberName || ""}
-                                      onChange={(e) =>
-                                        setReqEditForm((prev) => ({
-                                          ...prev,
-                                          memberName: e.target.value,
-                                        }))
-                                      }
-                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-semibold"
-                                    />
-                                  ) : (
-                                    req.memberName
-                                  )}
-                                </td>
-                                <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
-                                  {isEditing ? (
-                                    <input
-                                      type="date"
-                                      value={reqEditForm.date || ""}
-                                      onChange={(e) =>
-                                        setReqEditForm((prev) => ({
-                                          ...prev,
-                                          date: e.target.value,
-                                        }))
-                                      }
-                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono"
-                                    />
-                                  ) : (
-                                    req.date
-                                  )}
-                                </td>
-                                <td className="p-2 text-[11px] font-semibold text-slate-500 font-mono border border-[#e0e0e0]">
-                                  {inTime}
-                                </td>
-                                <td className="p-2 text-[11px] font-semibold text-slate-500 font-mono border border-[#e0e0e0]">
-                                  {outTime}
-                                </td>
-                                <td className="p-2 text-[11px] border border-[#e0e0e0]">
-                                  {isEditing ? (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-[9px] font-bold text-slate-400">
-                                          CHANGE:
-                                        </span>
-                                        <select
-                                          value={
-                                            reqEditForm.requestedStatus ||
-                                            "Present"
-                                          }
-                                          onChange={(e) =>
-                                            setReqEditForm((prev) => ({
-                                              ...prev,
-                                              requestedStatus: e.target
-                                                .value as AttendanceStatus,
-                                            }))
-                                          }
-                                          className="px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-bold"
-                                        >
-                                          <option value="Present">
-                                            Present
-                                          </option>
-                                          <option value="Leave">
-                                            Leave
-                                          </option>
-                                          <option value="Late Entry">Late Entry</option>
-                                          <option value="Absent">Absent</option>
-                                          <option value="Half Day">
-                                            Half Day
-                                          </option>
-                                        </select>
-                                      </div>
-                                      <input
-                                        type="text"
-                                        value={reqEditForm.reason || ""}
-                                        onChange={(e) =>
-                                          setReqEditForm((prev) => ({
-                                            ...prev,
-                                            reason: e.target.value,
-                                          }))
+                                      type="checkbox"
+                                      disabled={req.status !== "Pending"}
+                                      checked={selectedEditReqPins.includes(req.pin)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedEditReqPins(prev => [...prev, req.pin]);
+                                        } else {
+                                          setSelectedEditReqPins(prev => prev.filter(pin => pin !== req.pin));
                                         }
-                                        className="w-full px-1.5 py-0.5 border border-indigo-300 rounded text-[11px] bg-white italic"
-                                      />
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-1.5 max-w-[280px]">
-                                      {(req.requestedCheckIn || req.requestedCheckOut) && (
-                                        <div className="text-[10px] text-indigo-600 font-extrabold flex flex-wrap gap-1.5 items-center bg-indigo-50/50 px-2 py-1 rounded-md border border-indigo-150">
-                                          {req.requestedCheckIn && <span>In: {req.requestedCheckIn}</span>}
-                                          {req.requestedCheckIn && req.requestedCheckOut && <span>•</span>}
-                                          {req.requestedCheckOut && <span>Out: {req.requestedCheckOut}</span>}
-                                        </div>
-                                      )}
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                          CHANGE TO:
+                                      }}
+                                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                    />
+                                  </td>
+                                  <td className="p-2 text-center text-[11px] font-bold text-slate-400 font-mono border border-[#e0e0e0]">
+                                    {index + 1}
+                                  </td>
+                                  <td className="p-2 text-[11px] font-mono font-bold text-slate-700 border border-[#e0e0e0]">
+                                    {req.memberPin}
+                                  </td>
+                                  <td className="p-2 text-[11px] font-semibold text-slate-800 border border-[#e0e0e0]">
+                                    {req.memberName}
+                                  </td>
+                                  <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
+                                    {req.date}
+                                  </td>
+                                  <td className="p-2 text-[11px] font-mono border border-[#e0e0e0]">
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className={req.requestedCheckIn ? "line-through text-slate-400 font-medium" : "font-semibold text-slate-600"}>
+                                        {inTime}
+                                      </span>
+                                      {req.requestedCheckIn && (
+                                        <span className="text-indigo-600 font-extrabold text-[10px] bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 rounded max-w-max mt-0.5">
+                                          {req.requestedCheckIn}
                                         </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="p-2 text-[11px] font-mono border border-[#e0e0e0]">
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className={req.requestedCheckOut ? "line-through text-slate-400 font-medium" : "font-semibold text-slate-600"}>
+                                        {outTime}
+                                      </span>
+                                      {req.requestedCheckOut && (
+                                        <span className="text-indigo-600 font-extrabold text-[10px] bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 rounded max-w-max mt-0.5">
+                                          {req.requestedCheckOut}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                    <div className="space-y-1 max-w-[280px]">
+                                      <div className="flex items-center gap-1.5">
                                         <span className="bg-indigo-50 text-indigo-700 border border-indigo-150 px-1.5 py-0.5 rounded text-[10px] font-black">
                                           {req.requestedStatus}
                                         </span>
                                       </div>
-                                      <p className="text-[11px] text-slate-550 italic font-medium leading-relaxed">
-                                        "{req.reason}"
+                                      <p className="text-[11px] text-slate-600 font-medium leading-relaxed bg-slate-50/50 p-1.5 rounded-lg border border-slate-100 mt-1">
+                                        {req.reason}
                                       </p>
                                     </div>
-                                  )}
-                                </td>
-                                <td className="p-2 text-[11px] font-medium text-slate-600 border border-[#e0e0e0]">
-                                  <span className="bg-slate-100 text-slate-700 border border-slate-200/50 px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase">
-                                    {memberCampus}
-                                  </span>
-                                </td>
-                                <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
-                                  <select
-                                    value={req.status}
-                                    onChange={(e) => {
-                                      const newStatus = e.target.value as
-                                        "Pending" | "Approved" | "Rejected";
-                                      onResolveAttendanceEditRequest(
-                                        req.pin,
-                                        newStatus,
+                                  </td>
+                                  <td className="p-2 text-[11px] font-medium text-slate-600 border border-[#e0e0e0]">
+                                    <span className="bg-slate-100 text-slate-700 border border-slate-200/50 px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase">
+                                      {memberCampus}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
+                                    <select
+                                      value={req.status}
+                                      onChange={(e) => {
+                                        const newStatus = e.target.value as
+                                          "Pending" | "Approved" | "Rejected";
+                                        onResolveAttendanceEditRequest(
+                                          req.pin,
+                                          newStatus,
+                                          req.managerComment !== undefined
+                                            ? req.managerComment
+                                            : editRemarks[req.pin] || "",
+                                        );
+                                      }}
+                                      className={`px-2 py-1 rounded border border-transparent hover:border-slate-300 focus:border-slate-300 focus:outline-none text-[11px] font-bold cursor-pointer transition-colors w-full uppercase ${
+                                        req.status === "Pending"
+                                          ? "bg-amber-100 text-amber-800 border-amber-200"
+                                          : req.status === "Approved"
+                                            ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                                            : "bg-rose-100 text-rose-800 border-rose-200"
+                                      }`}
+                                    >
+                                      <option value="Pending">PENDING</option>
+                                      <option value="Approved">APPROVED</option>
+                                      <option value="Rejected">REJECTED</option>
+                                    </select>
+                                  </td>
+                                  <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                    <input
+                                      type="text"
+                                      placeholder="Remarks (মন্তব্য)..."
+                                      value={
                                         req.managerComment !== undefined
                                           ? req.managerComment
-                                          : editRemarks[req.pin] || "",
-                                      );
-                                    }}
-                                    className={`px-2 py-1 rounded border border-transparent hover:border-slate-300 focus:border-slate-300 focus:outline-none text-[11px] font-bold cursor-pointer transition-colors w-full uppercase ${
-                                      req.status === "Pending"
-                                        ? "bg-amber-100 text-amber-800 border-amber-200"
-                                        : req.status === "Approved"
-                                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                                          : "bg-rose-100 text-rose-800 border-rose-200"
-                                    }`}
-                                  >
-                                    <option value="Pending">PENDING</option>
-                                    <option value="Approved">APPROVED</option>
-                                    <option value="Rejected">REJECTED</option>
-                                  </select>
-                                </td>
-                                <td className="p-2 text-[11px] border border-[#e0e0e0]">
-                                  <input
-                                    type="text"
-                                    placeholder="Remarks (মন্তব্য)..."
-                                    value={
-                                      req.managerComment !== undefined
-                                        ? req.managerComment
-                                        : editRemarks[req.pin] || ""
-                                    }
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setEditRemarks((prev) => ({
-                                        ...prev,
-                                        [req.pin]: val,
-                                      }));
-                                    }}
-                                    onBlur={(e) => {
-                                      onResolveAttendanceEditRequest(
-                                        req.pin,
-                                        req.status,
-                                        e.target.value,
-                                      );
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
+                                          : editRemarks[req.pin] || ""
+                                      }
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setEditRemarks((prev) => ({
+                                          ...prev,
+                                          [req.pin]: val,
+                                        }));
+                                      }}
+                                      onBlur={(e) => {
                                         onResolveAttendanceEditRequest(
                                           req.pin,
                                           req.status,
-                                          (e.target as HTMLInputElement).value,
+                                          e.target.value,
                                         );
-                                        (e.target as HTMLInputElement).blur();
-                                        toast.success("Remarks updated!");
-                                      }
-                                    }}
-                                    className="w-full px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded text-[11px] focus:outline-none bg-transparent hover:bg-white focus:bg-white min-w-[130px] font-medium"
-                                  />
-                                </td>
-                                <td className="p-2 text-center text-[11px] border border-[#e0e0e0]">
-                                  {isEditing ? (
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          onResolveAttendanceEditRequest(
+                                            req.pin,
+                                            req.status,
+                                            (e.target as HTMLInputElement).value,
+                                          );
+                                          (e.target as HTMLInputElement).blur();
+                                          toast.success("Remarks updated!");
+                                        }
+                                      }}
+                                      className="w-full px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded text-[11px] focus:outline-none bg-transparent hover:bg-white focus:bg-white min-w-[130px] font-medium"
+                                    />
+                                  </td>
+                                  <td className="p-2 text-center text-[11px] border border-[#e0e0e0]">
                                     <div className="flex items-center justify-center gap-1.5">
-                                      <button
-                                        onClick={saveEditRequest}
-                                        className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-colors"
-                                        title="Save"
-                                      >
-                                        <CheckCircle className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() => setEditingReqPin(null)}
-                                        className="p-1 bg-slate-500 hover:bg-slate-600 text-white rounded cursor-pointer transition-colors"
-                                        title="Cancel"
-                                      >
-                                        <AlertCircle className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-center gap-1.5">
+                                      {req.status === "Pending" && (
+                                        <button
+                                          onClick={() => {
+                                            onResolveAttendanceEditRequest(req.pin, "Approved", req.managerComment || "");
+                                            toast.success("Request successfully approved!");
+                                          }}
+                                          className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                          title="Approve"
+                                        >
+                                          <Check className="w-4 h-4" />
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => startEditRequest(req)}
                                         className="p-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
@@ -5861,22 +6205,22 @@ export default function ManagerDashboard({
                                         <Trash className="w-4 h-4" />
                                       </button>
                                     </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
 
           {/* Leave Requests Panel */}
-          {activeTab === "leave-requests" && (
+          {activeTab === "leave-requests" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -5987,7 +6331,7 @@ export default function ManagerDashboard({
                         </div>
                         <div>
                           <p className="text-xs font-black text-indigo-950 uppercase tracking-tight">Bulk Actions Selected</p>
-                          <p className="text-[10px] font-bold text-indigo-400">ছুটির আবেদনগুলো একসাথে আপডেট করুন</p>
+                          <p className="text-[10px] font-bold text-indigo-400">Update leave requests in bulk</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -6028,7 +6372,7 @@ export default function ManagerDashboard({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                   <div className="p-4 bg-indigo-50/45 rounded-2xl border border-indigo-100/50">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      পেন্ডিং ছুটির রিকুয়েস্ট
+                      Pending Leave Requests
                     </p>
                     <p className="text-2xl font-black text-indigo-700 mt-1">
                       {
@@ -6039,7 +6383,7 @@ export default function ManagerDashboard({
                   </div>
                   <div className="p-4 bg-emerald-50/45 rounded-2xl border border-emerald-100/50">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      অনুমোদিত (Approved)
+                      Approved
                     </p>
                     <p className="text-2xl font-black text-emerald-700 mt-1">
                       {
@@ -6050,7 +6394,7 @@ export default function ManagerDashboard({
                   </div>
                   <div className="p-4 bg-rose-50/45 rounded-2xl border border-rose-100/50">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      প্রত্যাখ্যাত (Rejected)
+                      Rejected
                     </p>
                     <p className="text-2xl font-black text-rose-700 mt-1">
                       {
@@ -6065,11 +6409,11 @@ export default function ManagerDashboard({
                   <div className="bg-slate-50 border border-slate-150 rounded-2xl p-12 text-center text-slate-400">
                     <AlertCircle className="w-12 h-12 mx-auto text-slate-300 mb-3" />
                     <p className="font-bold text-slate-600">
-                      কোনো ছুটির আবেদন পাওয়া যায়নি
+                      No leave requests found
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
-                      কো-অর্ডিনেটর কোনো টিম মেম্বারদের জন্য ছুটির আবেদন পাঠালে
-                      তা এখানে প্রদর্শিত হবে।
+                      If a coordinator sends a leave request for team members,
+                      it will be displayed here.
                     </p>
                   </div>
                 ) : (
@@ -6111,7 +6455,7 @@ export default function ManagerDashboard({
                               Days
                             </th>
                             <th className="p-2 border border-[#e0e0e0] font-bold">
-                              Reason (Details)
+                              Reason
                             </th>
                             <th className="p-2 border border-[#e0e0e0] font-bold">
                               Responsible Person Name
@@ -6169,7 +6513,7 @@ export default function ManagerDashboard({
                               ) => {
                                 const text = `Member: ${r.memberName} (PIN: ${r.memberPin}) | Leave Type: ${r.leaveType} | From: ${r.startDate} To: ${r.endDate} (${days} days) | Reason: ${r.reason} | Responsible: ${r.coordinatorName} (${r.coordinatorPin})`;
                                 navigator.clipboard.writeText(text);
-                                toast.success("ছুটির বিবরণ কপি করা হয়েছে!");
+                                toast.success("Leave details copied!");
                               };
 
                               return (
@@ -6519,7 +6863,7 @@ export default function ManagerDashboard({
           )}
 
           {/* Tab 6: PROFILE SETTINGS */}
-          {activeTab === "profile" && (
+          {activeTab === "profile" && viewedMemberPin === null && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -6535,9 +6879,9 @@ export default function ManagerDashboard({
               />
             </motion.div>
           )}
-        </div>{" "}
+        </div>
         {/* Close lg:col-span-10 */}
-      </div>{" "}
+      </div>
       {/* Close grid */}
       {/* Modal for editing campus */}
       <CampusEditModal
@@ -6566,6 +6910,13 @@ export default function ManagerDashboard({
         mentors={mentors}
         managers={managers}
         campuses={campuses}
+      />
+
+      <AttendanceAdjustmentEditModal
+        isOpen={!!editingReqPin}
+        onClose={() => setEditingReqPin(null)}
+        request={reqEditForm}
+        onSave={saveEditRequest}
       />
 
       {/* Edit Leave Request Overlay Modal */}
@@ -6702,7 +7053,6 @@ export default function ManagerDashboard({
           </div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
@@ -6792,7 +7142,7 @@ function CampusEditModal({
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <div>
             <h3 className="text-lg font-black text-slate-800 tracking-tight">
-              ইডিট ক্যাম্পাস (Edit Campus)
+              Edit Campus
             </h3>
             <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-0.5">
               {campusName}
@@ -6809,7 +7159,7 @@ function CampusEditModal({
         <div className="p-6 space-y-6 flex-1 overflow-y-auto">
           <div>
             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2 ml-1">
-              ক্যাম্পাস নাম (Campus Name)
+              Campus Name
             </label>
             <input
               type="text"
@@ -6870,7 +7220,7 @@ function CampusEditModal({
                         <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
                           type="text"
-                          placeholder="পিন বা নাম দিয়ে সার্চ করুন (Search by PIN or Name)..."
+                          placeholder="Search by PIN or Name..."
                           value={headSearch}
                           onChange={(e) => setHeadSearch(e.target.value)}
                           className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold"
@@ -6996,7 +7346,7 @@ function CampusEditModal({
                         <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
                           type="text"
-                          placeholder="পিন বা নাম দিয়ে সার্চ করুন (Search by PIN or Name)..."
+                          placeholder="Search by PIN or Name..."
                           value={deputySearch}
                           onChange={(e) => setDeputySearch(e.target.value)}
                           className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold"
@@ -7270,8 +7620,8 @@ function CampusEditModal({
               onUpdate(
                 campusName,
                 editValue,
-                headPin || undefined,
-                deputyPins.length > 0 ? deputyPins : undefined,
+                headPin || "",
+                deputyPins,
                 deputyAccessMap,
               );
               onClose();
@@ -7279,13 +7629,13 @@ function CampusEditModal({
             className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
           >
             <Save className="w-4 h-4" />
-            সংরক্ষণ করুন (Save Changes)
+            Save Changes
           </button>
           <button
             onClick={onClose}
             className="px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
           >
-            বাতিল
+            Cancel
           </button>
         </div>
       </motion.div>
@@ -7331,7 +7681,7 @@ function CampusAddModal({
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <div>
             <h3 className="text-lg font-black text-slate-800 tracking-tight">
-              নতুন ক্যাম্পাস (Add Campus)
+              Add Campus
             </h3>
           </div>
           <button
@@ -7345,7 +7695,7 @@ function CampusAddModal({
         <div className="p-6 space-y-6 flex-1 overflow-y-auto">
           <div>
             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2 ml-1">
-              ক্যাম্পাস নাম (Campus Name)
+              Campus Name
             </label>
             <input
               type="text"
@@ -7369,14 +7719,267 @@ function CampusAddModal({
             className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
-            ক্যাম্পাস যোগ করুন (Add Campus)
+            Add Campus
           </button>
           <button
             type="button"
             onClick={onClose}
             className="px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
           >
-            বাতিল
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function AttendanceAdjustmentEditModal({
+  isOpen,
+  onClose,
+  request,
+  onSave,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  request: Partial<AttendanceEditRequest>;
+  onSave: (updated: Partial<AttendanceEditRequest>) => void;
+}) {
+  const [memberPin, setMemberPin] = useState("");
+  const [memberName, setMemberName] = useState("");
+  const [date, setDate] = useState("");
+  const [requestedStatus, setRequestedStatus] = useState<AttendanceStatus>("Present");
+  const [requestedCheckIn, setRequestedCheckIn] = useState("");
+  const [requestedCheckOut, setRequestedCheckOut] = useState("");
+  const [reason, setReason] = useState("");
+  const [managerComment, setManagerComment] = useState("");
+
+  useEffect(() => {
+    if (request) {
+      setMemberPin(request.memberPin || "");
+      setMemberName(request.memberName || "");
+      setDate(request.date || "");
+      setRequestedStatus(request.requestedStatus || "Present");
+      setRequestedCheckIn(request.requestedCheckIn || "");
+      setRequestedCheckOut(request.requestedCheckOut || "");
+      setReason(request.reason || "");
+      setManagerComment(request.managerComment || "");
+    }
+  }, [request]);
+
+  if (!isOpen) return null;
+
+  // Real-time Working Hours logic
+  let workingHoursText = "";
+  let workingHoursError = "";
+  let isValidTime = true;
+
+  if (requestedCheckIn || requestedCheckOut) {
+    if (requestedCheckIn && requestedCheckOut) {
+      const inMins = parseTimeToMinutes(requestedCheckIn);
+      const outMins = parseTimeToMinutes(requestedCheckOut);
+
+      if (inMins === null) {
+        workingHoursError = "Invalid In Time format! (e.g. 09:00 AM)";
+        isValidTime = false;
+      } else if (outMins === null) {
+        workingHoursError = "Out Time Missing";
+        isValidTime = false;
+      } else {
+        let diffMins = outMins - inMins;
+        if (diffMins < 0) diffMins += 24 * 60;
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        workingHoursText = `Working Hour: ${hours} Hour ${mins} Min`;
+      }
+    } else {
+      workingHoursError = "Both In Time and Out Time must be provided!";
+      isValidTime = false;
+    }
+  }
+
+  const handleSave = () => {
+    if (!isValidTime) {
+      toast.error(workingHoursError || "Please enter valid times!");
+      return;
+    }
+    onSave({
+      ...request,
+      memberPin,
+      memberName,
+      date,
+      requestedStatus,
+      requestedCheckIn: requestedCheckIn || undefined,
+      requestedCheckOut: requestedCheckOut || undefined,
+      reason,
+      managerComment,
+    });
+    toast.success("Request updated successfully!");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-slate-200"
+      >
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+          <div className="flex items-center gap-2">
+            <Edit className="w-5 h-5 text-indigo-600" />
+            <h3 className="text-base font-black text-slate-800 tracking-tight">
+              Edit Attendance Adjustment
+            </h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 flex-1 overflow-y-auto text-left">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                Member Name
+              </label>
+              <input
+                type="text"
+                value={memberName}
+                onChange={(e) => setMemberName(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                PIN
+              </label>
+              <input
+                type="text"
+                value={memberPin}
+                onChange={(e) => setMemberPin(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                Date
+              </label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                Requested Status
+              </label>
+              <select
+                value={requestedStatus}
+                onChange={(e) => setRequestedStatus(e.target.value as AttendanceStatus)}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700"
+              >
+                <option value="Present">Present</option>
+                <option value="Leave">Leave</option>
+                <option value="Late Entry">Late Entry</option>
+                <option value="Absent">Absent</option>
+                <option value="Half Day">Half Day</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 bg-indigo-50/20 p-3 rounded-xl border border-indigo-100/50">
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Clock className="w-3 h-3 text-indigo-500" />
+                In Time
+              </label>
+              <input
+                type="text"
+                value={requestedCheckIn}
+                onChange={(e) => setRequestedCheckIn(e.target.value)}
+                placeholder="e.g. 09:00 AM"
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-slate-700 font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Clock className="w-3 h-3 text-indigo-500" />
+                Out Time
+              </label>
+              <input
+                type="text"
+                value={requestedCheckOut}
+                onChange={(e) => setRequestedCheckOut(e.target.value)}
+                placeholder="e.g. 05:00 PM"
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-slate-700 font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Live Clock Logic Display */}
+            <div className="col-span-2 mt-1">
+              {workingHoursText && (
+                <div className="text-[11px] font-black text-emerald-600 bg-emerald-50 border border-emerald-150 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {workingHoursText}
+                </div>
+              )}
+              {workingHoursError && (
+                <div className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-150 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 leading-tight">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {workingHoursError}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+              Reason
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700"
+              placeholder="Reason..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-[9px] font-black text-indigo-500 uppercase tracking-wider mb-1">
+              Manager Remarks
+            </label>
+            <input
+              type="text"
+              value={managerComment}
+              onChange={(e) => setManagerComment(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-indigo-150 rounded-lg text-xs font-semibold text-slate-700 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              placeholder="Enter manager comment..."
+            />
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleSave}
+            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-xs"
+          >
+            <Save className="w-4 h-4" />
+            Save Changes
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2.5 bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 rounded-lg text-xs font-black uppercase tracking-wider transition-all"
+          >
+            Cancel
           </button>
         </div>
       </motion.div>

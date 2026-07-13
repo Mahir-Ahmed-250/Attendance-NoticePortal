@@ -1,7 +1,8 @@
 import React from 'react';
 
-export function UserAvatar({ user, size = 'md', className = '' }: { user: any, size?: 'sm' | 'md' | 'lg' | 'xl', className?: string }) {
-  const sizeClasses = {
+export function UserAvatar({ user, size = 'md', className = '' }: { user: any, size?: 'sm' | 'md' | 'lg' | 'xl' | 'xxl', className?: string }) {
+  if (!user) return null;
+  const sizeClasses: Record<string, string> = {
     sm: 'w-8 h-8',
     md: 'w-10 h-10',
     lg: 'w-12 h-12',
