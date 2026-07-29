@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Mentor, TeamMember, AttendanceReport, AttendanceFeedback, Notice, Role, AttendanceStatus, EmailMessage, ProfileRequest, MemberAttendance, AttendanceEditRequest, LeaveRequest, Campus, DEFAULT_CAMPUSES, User } from './types';
+import { Mentor, TeamMember, AttendanceReport, AttendanceFeedback, Notice, Role, AttendanceStatus, EmailMessage, ProfileRequest, MemberAttendance, AttendanceEditRequest, LeaveRequest, Campus, DEFAULT_CAMPUSES, User, Branch } from './types';
 import ManagerDashboard from './components/ManagerDashboard';
 import MentorDashboard from './components/MentorDashboard';
 import MemberDashboard from './components/MemberDashboard';
@@ -27,6 +27,7 @@ export default function App() {
   const [attendanceEditRequests, setAttendanceEditRequests] = useState<AttendanceEditRequest[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [loggedInUser, setLoggedInUser] = useState<any>(null);
   const [fetchedLogo, setFetchedLogo] = useState<string | null>(null);
 
@@ -59,7 +60,8 @@ export default function App() {
           editReqs,
           leaveReqs,
           emailsData,
-          feedbacksData
+          feedbacksData,
+          branchesData
         ] = await Promise.all([
           api.users.getAll(),
           api.reports.getAll(),
@@ -69,7 +71,8 @@ export default function App() {
           api.requests.edit.getAll(),
           api.requests.leave.getAll(),
           api.emails.getAll(),
-          api.feedbacks.getAll()
+          api.feedbacks.getAll(),
+          api.branches.getAll()
         ]);
 
         // Removed automatic seeding based on missing users or campuses.
@@ -81,6 +84,7 @@ export default function App() {
         setReports(reportsData);
         setNotices(noticesData);
         setCampuses(campusesData);
+        setBranches(branchesData);
         setProfileRequests(profileReqs);
         setAttendanceEditRequests(editReqs);
         setLeaveRequests(leaveReqs);
@@ -973,9 +977,86 @@ export default function App() {
     try {
       await api.campuses.delete(campus.id);
       setCampuses(prev => (prev || []).filter(c => c.id !== campus.id));
+      // Update local branches state too
+      setBranches(prev => prev.map(b => b.campusId === campus.id ? { ...b, campusId: null } : b));
       toast.success("Campus deleted successfully!");
     } catch (err) {
       toast.error("Failed to delete campus.");
+    }
+  };
+
+  const handleAddBranch = async (branchName: string) => {
+    const trimmed = branchName.trim();
+    if (!trimmed) return;
+    if (branches.some(b => b.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('A branch with this name already exists.');
+      return;
+    }
+    const newBranch: Branch = {
+      id: `branch-${Date.now()}`,
+      name: trimmed,
+      campusId: null
+    };
+    try {
+      const saved = await api.branches.create(newBranch);
+      setBranches(prev => [...prev, saved]);
+      toast.success('Branch added successfully!');
+    } catch (err) {
+      toast.error('Failed to add branch.');
+    }
+  };
+
+  const handleUpdateBranch = async (branchId: string, updatedBranch: Partial<Branch>) => {
+    try {
+      const branch = branches.find(b => b.id === branchId);
+      if (!branch) return;
+      
+      // Sanitise data: remove MongoDB internal fields if they exist
+      const { _id, __v, ...cleanBranch } = branch as any;
+      const dataToUpdate = { ...cleanBranch, ...updatedBranch };
+      
+      const saved = await api.branches.update(branchId, dataToUpdate);
+      setBranches(prev => prev.map(b => b.id === branchId ? saved : b));
+      toast.success('Branch updated successfully!');
+    } catch (err) {
+      toast.error('Failed to update branch.');
+    }
+  };
+
+  const handleDeleteBranch = async (branchId: string) => {
+    try {
+      await api.branches.delete(branchId);
+      setBranches(prev => prev.filter(b => b.id !== branchId));
+      toast.success('Branch deleted successfully!');
+    } catch (err) {
+      toast.error('Failed to delete branch.');
+    }
+  };
+
+  const handleAssignBranchesToCampus = async (campusId: string, branchIds: string[]) => {
+    try {
+      // Unassign these branches from any other campus first (though UI should prevent it)
+      // The backend update will handle the assignment.
+      const promises = branchIds.map(id => api.branches.update(id, { campusId }));
+      await Promise.all(promises);
+      
+      setBranches(prev => prev.map(b => {
+        if (branchIds.includes(b.id)) return { ...b, campusId };
+        return b;
+      }));
+      toast.success('Branches assigned successfully!');
+    } catch (err) {
+      toast.error('Failed to assign branches.');
+    }
+  };
+
+  const handleUnassignBranch = async (branchId: string) => {
+    try {
+      await api.branches.update(branchId, { campusId: null });
+      setBranches(prev => prev.map(b => b.id === branchId ? { ...b, campusId: null } : b));
+      toast.success('Branch unassigned.');
+    } catch (err) {
+      toast.error('Failed to unassign branch.');
     }
   };
 
@@ -1174,6 +1255,12 @@ export default function App() {
                           onAddCampus={handleAddCampus}
                           onUpdateCampus={handleUpdateCampus}
                           onDeleteCampus={handleDeleteCampus}
+                          branches={branches}
+                          onAddBranch={handleAddBranch}
+                          onUpdateBranch={handleUpdateBranch}
+                          onDeleteBranch={handleDeleteBranch}
+                          onAssignBranchesToCampus={handleAssignBranchesToCampus}
+                          onUnassignBranch={handleUnassignBranch}
                           emails={emails}
                           onMarkEmailAsRead={handleMarkEmailAsRead}
                         />
@@ -1214,6 +1301,12 @@ export default function App() {
                           onInstantUpdate={handleInstantUpdate}
                           emails={emails}
                           onMarkEmailAsRead={handleMarkEmailAsRead}
+                          branches={branches}
+                          onAddBranch={handleAddBranch}
+                          onUpdateBranch={handleUpdateBranch}
+                          onDeleteBranch={handleDeleteBranch}
+                          onAssignBranchesToCampus={handleAssignBranchesToCampus}
+                          onUnassignBranch={handleUnassignBranch}
                         />
                       </motion.div>
                     )}
@@ -1243,6 +1336,13 @@ export default function App() {
                           onSubmitAttendanceEditRequest={handleSubmitAttendanceEditRequest}
                           emails={emails}
                           onMarkEmailAsRead={handleMarkEmailAsRead}
+                          campuses={campuses}
+                          branches={branches}
+                          onAddBranch={handleAddBranch}
+                          onUpdateBranch={handleUpdateBranch}
+                          onDeleteBranch={handleDeleteBranch}
+                          onAssignBranchesToCampus={handleAssignBranchesToCampus}
+                          onUnassignBranch={handleUnassignBranch}
                         />
                       </motion.div>
                     )}

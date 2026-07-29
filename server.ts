@@ -14,8 +14,11 @@ import {
   ProfileRequest as ProfileRequestRaw, 
   AttendanceEditRequest as AttendanceEditRequestRaw, 
   LeaveRequest as LeaveRequestRaw,
-  Configuration as ConfigurationRaw
+  Configuration as ConfigurationRaw,
+  Branch as BranchRaw,
+  CallTask as CallTaskRaw
 } from "./src/db/models";
+import { INITIAL_BRANCHES } from "./src/db/branches";
 
 // Load environment variables in local development
 if (process.env.NODE_ENV !== "production") {
@@ -32,6 +35,8 @@ const ProfileRequest = ProfileRequestRaw as any;
 const AttendanceEditRequest = AttendanceEditRequestRaw as any;
 const LeaveRequest = LeaveRequestRaw as any;
 const Configuration = ConfigurationRaw as any;
+const Branch = BranchRaw as any;
+const CallTask = CallTaskRaw as any;
 
 const app = express();
 const PORT = 3000;
@@ -134,6 +139,18 @@ const seedInitialData = async () => {
       // Insert with plain text passwords as requested by user
       await User.insertMany(initialUsers);
       console.log(`[SEED] Seeded ${initialUsers.length} initial users.`);
+    }
+
+    const branchCount = await Branch.countDocuments();
+    if (branchCount === 0) {
+      console.log("[SEED] Seeding initial branches...");
+      const branchesToInsert = INITIAL_BRANCHES.map((name, index) => ({
+        id: `branch-${index + 1}`,
+        name: name,
+        campusId: null
+      }));
+      await Branch.insertMany(branchesToInsert);
+      console.log(`[SEED] Seeded ${branchesToInsert.length} branches.`);
     }
   } catch (err: any) {
     console.error("[SEED] Error seeding data:", err.message);
@@ -479,6 +496,47 @@ app.post("/api/campuses", async (req, res) => {
   app.delete("/api/campuses/:id", async (req, res) => {
     try {
       await Campus.findOneAndDelete({ id: req.params.id });
+      // Also unassign branches from this campus
+      await Branch.updateMany({ campusId: req.params.id }, { campusId: null });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Branches
+  app.get("/api/branches", async (req, res) => {
+    try {
+      const branches = await Branch.find();
+      res.json(branches);
+    } catch (err) {
+      console.error("Fetch branches error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/branches", async (req, res) => {
+    try {
+      const branch = new Branch(req.body);
+      await branch.save();
+      res.json(branch);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/branches/:id", async (req, res) => {
+    try {
+      const branch = await Branch.findOneAndUpdate({ id: req.params.id }, req.body, { new: true });
+      res.json(branch);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/branches/:id", async (req, res) => {
+    try {
+      await Branch.findOneAndDelete({ id: req.params.id });
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -676,6 +734,587 @@ app.post("/api/campuses", async (req, res) => {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Call Tasks
+  app.get("/api/call-tasks", async (req, res) => {
+    try {
+      const { assignedToPin, liveAssignedToPin, liveInstructionStatus, feedbackStatus, className, campus, branch } = req.query;
+      const andConditions: any[] = [];
+
+      if (assignedToPin && !liveAssignedToPin) {
+        andConditions.push({
+          $or: [
+            { assignedToPin: String(assignedToPin) },
+            { liveAssignedToPin: String(assignedToPin) },
+            { liveInstructorPin: String(assignedToPin) }
+          ]
+        });
+      } else if (assignedToPin && liveAssignedToPin) {
+        andConditions.push({ assignedToPin: String(assignedToPin) });
+        andConditions.push({
+          $or: [
+            { liveAssignedToPin: String(liveAssignedToPin) },
+            { liveInstructorPin: String(liveAssignedToPin) }
+          ]
+        });
+      } else if (liveAssignedToPin) {
+        andConditions.push({
+          $or: [
+            { liveAssignedToPin: String(liveAssignedToPin) },
+            { liveInstructorPin: String(liveAssignedToPin) }
+          ]
+        });
+      }
+
+      if (liveInstructionStatus) andConditions.push({ liveInstructionStatus: String(liveInstructionStatus) });
+      if (feedbackStatus) andConditions.push({ feedbackStatus: String(feedbackStatus) });
+      if (className) andConditions.push({ className: String(className) });
+      
+      if (campus && campus !== 'All') {
+        const campusStr = (campus as string).trim();
+        // Find all branches that belong to this campus name (case-insensitive and partial match)
+        const campuses = await Campus.find({ name: { $regex: new RegExp(campusStr, "i") } });
+        const campusIds = campuses.map(c => c.id);
+        const campusNames = campuses.map(c => c.name);
+        
+        const campusBranches = await Branch.find({ campusId: { $in: campusIds } });
+        const branchNames = campusBranches.map(b => b.name);
+        
+        andConditions.push({
+          $or: [
+            { campus: { $regex: new RegExp(campusStr, "i") } },
+            { campus: { $in: campusNames } },
+            { branch: { $in: branchNames.map(name => new RegExp(`^${name.trim()}$`, "i")) } }
+          ]
+        });
+      }
+      
+      if (branch && branch !== 'all' && branch !== 'All') {
+        andConditions.push({ branch: { $regex: new RegExp(`^${(branch as string).trim()}$`, "i") } });
+      }
+      
+      const query = andConditions.length > 0 ? { $and: andConditions } : {};
+      const tasks = await CallTask.find(query).sort({ createdAt: -1 }).lean();
+      res.json(tasks);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch call tasks" });
+    }
+  });
+
+  app.post("/api/call-tasks/bulk", async (req, res) => {
+    try {
+      const incomingTasks = req.body;
+      if (!Array.isArray(incomingTasks)) return res.status(400).json({ error: "Invalid data format" });
+
+      const cleanStr = (s: any) => String(s || '').trim().toLowerCase();
+      const cleanPhone = (s: any) => {
+        let digits = String(s || '').replace(/\D/g, '');
+        if (digits.startsWith('88')) digits = digits.slice(2);
+        if (digits.length > 10) digits = digits.slice(-10);
+        return digits;
+      };
+
+      // Fetch existing tasks to check for duplicates
+      const existingTasks = await CallTask.find({}, {
+        registrationNo: 1, pin: 1, rollNo: 1, roll: 1,
+        studentName: 1, nickName: 1, className: 1,
+        mobilePersonal: 1, mobileFather: 1, mobileMother: 1
+      }).lean();
+
+      const existingRegs = new Set<string>();
+      const existingClassRolls = new Set<string>();
+      const existingClassNames = new Set<string>();
+      const existingPhones = new Set<string>();
+
+      existingTasks.forEach((t: any) => {
+        const reg1 = cleanStr(t.registrationNo);
+        const reg2 = cleanStr(t.pin);
+        const roll = cleanStr(t.rollNo || t.roll);
+        const cls = cleanStr(t.className);
+        const name = cleanStr(t.studentName || t.nickName);
+        const p1 = cleanPhone(t.mobilePersonal);
+        const p2 = cleanPhone(t.mobileFather);
+        const p3 = cleanPhone(t.mobileMother);
+
+        if (reg1) existingRegs.add(reg1);
+        if (reg2) existingRegs.add(reg2);
+        if (cls && roll) existingClassRolls.add(`${cls}::${roll}`);
+        if (cls && name) existingClassNames.add(`${cls}::${name}`);
+        if (p1 && p1.length >= 10) existingPhones.add(p1);
+        if (p2 && p2.length >= 10) existingPhones.add(p2);
+        if (p3 && p3.length >= 10) existingPhones.add(p3);
+      });
+
+      const nonDuplicateTasks: any[] = [];
+      let duplicateCount = 0;
+
+      for (const task of incomingTasks) {
+        const reg1 = cleanStr(task.registrationNo);
+        const reg2 = cleanStr(task.pin);
+        const roll = cleanStr(task.rollNo || task.roll);
+        const cls = cleanStr(task.className);
+        const name = cleanStr(task.studentName || task.nickName);
+        const p1 = cleanPhone(task.mobilePersonal);
+        const p2 = cleanPhone(task.mobileFather);
+        const p3 = cleanPhone(task.mobileMother);
+
+        let isDuplicate = false;
+
+        // Check 1: Reg / PIN match
+        if ((reg1 && existingRegs.has(reg1)) || (reg2 && existingRegs.has(reg2))) {
+          isDuplicate = true;
+        }
+
+        // Check 2: Class + Roll match
+        if (!isDuplicate && cls && roll && existingClassRolls.has(`${cls}::${roll}`)) {
+          isDuplicate = true;
+        }
+
+        // Check 3: Class + Student Name match (when reg/roll absent)
+        if (!isDuplicate && cls && name && (!reg1 && !reg2 && !roll) && existingClassNames.has(`${cls}::${name}`)) {
+          isDuplicate = true;
+        }
+
+        // Check 4: Same Personal Phone AND Name match
+        if (!isDuplicate && p1 && p1.length >= 10 && name && existingPhones.has(p1) && existingClassNames.has(`${cls}::${name}`)) {
+          isDuplicate = true;
+        }
+
+        if (isDuplicate) {
+          duplicateCount++;
+        } else {
+          nonDuplicateTasks.push(task);
+          // Register keys so internal duplicates in the same payload are also caught
+          if (reg1) existingRegs.add(reg1);
+          if (reg2) existingRegs.add(reg2);
+          if (cls && roll) existingClassRolls.add(`${cls}::${roll}`);
+          if (cls && name) existingClassNames.add(`${cls}::${name}`);
+          if (p1 && p1.length >= 10) existingPhones.add(p1);
+          if (p2 && p2.length >= 10) existingPhones.add(p2);
+          if (p3 && p3.length >= 10) existingPhones.add(p3);
+        }
+      }
+
+      if (nonDuplicateTasks.length > 0) {
+        await CallTask.insertMany(nonDuplicateTasks);
+      }
+
+      res.json({
+        message: nonDuplicateTasks.length > 0
+          ? `Successfully imported ${nonDuplicateTasks.length} tasks`
+          : `All ${duplicateCount} tasks are duplicates and were skipped`,
+        addedCount: nonDuplicateTasks.length,
+        duplicateCount: duplicateCount,
+        skippedCount: duplicateCount
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to import tasks", details: err.message });
+    }
+  });
+
+  app.put("/api/call-tasks/assign", async (req, res) => {
+    try {
+      const {
+        taskIds,
+        assignedToPin,
+        assignedToName,
+        liveAssignedToPin,
+        liveAssignedToName,
+        assignType // 'feedback' | 'live' | 'both'
+      } = req.body;
+      if (!Array.isArray(taskIds)) return res.status(400).json({ error: "Invalid task IDs" });
+
+      const setObj: any = {};
+      
+      if (!assignType || assignType === 'feedback' || assignType === 'both') {
+        setObj.assignedToPin = assignedToPin !== undefined ? assignedToPin : null;
+        setObj.assignedToName = assignedToName !== undefined ? assignedToName : null;
+      }
+      
+      if (assignType === 'live' || assignType === 'both') {
+        setObj.liveAssignedToPin = liveAssignedToPin !== undefined ? liveAssignedToPin : null;
+        setObj.liveAssignedToName = liveAssignedToName !== undefined ? liveAssignedToName : null;
+        if (liveAssignedToPin) {
+          setObj.liveInstructorPin = liveAssignedToPin;
+          setObj.liveInstructorName = liveAssignedToName;
+        } else if (liveAssignedToPin === null) {
+          setObj.liveInstructorPin = null;
+          setObj.liveInstructorName = null;
+        }
+      }
+
+      await CallTask.updateMany(
+        { id: { $in: taskIds } },
+        { $set: setObj }
+      );
+      res.json({ message: "Tasks assigned successfully" });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to assign tasks" });
+    }
+  });
+
+  app.put("/api/call-tasks/:id", async (req, res) => {
+    try {
+      const task = await CallTask.findOneAndUpdate(
+        { id: req.params.id },
+        { $set: req.body },
+        { new: true }
+      );
+      res.json(task);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update task" });
+    }
+  });
+
+  app.delete("/api/call-tasks/class/:className", async (req, res) => {
+    try {
+      await CallTask.deleteMany({ className: req.params.className });
+      res.json({ success: true, message: `All call tasks for class ${req.params.className} deleted successfully` });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete tasks for class" });
+    }
+  });
+
+  app.delete("/api/call-tasks", async (req, res) => {
+    try {
+      await CallTask.deleteMany({});
+      res.json({ success: true, message: "All call tasks deleted successfully" });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete all tasks" });
+    }
+  });
+
+  app.delete("/api/call-tasks/:id", async (req, res) => {
+    try {
+      await CallTask.deleteOne({ id: req.params.id });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to delete task" });
+    }
+  });
+
+  // Fetch or Parse Merit List and Check Missing Students
+  app.post("/api/fetch-merit-list", async (req, res) => {
+    try {
+      const { url, rawData, studentList } = req.body;
+      let parsedStudents: any[] = [];
+
+      // Case 1: Pre-parsed student list passed
+      if (Array.isArray(studentList) && studentList.length > 0) {
+        parsedStudents = studentList;
+      } 
+      // Case 2: URL specified
+      else if (url) {
+        try {
+          const fetchRes = await fetch(url, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+          });
+          const htmlContent = await fetchRes.text();
+          parsedStudents = parseMeritListFromHtml(htmlContent);
+        } catch (fetchErr: any) {
+          return res.status(400).json({ 
+            error: "Could not fetch automatically from URL due to CORS or Portal Security. Please paste the Merit List HTML or text directly into the box below.", 
+            details: fetchErr.message 
+          });
+        }
+      }
+      // Case 3: Raw pasted HTML or Text
+      else if (rawData) {
+        parsedStudents = parseMeritListFromHtml(rawData);
+      }
+
+      // Helper string & phone cleaners
+      const cleanStr = (s: any) => String(s || '').trim().toLowerCase();
+      const cleanPhone = (s: any) => {
+        let digits = String(s || '').replace(/\D/g, '');
+        if (digits.startsWith('88')) digits = digits.slice(2);
+        if (digits.length > 10) digits = digits.slice(-10);
+        return digits;
+      };
+
+      const isHeaderOrSummary = (val: string) => {
+        if (!val) return false;
+        const norm = val.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return [
+          'sl', 'slno', 'serial', 'serialno',
+          'registration', 'reg', 'regno', 'registrationno', 'pin', 'id',
+          'roll', 'rollno', 'examroll',
+          'studentname', 'fullname', 'name', 'nickname', 'student',
+          'mobile', 'phone', 'contact', 'mobilenumber', 'mobilepersonal',
+          'total', 'count', 'page', 'header', 'footer', 'signature', 'summary'
+        ].includes(norm);
+      };
+
+      // Clean and filter input studentList / parsedStudents to remove invalid empty/footer/header records
+      parsedStudents = parsedStudents.filter((st: any) => {
+        if (!st) return false;
+        const rawReg = st.registrationNo || st.pin;
+        const rawRoll = st.rollNo || st.roll;
+        const rawName = st.studentName || st.nickName;
+        const reg = cleanStr(rawReg);
+        const roll = cleanStr(rawRoll);
+        const name = cleanStr(rawName);
+        const phone1 = cleanPhone(st.mobilePersonal);
+        const phone2 = cleanPhone(st.mobileFather);
+
+        // Filter out header or footer summary row
+        if (isHeaderOrSummary(rawReg) || isHeaderOrSummary(rawRoll) || isHeaderOrSummary(rawName)) {
+          return false;
+        }
+
+        if (reg || roll || phone1 || phone2) return true;
+        if (name && !/^student\s*\d+$/i.test(name) && !isHeaderOrSummary(rawName)) return true;
+        return false;
+      });
+
+      if (parsedStudents.length === 0) {
+        return res.status(400).json({ error: "No valid student records found in the provided data or URL." });
+      }
+
+      // Fetch all existing tasks from DB to compare
+      const existingTasks = await CallTask.find().lean();
+      
+      const existingRegs = new Set<string>();
+      const existingRolls = new Set<string>();
+      const existingPhones = new Set<string>();
+      const existingNames = new Set<string>();
+
+      existingTasks.forEach((t: any) => {
+        const reg1 = cleanStr(t.registrationNo);
+        const reg2 = cleanStr(t.pin);
+        if (reg1) existingRegs.add(reg1);
+        if (reg2) existingRegs.add(reg2);
+
+        const roll1 = cleanStr(t.rollNo);
+        const roll2 = cleanStr(t.roll);
+        if (roll1) existingRolls.add(roll1);
+        if (roll2) existingRolls.add(roll2);
+
+        const name = cleanStr(t.studentName);
+        if (name) existingNames.add(name);
+
+        [t.mobilePersonal, t.mobileFather, t.mobileMother].forEach(m => {
+          const ph = cleanPhone(m);
+          if (ph && ph.length >= 8) existingPhones.add(ph);
+        });
+      });
+
+      const processedList = parsedStudents.map((st: any, idx: number) => {
+        const normReg1 = cleanStr(st.registrationNo);
+        const normReg2 = cleanStr(st.pin);
+        const normRoll1 = cleanStr(st.rollNo);
+        const normRoll2 = cleanStr(st.roll);
+        const normName = cleanStr(st.studentName || st.nickName);
+        
+        const normPhones = [
+          cleanPhone(st.mobilePersonal),
+          cleanPhone(st.mobileFather),
+          cleanPhone(st.mobileMother)
+        ].filter(p => p && p.length >= 8);
+
+        let exists = false;
+
+        // Unique check by Registration Number (Reg No / PIN)
+        if (normReg1 || normReg2) {
+          if ((normReg1 && existingRegs.has(normReg1)) || (normReg2 && existingRegs.has(normReg2))) {
+            exists = true;
+          }
+        } else if (normRoll1 || normRoll2) {
+          if ((normRoll1 && existingRolls.has(normRoll1)) || (normRoll2 && existingRolls.has(normRoll2))) {
+            exists = true;
+          }
+        } else if (normPhones.length > 0) {
+          if (normPhones.some(ph => existingPhones.has(ph))) {
+            exists = true;
+          }
+        }
+
+        return {
+          ...st,
+          sl: st.sl || String(idx + 1),
+          registrationNo: st.registrationNo || st.pin || '',
+          rollNo: st.rollNo || st.roll || '',
+          pin: st.pin || st.registrationNo || '',
+          roll: st.roll || st.rollNo || '',
+          existsInCallList: exists
+        };
+      });
+
+      const missingStudents = processedList.filter(s => !s.existsInCallList);
+      const matchedStudents = processedList.filter(s => s.existsInCallList);
+
+      res.json({
+        success: true,
+        totalInMeritList: processedList.length,
+        matchedCount: matchedStudents.length,
+        missingCount: missingStudents.length,
+        missingStudents,
+        matchedStudents,
+        allStudents: processedList
+      });
+
+    } catch (err: any) {
+      console.error("Error processing merit list:", err);
+      res.status(500).json({ error: "Failed to process merit list", details: err.message });
+    }
+  });
+
+  // Helper parser for HTML/Table content from Merit List
+  function parseMeritListFromHtml(htmlOrText: string): any[] {
+    const rows: any[] = [];
+    if (!htmlOrText || !htmlOrText.trim()) return rows;
+
+    const mapHeaderName = (rawHeader: string): string => {
+      const h = rawHeader.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+      if (!h) return '';
+      
+      if (h === 'sl' || h === 'slno' || h === 'serial' || h === 'serialno') return 'sl';
+      if (h === 'registration' || h === 'reg' || h === 'regno' || h === 'registrationno' || h === 'pin' || h === 'studentid' || h === 'id') return 'registrationNo';
+      if (h === 'roll' || h === 'rollno' || h === 'examroll') return 'rollNo';
+      if (h === 'nickname' || h === 'nick') return 'nickName';
+      if (h === 'fullname' || h === 'studentname' || h === 'name') return 'studentName';
+      if (h === 'gender' || h === 'sex') return 'gender';
+      if (h === 'institute' || h === 'school' || h === 'college') return 'institute';
+      if (h === 'district') return 'district';
+      if (h === 'fathername' || h === 'father') return 'fatherName';
+      if (h === 'mothername' || h === 'mother') return 'motherName';
+      if (h.includes('personal') || h === 'mobile' || h === 'phone' || h === 'contact' || h === 'mobilepersonal' || h === 'personalphonenumberp') return 'mobilePersonal';
+      if (h.includes('numbera') || h === 'mobilefather' || h === 'fatherphone' || h === 'guardianphone' || h === 'altphone') return 'mobileFather';
+      if (h === 'academic' || h === 'academicgroup') return 'academicGroup';
+      if (h === 'admission' || h === 'admissiontarget') return 'admissionTarget';
+      if (h === 'campus') return 'campus';
+      if (h === 'branch') return 'branch';
+      if (h === 'coursebat' || h === 'coursebatch' || h === 'course' || h === 'class' || h === 'classname' || h === 'program' || h === 'batch') return 'className';
+      if (h.includes('bds') || h.includes('mbbs')) return 'mbbsBdsStatus';
+      if (h.includes('stream') || h.includes('steam')) return 'streamName';
+      if (h === 'fullmarks') return 'fullMarks';
+      if (h === 'mcqmark' || h === 'mcqmarks') return 'mcqMarks';
+      if (h === 'writtenmark' || h === 'writtenmarks') return 'writtenMarks';
+      if (h === 'obtainedmarks' || h === 'obtainedmark') return 'totalObtainedMarks';
+      if (h === 'totaldeduct' || h === 'marksdeduction' || h === 'deduct') return 'marksDeduction';
+      if (h === 'totalmark' || h === 'totalmarks') return 'totalMarks';
+      if (h === 'highestmark' || h === 'highestmarks') return 'highestMarks';
+      if (h === 'percent' || h === 'percentmarks') return 'percentMarks';
+      if (h === 'averagemark' || h === 'averagemarks') return 'averageMarks';
+      if (h === 'merit' || h === 'branchmerit') return 'branchMerit';
+      if (h === 'centralmerit') return 'centralMerit';
+      if (h === 'meritrank' || h === 'meritpos' || h === 'meritposition' || h === 'rank') return 'meritPosition';
+      if (h === 'particip' || h === 'participant' || h === 'totalparticipant') return 'totalParticipant';
+      if (h === 'exammode') return 'examMode';
+      
+      return '';
+    };
+
+    let matrix: string[][] = [];
+
+    // Check if HTML contains <tr>
+    const trMatches = htmlOrText.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi);
+    if (trMatches && trMatches.length > 0) {
+      trMatches.forEach(trHtml => {
+        const cells = Array.from(trHtml.matchAll(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi)).map(m => {
+          return m[1].replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim();
+        });
+        if (cells.length > 0 && cells.some(c => c !== '')) {
+          matrix.push(cells);
+        }
+      });
+    } else {
+      // Plain text parsing (Tab-separated, CSV, or line-by-line)
+      const lines = htmlOrText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      lines.forEach(line => {
+        let parts: string[] = [];
+        if (line.includes('\t')) {
+          parts = line.split('\t').map(p => p.trim());
+        } else if (line.includes(',')) {
+          parts = line.split(',').map(p => p.trim());
+        } else {
+          parts = line.split(/\s{2,}/).map(p => p.trim());
+        }
+        if (parts.length > 0 && parts.some(p => p !== '')) {
+          matrix.push(parts);
+        }
+      });
+    }
+
+    if (matrix.length === 0) return rows;
+
+    // Detect header row index
+    let headerRowIdx = -1;
+    let fieldMapping: string[] = [];
+
+    for (let r = 0; r < Math.min(matrix.length, 5); r++) {
+      const row = matrix[r];
+      const mappings = row.map(cell => mapHeaderName(cell));
+      const matchedCount = mappings.filter(m => m !== '').length;
+      if (matchedCount >= 2 || row.some(c => /sl|registration|roll|full name|gender|district|phone|campus|merit/i.test(c))) {
+        headerRowIdx = r;
+        fieldMapping = mappings;
+        break;
+      }
+    }
+
+    matrix.forEach((cells, idx) => {
+      if (idx === headerRowIdx) return; // Skip header row
+
+      const nonBlank = cells.filter(c => c && c.trim() !== '');
+      if (nonBlank.length === 0) return; // Skip completely blank row
+
+      const record: any = {
+        sl: String(rows.length + 1),
+        liveInstructionStatus: 'Pending',
+        feedbackStatus: 'Pending'
+      };
+
+      if (fieldMapping.length > 0) {
+        cells.forEach((val, colIdx) => {
+          const field = fieldMapping[colIdx];
+          if (field && val) {
+            record[field] = val;
+          }
+        });
+      } else {
+        // Fallback positional assignment
+        record.sl = cells[0] || String(rows.length + 1);
+        record.registrationNo = cells[1] || '';
+        record.rollNo = cells[2] || '';
+        record.nickName = cells[3] || '';
+        record.studentName = cells[4] || cells[3] || '';
+        record.mobilePersonal = cells[10] || cells[5] || '';
+      }
+
+      // Ensure key fallback aliases exist
+      if (!record.pin && record.registrationNo) record.pin = record.registrationNo;
+      if (!record.registrationNo && record.pin) record.registrationNo = record.pin;
+      
+      if (!record.roll && record.rollNo) record.roll = record.rollNo;
+      if (!record.rollNo && record.roll) record.rollNo = record.roll;
+
+      if (!record.branch && record.campus) {
+        record.branch = record.campus;
+      } else if (!record.campus && record.branch) {
+        record.campus = record.branch;
+      }
+
+      const reg = String(record.registrationNo || record.pin || '').trim();
+      const roll = String(record.rollNo || record.roll || '').trim();
+      const name = String(record.studentName || record.nickName || '').trim();
+      const phone = String(record.mobilePersonal || record.mobileFather || '').trim();
+
+      const isHeaderOrSummary = /^(sl|sl\.?|serial|total|count|page|header|name|student name)$/i.test(name);
+
+      if (reg || roll || phone || (name && !isHeaderOrSummary)) {
+        if (!record.studentName) {
+          record.studentName = record.nickName || (reg ? `Student ${reg}` : roll ? `Student ${roll}` : `Student ${rows.length + 1}`);
+        }
+        rows.push(record);
+      }
+    });
+
+    return rows;
+  }
 
   // Seed data
   app.post("/api/seed", async (req, res) => {

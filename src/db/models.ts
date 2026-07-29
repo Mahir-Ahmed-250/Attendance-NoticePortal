@@ -135,6 +135,68 @@ const ConfigurationSchema = new mongoose.Schema({
   value: { type: String, required: true },
 });
 
+const BranchSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  campusId: { type: String, default: null }, // ID of the campus it belongs to
+});
+
+const CallTaskSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true },
+  sl: String,
+  registrationNo: String,
+  studentName: String,
+  nickName: String,
+  rollNo: String,
+  gender: String,
+  institute: String,
+  district: String,
+  fatherName: String,
+  motherName: String,
+  academicGroup: String,
+  admissionTarget: String,
+  campus: String,
+  courseBatch: String,
+  mbbsBdsStatus: String,
+  examName: String,
+  fullMarks: String,
+  mcqMarks: String,
+  writtenMarks: String,
+  totalObtainedMarks: String,
+  marksDeduction: String,
+  totalMarks: String,
+  highestMarks: String,
+  percentMarks: String,
+  averageMarks: String,
+  branchMerit: String,
+  centralMerit: String,
+  totalParticipant: String,
+  examMode: String,
+  mobilePersonal: String,
+  mobileFather: String,
+  mobileMother: String,
+  branch: String,
+  className: String,
+  assignedToPin: String,
+  assignedToName: String,
+  liveAssignedToPin: String,
+  liveAssignedToName: String,
+  liveInstructionStatus: { type: String, default: 'Pending' },
+  feedbackStatus: { type: String, default: 'Pending' },
+  feedbackComment: String,
+  liveInstructionComment: String,
+  liveInstructorName: String,
+  liveInstructorPin: String,
+  liveInstructionImage: String,
+  liveInstructionLink: String,
+  isLiveInstructorTeacher: Boolean,
+  liveInstructionSubmitDate: String,
+  feedbackSubmitDate: String,
+  createdByPin: String,
+  createdAt: { type: String, default: () => new Date().toISOString() },
+  completedAt: String,
+});
+
 export const Configuration: Model<any> = mongoose.models.Configuration || mongoose.model('Configuration', ConfigurationSchema);
 export const User: Model<any> = mongoose.models.User || mongoose.model('User', UserSchema);
 
@@ -143,6 +205,8 @@ export const AttendanceReport: Model<any> = mongoose.models.AttendanceReport || 
 export const Notice: Model<any> = mongoose.models.Notice || mongoose.model('Notice', NoticeSchema);
 export const Feedback: Model<any> = mongoose.models.Feedback || mongoose.model('Feedback', FeedbackSchema);
 export const Campus: Model<any> = mongoose.models.Campus || mongoose.model('Campus', CampusSchema);
+export const Branch: Model<any> = mongoose.models.Branch || mongoose.model('Branch', BranchSchema);
 export const ProfileRequest: Model<any> = mongoose.models.ProfileRequest || mongoose.model('ProfileRequest', ProfileRequestSchema);
 export const AttendanceEditRequest: Model<any> = mongoose.models.AttendanceEditRequest || mongoose.model('AttendanceEditRequest', AttendanceEditRequestSchema);
 export const LeaveRequest: Model<any> = mongoose.models.LeaveRequest || mongoose.model('LeaveRequest', LeaveRequestSchema);
+export const CallTask: Model<any> = mongoose.models.CallTask || mongoose.model('CallTask', CallTaskSchema);

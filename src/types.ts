@@ -10,6 +10,7 @@ export interface User {
   avatarUrl?: string;
   permissions?: string[]; // Custom permission codes
   isActive?: boolean;
+  campus?: string;
 }
 
 export interface Mentor extends User {
@@ -103,6 +104,12 @@ export interface Campus {
   coordinatorPins?: string[]; // Legacy field for compatibility
 }
 
+export interface Branch {
+  id: string;
+  name: string;
+  campusId?: string | null;
+}
+
 export const DEFAULT_CAMPUSES = [
   'Main Campus',
   'Silicon Campus',
@@ -156,6 +163,64 @@ export interface LeaveRequest {
   managerComment?: string;
   responsiblePersonPin?: string;
   responsiblePersonName?: string;
+}
+
+export interface CallTask {
+  id: string;
+  sl: string;
+  registrationNo: string;
+  studentName?: string;
+  mobilePersonal: string;
+  mobileFather: string;
+  mobileMother: string;
+  branch: string;
+  className: string;
+  assignedToPin?: string;
+  assignedToName?: string;
+  liveAssignedToPin?: string;
+  liveAssignedToName?: string;
+  liveInstructionStatus: 'Pending' | 'Completed';
+  feedbackStatus: 'Pending' | 'Completed';
+  feedbackComment?: string;
+  liveInstructionComment?: string;
+  liveInstructorName?: string;
+  liveInstructorPin?: string;
+  liveInstructionImage?: string;
+  liveInstructionLink?: string;
+  isLiveInstructorTeacher?: boolean;
+  liveInstructionSubmitDate?: string;
+  feedbackSubmitDate?: string;
+  createdByPin: string;
+  createdAt: string;
+  completedAt?: string;
+
+  // Extra uploaded fields
+  rollNo?: string;
+  nickName?: string;
+  gender?: string;
+  institute?: string;
+  district?: string;
+  fatherName?: string;
+  motherName?: string;
+  academicGroup?: string;
+  admissionTarget?: string;
+  campus?: string;
+  courseBatch?: string;
+  mbbsBdsStatus?: string;
+  examName?: string;
+  fullMarks?: string;
+  mcqMarks?: string;
+  writtenMarks?: string;
+  totalObtainedMarks?: string;
+  marksDeduction?: string;
+  totalMarks?: string;
+  highestMarks?: string;
+  percentMarks?: string;
+  averageMarks?: string;
+  branchMerit?: string;
+  centralMerit?: string;
+  totalParticipant?: string;
+  examMode?: string;
 }
 
 

@@ -617,7 +617,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                           </div>
                           <div className="flex-1 overflow-hidden">
                             <ReactQuill
-                              ref={quillRef}
+                              {...({ ref: quillRef } as any)}
                               theme="snow"
                               value={content}
                               onChange={setContent}

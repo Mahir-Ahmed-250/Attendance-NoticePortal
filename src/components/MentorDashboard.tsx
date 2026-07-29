@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Mentor, TeamMember, AttendanceReport, AttendanceFeedback, AttendanceStatus, Notice, EmailMessage, ProfileRequest, User as UserType, AttendanceEditRequest, LeaveRequest, Campus } from '../types';
+import { Mentor, TeamMember, AttendanceReport, AttendanceFeedback, AttendanceStatus, Notice, EmailMessage, ProfileRequest, User as UserType, AttendanceEditRequest, LeaveRequest, Campus, Branch } from '../types';
 import { getEffectiveStatus, calculateWorkingHours, formatDateLong, parseTimeToMinutes } from '../utils';
-import { Calendar, User, FileText, AlertCircle, CheckCircle2, MessageSquare, Send, Clock, Sparkles, Mail, Inbox, ShieldCheck, Plus, Edit3, ClipboardPlus, FileCheck, Trash, Sliders, Bell, X, ChevronRight, Menu, ChevronLeft, LayoutDashboard, Check, ArrowLeft } from 'lucide-react';
+import { Calendar, User, FileText, AlertCircle, CheckCircle2, MessageSquare, Send, Clock, Sparkles, Mail, Inbox, ShieldCheck, Plus, Edit3, ClipboardPlus, FileCheck, Trash, Sliders, Bell, X, ChevronRight, Menu, ChevronLeft, LayoutDashboard, Check, ArrowLeft, Settings, Search, Trash2, Phone, UserMinus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import NoticeBoard from './NoticeBoard';
 import ProfileSettings from './ProfileSettings';
+import CallManagement from './CallManagement';
 import ConfirmModal from './ConfirmModal';
 import { UserAvatar } from './UserAvatar';
 import ClockInput from './ClockInput';
@@ -39,6 +40,12 @@ interface MentorDashboardProps {
   onInstantUpdate: (updatedFields: Partial<UserType>) => void;
   emails: EmailMessage[];
   onMarkEmailAsRead: (emailPin: string) => void;
+  branches: Branch[];
+  onAddBranch: (name: string) => void;
+  onUpdateBranch: (id: string, data: Partial<Branch>) => void;
+  onDeleteBranch: (id: string) => void;
+  onAssignBranchesToCampus: (campusId: string, branchIds: string[]) => void;
+  onUnassignBranch: (branchId: string) => void;
 }
 
 export default function MentorDashboard({
@@ -66,20 +73,32 @@ export default function MentorDashboard({
   onSubmitProfileRequest,
   onInstantUpdate,
   emails,
-  onMarkEmailAsRead
+  onMarkEmailAsRead,
+  branches,
+  onAddBranch,
+  onUpdateBranch,
+  onDeleteBranch,
+  onAssignBranchesToCampus,
+  onUnassignBranch,
 }: MentorDashboardProps) {
   const navigate = useNavigate();
   const allowedPerms = (currentMentor.permissions && currentMentor.permissions.length > 0) ? currentMentor.permissions : ['mentor_attendance', 'mentor_notices', 'mentor_history', 'mentor_leave', 'mentor_post_notice'];
 
-  const [activeTab, setActiveTab] = useState<'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves' | 'emails'>(() => {
+  const [activeTab, setActiveTab] = useState<'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves' | 'emails' | 'campus_settings' | 'call-management'>(() => {
     if (allowedPerms.includes('mentor_attendance')) return 'attendance';
     if (allowedPerms.includes('mentor_notices')) return 'notices';
     if (allowedPerms.includes('mentor_history')) return 'edit_requests';
+    if (allowedPerms.includes('manage_campus_settings')) return 'campus_settings';
     return 'members'; // Default to members if others are restricted
   });
   const [confirmDeleteLeavePin, setConfirmDeleteLeavePin] = useState<string | null>(null);
   const [confirmDeleteEditReqPin, setConfirmDeleteEditReqPin] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
+
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [selectedCampusForBranches, setSelectedCampusForBranches] = useState<Campus | null>(null);
+  const [isAddBranchModalOpen, setIsAddBranchModalOpen] = useState(false);
+  const [branchSearch, setBranchSearch] = useState("");
 
     
   // Filter team members assigned to *this* mentor (or of the same campus if not explicitly assigned to another mentor)
@@ -155,33 +174,69 @@ export default function MentorDashboard({
   const [editRequestedCheckIn, setEditRequestedCheckIn] = useState<string>('');
   const [editRequestedCheckOut, setEditRequestedCheckOut] = useState<string>('');
   const [editRequestReason, setEditRequestReason] = useState('');
+  
+  const getAttendanceRangeText = (dateStr: string) => {
+    if (!dateStr) return "Time Range(YYYY-MM-DD 06:00 AM To YYYY-MM-DD 05:59 AM)";
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return `Time Range(${dateStr} 06:00 AM To ... 05:59 AM)`;
+    
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    
+    const d = new Date(year, month, day);
+    const nextD = new Date(year, month, day + 1);
+    
+    const formatDate = (date: Date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    };
+
+    return `Time Range(${formatDate(d)} 06:00 AM To ${formatDate(nextD)} 05:59 AM)`;
+  };
 
   // Real-time Working Hours logic for MentorDashboard
   let mentorWorkingHoursText = "";
   let mentorWorkingHoursError = "";
-  let isMentorValidTime = true;
+  let isMentorValidTime = false;
 
-  if (editRequestedCheckIn || editRequestedCheckOut) {
-    if (editRequestedCheckIn && editRequestedCheckOut) {
-      const inMins = parseTimeToMinutes(editRequestedCheckIn);
-      const outMins = parseTimeToMinutes(editRequestedCheckOut);
+  const currentStatus = showEditRequestFormFor?.currentStatus;
 
-      if (inMins === null) {
-        mentorWorkingHoursError = "Invalid In Time format! (e.g. 09:00 AM)";
-        isMentorValidTime = false;
-      } else if (outMins === null) {
-        mentorWorkingHoursError = "Out Time Missing";
-        isMentorValidTime = false;
+  if (editRequestedCheckIn && editRequestedCheckOut) {
+    const inMins = parseTimeToMinutes(editRequestedCheckIn);
+    const outMins = parseTimeToMinutes(editRequestedCheckOut);
+
+    if (inMins === null) {
+      mentorWorkingHoursError = `You entered invalid Time. ${getAttendanceRangeText(showEditRequestFormFor?.date || "")}`;
+    } else if (outMins === null) {
+      mentorWorkingHoursError = `You entered invalid Time. ${getAttendanceRangeText(showEditRequestFormFor?.date || "")}`;
+    } else {
+      // Attendance logic: Day starts at 06:00 AM and ends at 05:59 AM next day
+      const getAbsMins = (m: number) => (m >= 360 ? m : m + 1440);
+      const absIn = getAbsMins(inMins);
+      const absOut = getAbsMins(outMins);
+
+      if (absIn >= absOut) {
+        mentorWorkingHoursError = `You entered invalid Time. ${getAttendanceRangeText(showEditRequestFormFor?.date || "")}`;
       } else {
-        let diffMins = outMins - inMins;
-        if (diffMins < 0) diffMins += 24 * 60;
+        let diffMins = absOut - absIn;
         const hours = Math.floor(diffMins / 60);
         const mins = diffMins % 60;
         mentorWorkingHoursText = `Working Hour: ${hours} Hour ${mins} Min`;
+        isMentorValidTime = true;
       }
+    }
+  } else if (editRequestedCheckIn || editRequestedCheckOut) {
+    if (currentStatus === 'Finger Punch Missing') {
+      mentorWorkingHoursError = "Out Punch Missing";
     } else {
       mentorWorkingHoursError = "Both In Time and Out Time must be provided!";
-      isMentorValidTime = false;
+    }
+  } else {
+    if (currentStatus === 'Finger Punch Missing') {
+      mentorWorkingHoursError = "Out Punch Missing";
     }
   }
 
@@ -309,7 +364,7 @@ export default function MentorDashboard({
 
   const totalNotificationBadgeCount = notificationProblematicAttendances.length + unreadEmailCount;
 
-  const handleTabChange = (tab: 'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves' | 'emails') => {
+  const handleTabChange = (tab: 'attendance' | 'notices' | 'edit_requests' | 'profile' | 'members' | 'leaves' | 'emails' | 'campus_settings' | 'call-management') => {
     setActiveTab(tab);
     setViewedMemberPin(null);
     setLeaveSearchPin('');
@@ -348,7 +403,7 @@ export default function MentorDashboard({
     const start = leaveEditForm.startDate;
     const end = leaveEditForm.endDate;
     if (!start || !end || !leaveEditForm.reason?.trim()) {
-      alert('Please fill in all fields.');
+      toast.error('Please fill in all fields.');
       return;
     }
 
@@ -369,7 +424,7 @@ export default function MentorDashboard({
         });
 
         if (isCurrentlyOnLeave) {
-          alert('The selected responsible person is on leave during those dates!');
+          toast.error('The selected responsible person is on leave during those dates!');
           return;
         }
 
@@ -472,7 +527,7 @@ export default function MentorDashboard({
   const handleLeaveRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!leaveMemberPin || !leaveStartDate || !leaveEndDate || !leaveReason.trim()) {
-      alert('Please fill in all fields.');
+      toast.error('Please fill in all fields.');
       return;
     }
 
@@ -499,7 +554,7 @@ export default function MentorDashboard({
         });
 
         if (isCurrentlyOnLeave) {
-          alert('The selected responsible person is on leave during those dates!');
+          toast.error('The selected responsible person is on leave during those dates!');
           return;
         }
 
@@ -549,7 +604,7 @@ export default function MentorDashboard({
     },
     {
       id: 'emails' as const,
-      label: `Inbox (${myEmails.length}) [ইনবক্স]`,
+      label: `Inbox (${myEmails.length})`,
       permission: 'mentor_emails',
       icon: <Inbox className="w-4 h-4" />,
       hasUnread: unreadEmailCount > 0
@@ -581,6 +636,20 @@ export default function MentorDashboard({
       permission: 'mentor_attendance', // Using same permission as attendance for now
       icon: <User className="w-4 h-4" />,
       hasUnread: false
+    },
+    {
+      id: 'campus_settings' as const,
+      label: 'Campus Settings',
+      permission: 'manage_campus_settings',
+      icon: <Settings className="w-4 h-4" />,
+      hasUnread: false
+    },
+    {
+      id: 'call-management' as const,
+      label: 'Call Management',
+      permission: 'mentor_attendance', // Re-using permission for now
+      icon: <Phone className="w-4 h-4" />,
+      hasUnread: false
     }
   ];
 
@@ -598,24 +667,26 @@ export default function MentorDashboard({
           <p className="text-xs text-slate-500 font-medium mt-0.5">
            
           </p>
-          {!isSidebarOpen ? (
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="mt-2 flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Open Dashboard Menu</span>
-              <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsSidebarOpen(false)}
-              className="mt-2 flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
-            >
-              <ChevronLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-              <span>Close Dashboard Menu</span>
-            </button>
-          )}
+          <div className="hidden sm:block">
+            {!isSidebarOpen ? (
+              <button
+                onClick={() => setIsSidebarOpen(true)}
+                className="mt-2 flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Open Dashboard Menu</span>
+                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="mt-2 flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
+              >
+                <ChevronLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                <span>Close Dashboard Menu</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-4 self-end sm:self-auto">
@@ -657,7 +728,7 @@ export default function MentorDashboard({
                   >
                     <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                       <div>
-                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">System Alerts (সিস্টেম অ্যালার্ট)</h3>
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">System Alerts</h3>
                         <p className="text-[10px] font-bold text-slate-400">Notices and Team Issues</p>
                       </div>
                       <button 
@@ -907,10 +978,10 @@ export default function MentorDashboard({
 
         {/* Floating Mobile Toggle */}
         <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="lg:hidden fixed bottom-6 right-6 z-40 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="lg:hidden fixed bottom-6 right-6 z-50 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center"
         >
-          <Menu className="w-6 h-6" />
+          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
 
         {/* Main Content Area */}
@@ -2390,7 +2461,7 @@ export default function MentorDashboard({
             <div className="bg-slate-50/70 border-b border-slate-150 px-6 py-5">
               <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
                 <Mail className="w-5 h-5 text-indigo-600" />
-                Secure Portal Messenger (সিকিউর পোর্টাল মেসেঞ্জার)
+                Secure Portal Messenger
               </h3>
               <p className="text-xs text-slate-500 font-medium">Internal communications and official alerts</p>
             </div>
@@ -2579,7 +2650,7 @@ export default function MentorDashboard({
                               ) : (
                                 <div className="space-y-1.5 text-xs text-slate-600 font-medium">
                                   <span className="bg-indigo-50 text-indigo-700 border border-indigo-100/50 px-1.5 py-0.5 rounded text-[10px] font-black uppercase inline-block">
-                                    {req.requestedStatus}
+                                    {(!req.requestedCheckOut && !['Leave', 'Absent', 'Holiday', 'Weekend'].includes(req.requestedStatus)) ? 'Finger Punch Missing' : req.requestedStatus}
                                   </span>
                                   {req.requestedCheckIn && (
                                     <div className="flex items-center gap-1">
@@ -2696,10 +2767,120 @@ export default function MentorDashboard({
           />
         </div>
       )}
+
+      {/* Tab: CALL MANAGEMENT */}
+      {activeTab === 'call-management' && viewedMemberPin === null && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <CallManagement 
+            currentUser={currentMentor} 
+            members={members} 
+            campuses={campuses || []}
+            branches={branches}
+          />
+        </motion.div>
+      )}
+
+      {/* Tab: CAMPUS SETTINGS (BRANCH MANAGEMENT) */}
+      {activeTab === 'campus_settings' && allowedPerms.includes('manage_campus_settings') && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md overflow-hidden">
+            <div className="bg-slate-50/70 border-b border-slate-150 px-6 py-5">
+              <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-600" />
+                Campus & Branch Settings
+              </h3>
+              <p className="text-xs text-slate-500 font-medium">Configure branches for each campus location</p>
+            </div>
+            
+            <div className="p-6">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <th className="p-4 w-12 text-center">#</th>
+                      <th className="p-4">Campus Name</th>
+                      <th className="p-4">Branches</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {(campuses || []).map((campus, idx) => (
+                      <tr key={campus.id} className="hover:bg-slate-50/30 transition-colors">
+                        <td className="p-4 text-center font-mono text-slate-400">{idx + 1}</td>
+                        <td className="p-4 font-bold text-slate-800">{campus.name}</td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap gap-1 max-w-[400px]">
+                            {branches
+                              .filter((b) => b.campusId === campus.id)
+                              .map((b) => (
+                                <span
+                                  key={b.id}
+                                  className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md border border-slate-200 text-[10px] font-medium"
+                                >
+                                  {b.name}
+                                </span>
+                              ))}
+                            {branches.filter(b => b.campusId === campus.id).length === 0 && (
+                              <span className="text-slate-400 italic text-[10px]">No branches assigned</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => {
+                              setSelectedCampusForBranches(campus);
+                              setIsBranchModalOpen(true);
+                            }}
+                            className="px-4 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl text-[10px] font-black uppercase tracking-wider border border-indigo-100 transition-all cursor-pointer"
+                          >
+                            Manage Branches
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
+
+      <BranchManagementModal
+        isOpen={isBranchModalOpen}
+        onClose={() => {
+          setIsBranchModalOpen(false);
+          setSelectedCampusForBranches(null);
+          setBranchSearch("");
+        }}
+        campus={selectedCampusForBranches}
+        branches={branches}
+        onAssign={onAssignBranchesToCampus}
+        onUnassign={onUnassignBranch}
+        onUpdateBranch={onUpdateBranch}
+        onDeleteBranch={onDeleteBranch}
+        onOpenAddBranch={() => setIsAddBranchModalOpen(true)}
+      />
+
+      <AddBranchModal
+        isOpen={isAddBranchModalOpen}
+        onClose={() => {
+          setIsAddBranchModalOpen(false);
+        }}
+        onAdd={onAddBranch}
+        branches={branches}
+      />
 
       <ConfirmModal
         isOpen={!!confirmDeleteLeavePin}
@@ -2721,6 +2902,395 @@ export default function MentorDashboard({
         title="Delete Edit Request"
         message="Are you sure you want to delete this edit request? This action cannot be undone."
       />
+    </div>
+  );
+}
+
+function BranchManagementModal({
+  isOpen,
+  onClose,
+  campus,
+  branches,
+  onAssign,
+  onUnassign,
+  onUpdateBranch,
+  onDeleteBranch,
+  onOpenAddBranch,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  campus: Campus | null;
+  branches: Branch[];
+  onAssign: (campusId: string, branchIds: string[]) => void;
+  onUnassign: (branchId: string) => void;
+  onUpdateBranch: (id: string, data: Partial<Branch>) => void;
+  onDeleteBranch: (id: string) => void;
+  onOpenAddBranch: () => void;
+}) {
+  if (!isOpen || !campus) return null;
+  const [search, setSearch] = useState("");
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [editName, setEditName] = useState("");
+  const [deletingBranch, setDeletingBranch] = useState<Branch | null>(null);
+
+  const assignedBranches = branches.filter((b) => b.campusId === campus.id);
+  const unassignedBranches = branches.filter(
+    (b) => !b.campusId && b.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const handleStartEdit = (branch: Branch) => {
+    setEditingBranch(branch);
+    setEditName(branch.name);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingBranch) return;
+    const trimmed = editName.trim();
+    if (!trimmed) return;
+    if (branches.some(b => b.name.toLowerCase() === trimmed.toLowerCase() && b.id !== editingBranch.id)) {
+      toast.error('A branch with this name already exists.');
+      return;
+    }
+    onUpdateBranch(editingBranch.id, { name: trimmed });
+    setEditingBranch(null);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!deletingBranch) return;
+    onDeleteBranch(deletingBranch.id);
+    setDeletingBranch(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden border border-slate-200"
+      >
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+          <div>
+            <h3 className="text-lg font-black text-slate-800 tracking-tight text-left">
+              Manage Branches
+            </h3>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-0.5 text-left">
+              Campus: {campus.name}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-slate-200 rounded-full transition-colors"
+          >
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 text-left">
+          {/* Assigned Branches */}
+          <section>
+            <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Currently Assigned ({assignedBranches.length})
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {assignedBranches.map((branch) => (
+                <div
+                  key={branch.id}
+                  className="flex items-center justify-between p-3 bg-indigo-50/30 border border-indigo-100 rounded-xl group"
+                >
+                  <span className="text-xs font-bold text-slate-700 text-left">
+                    {branch.name}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleStartEdit(branch)}
+                      className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setDeletingBranch(branch)}
+                      className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onUnassign(branch.id)}
+                      className="p-1.5 text-amber-500 hover:bg-amber-50 rounded-lg transition-colors"
+                      title="Unassign"
+                    >
+                      <UserMinus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {assignedBranches.length === 0 && (
+                <div className="col-span-full py-6 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                  <p className="text-xs font-bold text-slate-400">
+                    No branches assigned to this campus.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Add More Branches */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5" />
+                Assign More Branches
+              </h4>
+              <button
+                onClick={onOpenAddBranch}
+                className="text-[10px] font-black text-indigo-600 hover:underline flex items-center gap-1"
+              >
+                + Create New Branch
+              </button>
+            </div>
+
+            <div className="relative mb-4">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search branches..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold shadow-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto p-1">
+              {unassignedBranches.map((branch) => (
+                <div
+                  key={branch.id}
+                  className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50/20 transition-all text-left group"
+                >
+                  <span className="text-xs font-bold text-slate-600 group-hover:text-indigo-600 text-left">
+                    {branch.name}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleStartEdit(branch)}
+                      className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setDeletingBranch(branch)}
+                      className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onAssign(campus.id, [branch.id])}
+                      className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors"
+                      title="Assign to Campus"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {unassignedBranches.length === 0 && (
+                <div className="col-span-full py-10 text-center">
+                  <p className="text-xs font-bold text-slate-400 italic">
+                    {search ? "No unassigned branches matching search." : "All branches are already assigned!"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all"
+          >
+            Close
+          </button>
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {editingBranch && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 border border-slate-100"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-indigo-50 rounded-xl">
+                    <Edit3 className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight text-left">
+                    Rename Branch
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setEditingBranch(null)}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-left">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2 ml-1">
+                    New Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveEdit();
+                      if (e.key === 'Escape') setEditingBranch(null);
+                    }}
+                    placeholder="Enter branch name..."
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-800 shadow-sm"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={handleSaveEdit}
+                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={() => setEditingBranch(null)}
+                    className="px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {deletingBranch && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 border border-rose-100"
+            >
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="p-4 bg-rose-50 rounded-full">
+                  <Trash2 className="w-8 h-8 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                    Delete Branch?
+                  </h3>
+                  <p className="text-sm text-slate-500 font-bold mt-2">
+                    Are you sure you want to delete <span className="text-rose-600">"{deletingBranch.name}"</span>? 
+                    This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex flex-col w-full gap-2 pt-4">
+                  <button
+                    onClick={handleDeleteConfirm}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                  >
+                    Yes, Delete Branch
+                  </button>
+                  <button
+                    onClick={() => setDeletingBranch(null)}
+                    className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    No, Keep it
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AddBranchModal({
+  isOpen,
+  onClose,
+  onAdd,
+  branches,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAdd: (name: string) => void;
+  branches: Branch[];
+}) {
+  const [name, setName] = useState("");
+  if (!isOpen) return null;
+
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    onAdd(name.trim());
+    setName("");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 border border-slate-200"
+      >
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-black text-slate-800 tracking-tight text-left">
+            Create New Branch
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="space-y-4 text-left">
+          <div>
+            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2 ml-1">
+              Branch Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter branch name (e.g. Azimpur Udvash)"
+              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-800 shadow-sm"
+              autoFocus
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleAdd}
+              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg hover:shadow-indigo-500/30 transition-all"
+            >
+              Create Branch
+            </button>
+            <button
+              onClick={onClose}
+              className="px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }

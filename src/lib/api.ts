@@ -75,5 +75,11 @@ export const api = {
     update: (pin: string, data: any) => request(`/feedbacks/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (pin: string) => request(`/feedbacks/${pin}`, { method: 'DELETE' }),
   },
+  branches: {
+    getAll: () => request('/branches'),
+    create: (data: any) => request('/branches', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: any) => request(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/branches/${id}`, { method: 'DELETE' }),
+  },
   seed: (data: any) => request('/seed', { method: 'POST', body: JSON.stringify(data) }),
 };
