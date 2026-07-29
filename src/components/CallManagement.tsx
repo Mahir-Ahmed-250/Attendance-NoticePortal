@@ -1,20 +1,32 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
-import { motion, AnimatePresence } from 'motion/react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { 
-  Phone, 
-  Upload, 
-  Users, 
-  User,
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import toast from "react-hot-toast";
+import * as XLSX from "xlsx";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
+import {
+  Phone,
+  Upload,
+  Users,
+  User as UserIcon,
   Headphones,
-  BarChart3, 
-  CheckCircle2, 
-  Clock, 
-  AlertCircle, 
-  Search, 
-  Filter, 
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  Search,
+  Filter,
   MoreVertical,
   MessageSquare,
   Send,
@@ -35,19 +47,29 @@ import {
   SlidersHorizontal,
   Sparkles,
   Globe,
-  Link,
+  Link as LinkIcon,
   ArrowRight,
   ExternalLink,
   CheckSquare,
   Square,
   Building2,
-  ChevronDown
-} from 'lucide-react';
-import { CallTask, TeamMember, Role, User as UserType, Campus, Branch } from '../types';
+  ChevronDown,
+  Clipboard as ClipboardIcon,
+} from "lucide-react";
+import {
+  CallTask,
+  TeamMember,
+  Mentor,
+  Role,
+  User as UserType,
+  Campus,
+  Branch,
+} from "../types";
 
 interface CallManagementProps {
   currentUser: UserType;
   members: TeamMember[];
+  mentors: Mentor[];
   campuses: Campus[];
   branches: Branch[];
 }
@@ -55,70 +77,127 @@ interface CallManagementProps {
 const getTodayLocalDate = () => {
   const d = new Date();
   const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
 
-export default function CallManagement({ currentUser, members, campuses, branches }: CallManagementProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'management' | 'my-tasks' | 'live-instruction'>(
-    (currentUser.role === 'manager' || currentUser.role === 'mentor' || currentUser.permissions?.includes('can_upload_call_info')) ? 'dashboard' : 'my-tasks'
+export default function CallManagement({
+  currentUser,
+  members,
+  mentors,
+  campuses,
+  branches,
+}: CallManagementProps) {
+  const [activeSubTab, setActiveSubTab] = useState<
+    "dashboard" | "management" | "my-tasks" | "live-instruction"
+  >(
+    currentUser.role === "manager" ||
+      currentUser.role === "mentor" ||
+      currentUser.permissions?.includes("can_upload_call_info")
+      ? "dashboard"
+      : "my-tasks",
   );
   const [tasks, setTasks] = useState<CallTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [liveSearchRegNo, setLiveSearchRegNo] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [liveSearchRegNo, setLiveSearchRegNo] = useState("");
   const [liveFoundTask, setLiveFoundTask] = useState<CallTask | null>(null);
-  const [liveComment, setLiveComment] = useState('');
-  const [liveStatus, setLiveStatus] = useState<'Pending' | 'Completed'>('Pending');
-  const [liveInstructorName, setLiveInstructorName] = useState(currentUser.name);
+  const [liveComment, setLiveComment] = useState("");
+  const [liveStatus, setLiveStatus] = useState<"Pending" | "Completed">(
+    "Pending",
+  );
+  const [liveInstructorName, setLiveInstructorName] = useState(
+    currentUser.name,
+  );
   const [liveInstructorPin, setLiveInstructorPin] = useState(currentUser.pin);
   const [isLiveInstructorTeacher, setIsLiveInstructorTeacher] = useState(false);
   const [isUpdatingLive, setIsUpdatingLive] = useState(false);
-  const [liveStatusFilter, setLiveStatusFilter] = useState<string>('all');
-  const [dateTypeFilter, setDateTypeFilter] = useState<'all' | 'live' | 'feedback'>('all');
-  const [fromDateFilter, setFromDateFilter] = useState<string>('');
-  const [toDateFilter, setToDateFilter] = useState<string>('');
-  const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<string>('all');
-  const [classFilter, setClassFilter] = useState<string>('all');
-  const [campusFilter, setCampusFilter] = useState<string>('all');
+  const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
+  const [dateTypeFilter, setDateTypeFilter] = useState<
+    "all" | "live" | "feedback"
+  >("all");
+  const [fromDateFilter, setFromDateFilter] = useState<string>("");
+  const [toDateFilter, setToDateFilter] = useState<string>("");
+  const [feedbackStatusFilter, setFeedbackStatusFilter] =
+    useState<string>("all");
+  const [classFilter, setClassFilter] = useState<string>("all");
+  const [campusFilter, setCampusFilter] = useState<string>("all");
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
-  const [branchSearchQuery, setBranchSearchQuery] = useState<string>('');
+  const [branchSearchQuery, setBranchSearchQuery] = useState<string>("");
   const [isBranchFilterOpen, setIsBranchFilterOpen] = useState<boolean>(false);
-  const [dashboardClassFilter, setDashboardClassFilter] = useState<string>('all');
-  const [assignFilter, setAssignFilter] = useState<string>('all');
-  const [liveAssignFilter, setLiveAssignFilter] = useState<string>('all');
-  const [bulkAssignType, setBulkAssignType] = useState<'feedback' | 'live' | 'both'>('feedback');
-  const [rangeAssignType, setRangeAssignType] = useState<'feedback' | 'live' | 'both'>('feedback');
-  
+  const [dashboardClassFilter, setDashboardClassFilter] =
+    useState<string>("all");
+  const [assignFilter, setAssignFilter] = useState<string>("all");
+  const [liveAssignFilter, setLiveAssignFilter] = useState<string>("all");
+  const [bulkAssignType, setBulkAssignType] = useState<
+    "feedback" | "live" | "both"
+  >("feedback");
+  const [rangeAssignType, setRangeAssignType] = useState<
+    "feedback" | "live" | "both"
+  >("feedback");
+
   // Script / Khata Image & Link
-  const [liveInstructionImage, setLiveInstructionImage] = useState<string>('');
-  const [liveInstructionLink, setLiveInstructionLink] = useState<string>('');
+  const [liveInstructionImage, setLiveInstructionImage] = useState<string>("");
+  const [liveInstructionLink, setLiveInstructionLink] = useState<string>("");
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const [viewingImageUrl, setViewingImageUrl] = useState("");
+
+  const handleImagePaste = (
+    e: React.ClipboardEvent,
+    callback: (dataUrl: string) => void,
+  ) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) {
+          const reader = new window.FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              callback(event.target.result as string);
+              toast.success("Image pasted from clipboard");
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+        return;
+      }
+    }
+  };
 
   // Unassign Modal State
   const [isUnassignModalOpen, setIsUnassignModalOpen] = useState(false);
   const [unassignTarget, setUnassignTarget] = useState<{
-    type: 'single' | 'range' | 'bulk';
+    type: "single" | "range" | "bulk";
     taskId?: string;
     taskIds?: string[];
   } | null>(null);
-  const [unassignChoice, setUnassignChoice] = useState<'live' | 'feedback' | 'both'>('both');
-  
+  const [unassignChoice, setUnassignChoice] = useState<
+    "live" | "feedback" | "both"
+  >("both");
+
   // Individual Assign Modal State
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignTarget, setAssignTarget] = useState<CallTask | null>(null);
-  const [assignChoice, setAssignChoice] = useState<'feedback' | 'live' | 'both'>('feedback');
-  const [assignTargetMember, setAssignTargetMember] = useState('');
+  const [assignChoice, setAssignChoice] = useState<
+    "feedback" | "live" | "both"
+  >("feedback");
+  const [assignTargetMember, setAssignTargetMember] = useState("");
 
-  const [selectedClassForUpload, setSelectedClassForUpload] = useState('');
-  const [deleteAllTargetClass, setDeleteAllTargetClass] = useState<string>('all');
-  const [deletePassword, setDeletePassword] = useState('');
-  
+  const [selectedClassForUpload, setSelectedClassForUpload] = useState("");
+  const [deleteAllTargetClass, setDeleteAllTargetClass] =
+    useState<string>("all");
+  const [deletePassword, setDeletePassword] = useState("");
+
   // Merit List Comparison State
   const [isMeritListModalOpen, setIsMeritListModalOpen] = useState(false);
-  const [meritTargetClass, setMeritTargetClass] = useState('');
+  const [meritTargetClass, setMeritTargetClass] = useState("");
   const [isCheckingMerit, setIsCheckingMerit] = useState(false);
   const [meritResult, setMeritResult] = useState<{
     totalInMeritList: number;
@@ -128,13 +207,23 @@ export default function CallManagement({ currentUser, members, campuses, branche
     matchedStudents: any[];
     allStudents: any[];
   } | null>(null);
-  const [selectedMissingIndexes, setSelectedMissingIndexes] = useState<number[]>([]);
+  const [selectedMissingIndexes, setSelectedMissingIndexes] = useState<
+    number[]
+  >([]);
   const [isImportingMissing, setIsImportingMissing] = useState(false);
-  const [meritAssigneePin, setMeritAssigneePin] = useState<string>('');
-  
-  const isCoordinator = currentUser.role === 'manager' || currentUser.role === 'mentor';
-  const canUpload = currentUser.role === 'manager' || currentUser.permissions?.includes('can_upload_call_info');
+  const [meritAssigneePin, setMeritAssigneePin] = useState<string>("");
+
+  const isCoordinator =
+    currentUser.role === "manager" || currentUser.role === "mentor";
+  const canUpload =
+    currentUser.role === "manager" ||
+    currentUser.permissions?.includes("can_upload_call_info");
   const showManagementTabs = isCoordinator || canUpload;
+
+  const mentorPins = useMemo(
+    () => new Set(mentors.map((m) => m.pin)),
+    [mentors],
+  );
 
   // Drag to scroll logic
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -145,8 +234,8 @@ export default function CallManagement({ currentUser, members, campuses, branche
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!tableContainerRef.current) return;
     setIsDragging(true);
-    tableContainerRef.current.style.cursor = 'grabbing';
-    tableContainerRef.current.style.userSelect = 'none';
+    tableContainerRef.current.style.cursor = "grabbing";
+    tableContainerRef.current.style.userSelect = "none";
     setStartX(e.pageX - tableContainerRef.current.offsetLeft);
     setScrollLeft(tableContainerRef.current.scrollLeft);
   };
@@ -154,15 +243,15 @@ export default function CallManagement({ currentUser, members, campuses, branche
   const handleMouseLeave = () => {
     if (!tableContainerRef.current) return;
     setIsDragging(false);
-    tableContainerRef.current.style.cursor = 'grab';
-    tableContainerRef.current.style.removeProperty('user-select');
+    tableContainerRef.current.style.cursor = "grab";
+    tableContainerRef.current.style.removeProperty("user-select");
   };
 
   const handleMouseUp = () => {
     if (!tableContainerRef.current) return;
     setIsDragging(false);
-    tableContainerRef.current.style.cursor = 'grab';
-    tableContainerRef.current.style.removeProperty('user-select');
+    tableContainerRef.current.style.cursor = "grab";
+    tableContainerRef.current.style.removeProperty("user-select");
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -175,21 +264,23 @@ export default function CallManagement({ currentUser, members, campuses, branche
 
   const handleLiveSearch = () => {
     if (!liveSearchRegNo.trim()) {
-      toast.error('Please enter a registration number');
+      toast.error("Please enter a registration number");
       return;
     }
-    const found = tasks.find(t => t.registrationNo === liveSearchRegNo.trim());
+    const found = tasks.find(
+      (t) => t.registrationNo === liveSearchRegNo.trim(),
+    );
     if (found) {
       setLiveFoundTask(found);
       setLiveStatus(found.liveInstructionStatus);
-      setLiveComment(found.liveInstructionComment || '');
+      setLiveComment(found.liveInstructionComment || "");
       setLiveInstructorName(found.liveInstructorName || currentUser.name);
       setLiveInstructorPin(found.liveInstructorPin || currentUser.pin);
       setIsLiveInstructorTeacher(found.isLiveInstructorTeacher || false);
-      setLiveInstructionImage(found.liveInstructionImage || '');
-      setLiveInstructionLink(found.liveInstructionLink || '');
+      setLiveInstructionImage(found.liveInstructionImage || "");
+      setLiveInstructionLink(found.liveInstructionLink || "");
     } else {
-      toast.error('Student not found in your campus data');
+      toast.error("Student not found in your campus data");
       setLiveFoundTask(null);
     }
   };
@@ -198,8 +289,16 @@ export default function CallManagement({ currentUser, members, campuses, branche
     if (!liveFoundTask) return;
     setIsUpdatingLive(true);
     const today = getTodayLocalDate();
-    const isNewCompletion = liveStatus === 'Completed' && (liveFoundTask.liveInstructionStatus !== 'Completed' || !liveFoundTask.liveInstructionSubmitDate);
-    const submitDate = liveStatus === 'Completed' ? (isNewCompletion ? today : (liveFoundTask.liveInstructionSubmitDate || today)) : undefined;
+    const isNewCompletion =
+      liveStatus === "Completed" &&
+      (liveFoundTask.liveInstructionStatus !== "Completed" ||
+        !liveFoundTask.liveInstructionSubmitDate);
+    const submitDate =
+      liveStatus === "Completed"
+        ? isNewCompletion
+          ? today
+          : liveFoundTask.liveInstructionSubmitDate || today
+        : undefined;
     try {
       await handleUpdateTask(liveFoundTask.id, {
         liveInstructionStatus: liveStatus,
@@ -209,23 +308,27 @@ export default function CallManagement({ currentUser, members, campuses, branche
         isLiveInstructorTeacher,
         liveInstructionImage,
         liveInstructionLink,
-        liveInstructionSubmitDate: submitDate
+        liveInstructionSubmitDate: submitDate,
       });
-      setLiveFoundTask(prev => prev ? { 
-        ...prev, 
-        liveInstructionStatus: liveStatus, 
-        liveInstructionComment: liveComment,
-        liveInstructorName,
-        liveInstructorPin,
-        isLiveInstructorTeacher,
-        liveInstructionImage,
-        liveInstructionLink,
-        liveInstructionSubmitDate: submitDate
-      } : null);
-      toast.success('Live Instruction updated successfully');
+      setLiveFoundTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              liveInstructionStatus: liveStatus,
+              liveInstructionComment: liveComment,
+              liveInstructorName,
+              liveInstructorPin,
+              isLiveInstructorTeacher,
+              liveInstructionImage,
+              liveInstructionLink,
+              liveInstructionSubmitDate: submitDate,
+            }
+          : null,
+      );
+      toast.success("Live Instruction updated successfully");
     } catch (err) {
       console.error(err);
-      toast.error('Update failed');
+      toast.error("Update failed");
     } finally {
       setIsUpdatingLive(false);
     }
@@ -239,32 +342,32 @@ export default function CallManagement({ currentUser, members, campuses, branche
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (activeSubTab === 'my-tasks') {
-        params.append('assignedToPin', currentUser.pin);
-      } else if (activeSubTab === 'live-instruction') {
-        if (currentUser.campus && currentUser.campus !== 'All') {
-          params.append('campus', currentUser.campus);
+      if (activeSubTab === "my-tasks") {
+        params.append("assignedToPin", currentUser.pin);
+      } else if (activeSubTab === "live-instruction") {
+        if (currentUser.campus && currentUser.campus !== "All") {
+          params.append("campus", currentUser.campus);
         }
       } else if (!showManagementTabs) {
-        params.append('assignedToPin', currentUser.pin);
-      } else if (currentUser.campus && currentUser.campus !== 'All') {
-        params.append('campus', currentUser.campus);
+        params.append("assignedToPin", currentUser.pin);
+      } else if (currentUser.campus && currentUser.campus !== "All") {
+        params.append("campus", currentUser.campus);
       }
-      
+
       const res = await fetch(`/api/call-tasks?${params.toString()}`);
       if (!res.ok) {
-        console.error('Failed to fetch tasks, status:', res.status);
+        console.error("Failed to fetch tasks, status:", res.status);
         return;
       }
-      const contentType = res.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
         const data = await res.json();
         if (Array.isArray(data)) {
           setTasks(data);
         }
       }
     } catch (err) {
-      console.error('Failed to fetch tasks:', err);
+      console.error("Failed to fetch tasks:", err);
     } finally {
       setLoading(false);
     }
@@ -275,11 +378,11 @@ export default function CallManagement({ currentUser, members, campuses, branche
     if (!file) return;
 
     setIsUploading(true);
-    const reader = new FileReader();
+    const reader = new window.FileReader();
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
@@ -287,35 +390,96 @@ export default function CallManagement({ currentUser, members, campuses, branche
         const getValue = (row: any, keys: string[]) => {
           const rowKeys = Object.keys(row);
           for (const key of keys) {
-            const normalizedTargetKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const foundKey = rowKeys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedTargetKey);
-            if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null) {
+            const normalizedTargetKey = key
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "");
+            const foundKey = rowKeys.find(
+              (k) =>
+                k.toLowerCase().replace(/[^a-z0-9]/g, "") ===
+                normalizedTargetKey,
+            );
+            if (
+              foundKey &&
+              row[foundKey] !== undefined &&
+              row[foundKey] !== null
+            ) {
               return row[foundKey];
             }
           }
-          return '';
+          return "";
         };
 
         const isHeaderValue = (val: string) => {
           if (!val) return false;
-          const norm = val.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const norm = val.toLowerCase().replace(/[^a-z0-9]/g, "");
           return [
-            'sl', 'slno', 'serial', 'serialno',
-            'registration', 'reg', 'regno', 'registrationno', 'pin', 'id',
-            'roll', 'rollno', 'examroll',
-            'studentname', 'fullname', 'name', 'nickname', 'student',
-            'mobile', 'phone', 'contact', 'mobilenumber', 'mobilepersonal',
-            'total', 'count', 'page', 'header', 'footer', 'signature', 'summary'
+            "sl",
+            "slno",
+            "serial",
+            "serialno",
+            "registration",
+            "reg",
+            "regno",
+            "registrationno",
+            "pin",
+            "id",
+            "roll",
+            "rollno",
+            "examroll",
+            "studentname",
+            "fullname",
+            "name",
+            "nickname",
+            "student",
+            "mobile",
+            "phone",
+            "contact",
+            "mobilenumber",
+            "mobilepersonal",
+            "total",
+            "count",
+            "page",
+            "header",
+            "footer",
+            "signature",
+            "summary",
           ].includes(norm);
         };
 
         const validRows = data.filter((row) => {
-          const reg = String(getValue(row, ['registration no.', 'registration no', 'reg no', 'reg. no.', 'pin', 'id']) || '').trim();
-          const roll = String(getValue(row, ['roll no.', 'roll no', 'roll']) || '').trim();
-          const name = String(getValue(row, ['full name', 'student name', 'name', 'student']) || '').trim();
-          const phone = String(getValue(row, ['mobile number(personal)', 'mobile number (personal)', 'mobile personal', 'mobile', 'phone']) || '').trim();
+          const reg = String(
+            getValue(row, [
+              "registration no.",
+              "registration no",
+              "reg no",
+              "reg. no.",
+              "pin",
+              "id",
+            ]) || "",
+          ).trim();
+          const roll = String(
+            getValue(row, ["roll no.", "roll no", "roll"]) || "",
+          ).trim();
+          const name = String(
+            getValue(row, ["full name", "student name", "name", "student"]) ||
+              "",
+          ).trim();
+          const phone = String(
+            getValue(row, [
+              "mobile number(personal)",
+              "mobile number (personal)",
+              "mobile personal",
+              "mobile",
+              "phone",
+            ]) || "",
+          ).trim();
 
-          if (isHeaderValue(reg) || isHeaderValue(roll) || isHeaderValue(name) || isHeaderValue(phone)) {
+          if (
+            isHeaderValue(reg) ||
+            isHeaderValue(roll) ||
+            isHeaderValue(name) ||
+            isHeaderValue(phone)
+          ) {
             return false;
           }
 
@@ -323,20 +487,27 @@ export default function CallManagement({ currentUser, members, campuses, branche
         });
 
         const newTasks: Partial<CallTask>[] = validRows.map((row, idx) => {
-          const rawBranch = getValue(row, ['branch']);
-          const branchName = String(rawBranch || '').trim();
-          let campusName = String(getValue(row, ['campus']) || '').trim();
-          
+          const rawBranch = getValue(row, ["branch"]);
+          const branchName = String(rawBranch || "").trim();
+          let campusName = String(getValue(row, ["campus"]) || "").trim();
+
           if (!campusName && branchName) {
-            const normalizedBranchName = branchName.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const branchObj = branches.find(b => {
-              const systemBranchName = b.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-              return systemBranchName === normalizedBranchName || 
-                     systemBranchName.startsWith(normalizedBranchName) ||
-                     normalizedBranchName.startsWith(systemBranchName);
+            const normalizedBranchName = branchName
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "");
+            const branchObj = branches.find((b) => {
+              const systemBranchName = b.name
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+              return (
+                systemBranchName === normalizedBranchName ||
+                systemBranchName.startsWith(normalizedBranchName) ||
+                normalizedBranchName.startsWith(systemBranchName)
+              );
             });
             if (branchObj && branchObj.campusId) {
-              campusName = campuses.find(c => c.id === branchObj.campusId)?.name || '';
+              campusName =
+                campuses.find((c) => c.id === branchObj.campusId)?.name || "";
             }
           }
 
@@ -348,75 +519,103 @@ export default function CallManagement({ currentUser, members, campuses, branche
           return {
             id: `task-${Date.now()}-${idx}`,
             sl: String(idx + 1),
-            registrationNo: String(getValue(row, ['registration no.', 'registration no', 'reg no', 'reg. no.']) || ''),
-            studentName: String(getValue(row, ['full name', 'student name', 'name', 'student']) || ''),
-            mobilePersonal: String(getValue(row, ['mobile number(personal)', 'mobile number (personal)', 'mobile personal', 'mobile']) || ''),
-            mobileFather: String(getValue(row, ['mobile number(father)', 'mobile number (father)', 'father mobile']) || ''),
-            mobileMother: String(getValue(row, ['mobile number(mother)', 'mobile number (mother)', 'mother mobile']) || ''),
+            registrationNo: String(
+              getValue(row, [
+                "registration no.",
+                "registration no",
+                "reg no",
+                "reg. no.",
+              ]) || "",
+            ),
+            studentName: String(
+              getValue(row, ["full name", "student name", "name", "student"]) ||
+                "",
+            ),
+            mobilePersonal: String(
+              getValue(row, [
+                "mobile number(personal)",
+                "mobile number (personal)",
+                "mobile personal",
+                "mobile",
+              ]) || "",
+            ),
+            mobileFather: String(
+              getValue(row, [
+                "mobile number(father)",
+                "mobile number (father)",
+                "father mobile",
+              ]) || "",
+            ),
+            mobileMother: String(
+              getValue(row, [
+                "mobile number(mother)",
+                "mobile number (mother)",
+                "mother mobile",
+              ]) || "",
+            ),
             branch: branchName,
-            
-            rollNo: String(getValue(row, ['roll no.', 'roll no']) || ''),
-            nickName: String(getValue(row, ['nick name', 'nickname', 'nick']) || ''),
-            gender: String(getValue(row, ['gender']) || ''),
-            institute: String(getValue(row, ['institute']) || ''),
-            district: String(getValue(row, ['district']) || ''),
-            fatherName: String(getValue(row, ['father name', 'fathers name']) || ''),
-            motherName: String(getValue(row, ['mother name', 'mothers name']) || ''),
-            academicGroup: String(getValue(row, ['academic group', 'group']) || ''),
-            admissionTarget: String(getValue(row, ['admission target', 'target']) || ''),
-            campus: campusName,
-            courseBatch: getValue(row, ['course & batch', 'course and batch', 'course/batch']),
-            mbbsBdsStatus: getValue(row, ['mbbs/bds status', 'mbbs status', 'bds status']),
-            examName: getValue(row, ['exam name']),
-            fullMarks: String(getValue(row, ['full marks'])),
-            mcqMarks: String(getValue(row, ['mcq marks'])),
-            writtenMarks: String(getValue(row, ['written marks'])),
-            totalObtainedMarks: String(getValue(row, ['total obtained marks', 'obtained marks'])),
-            marksDeduction: String(getValue(row, ['marks deduction', 'deduction'])),
-            totalMarks: String(getValue(row, ['total marks'])),
-            highestMarks: String(getValue(row, ['highest marks'])),
-            percentMarks: String(getValue(row, ['percent marks', 'percentage'])),
-            averageMarks: String(getValue(row, ['average marks'])),
-            branchMerit: String(getValue(row, ['branch merit'])),
-            centralMerit: String(getValue(row, ['central merit'])),
-            totalParticipant: String(getValue(row, ['total participant'])),
-            examMode: getValue(row, ['exam mode']),
 
+            rollNo: String(getValue(row, ["roll no.", "roll no"]) || ""),
+            nickName: String(
+              getValue(row, ["nick name", "nickname", "nick"]) || "",
+            ),
+            gender: String(getValue(row, ["gender"]) || ""),
+            institute: String(getValue(row, ["institute"]) || ""),
+            district: String(getValue(row, ["district"]) || ""),
+            fatherName: String(
+              getValue(row, ["father name", "fathers name"]) || "",
+            ),
+            motherName: String(
+              getValue(row, ["mother name", "mothers name"]) || "",
+            ),
+            academicGroup: String(
+              getValue(row, ["academic group", "group"]) || "",
+            ),
+            admissionTarget: String(
+              getValue(row, ["admission target", "target"]) || "",
+            ),
+            campus: campusName,
             className: selectedClassForUpload,
-            liveInstructionStatus: 'Pending',
-            feedbackStatus: 'Pending',
+            liveInstructionStatus: "Pending",
+            feedbackStatus: "Pending",
             createdByPin: currentUser.pin,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
           };
         });
 
-        const res = await fetch('/api/call-tasks/bulk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newTasks)
+        const res = await fetch("/api/call-tasks/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newTasks),
         });
 
         if (res.ok) {
           const result = await res.json();
           fetchTasks();
           if (result.addedCount > 0 && result.duplicateCount > 0) {
-            toast.success(`Added ${result.addedCount} new student(s). ${result.duplicateCount} duplicate(s) were blocked.`);
+            toast.success(
+              `Added ${result.addedCount} new student(s). ${result.duplicateCount} duplicate(s) were blocked.`,
+            );
           } else if (result.addedCount > 0) {
-            toast.success(`Successfully imported ${result.addedCount} student(s).`);
+            toast.success(
+              `Successfully imported ${result.addedCount} student(s).`,
+            );
           } else if (result.duplicateCount > 0) {
-            toast.error(`All ${result.duplicateCount} student(s) in this file already exist. Duplicate upload blocked.`);
+            toast.error(
+              `All ${result.duplicateCount} student(s) in this file already exist. Duplicate upload blocked.`,
+            );
           } else {
-            toast('No new tasks added.');
+            toast("No new tasks added.");
           }
         } else {
-          toast.error('Failed to import tasks');
+          toast.error("Failed to import tasks");
         }
       } catch (err) {
-        console.error('Excel parsing error:', err);
-        toast.error('Error parsing Excel file');
+        console.error("Excel parsing error:", err);
+        toast.error("Error parsing Excel file");
       } finally {
         setIsUploading(false);
-        if (e.target) e.target.value = '';
+        if (e.target) e.target.value = "";
       }
     };
     reader.readAsBinaryString(file);
@@ -427,30 +626,36 @@ export default function CallManagement({ currentUser, members, campuses, branche
     setIsCheckingMerit(true);
     try {
       if (!meritTargetClass) {
-        toast.error('Please select an existing class from the dropdown before importing.');
+        toast.error(
+          "Please select an existing class from the dropdown before importing.",
+        );
         setIsCheckingMerit(false);
         return;
       }
       const bodyData = { studentList: fileStudentList };
 
-      const res = await fetch('/api/fetch-merit-list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyData)
+      const res = await fetch("/api/fetch-merit-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyData),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
         setMeritResult(data);
-        const missingIdxs = data.missingStudents.map((_: any, idx: number) => idx);
+        const missingIdxs = data.missingStudents.map(
+          (_: any, idx: number) => idx,
+        );
         setSelectedMissingIndexes(missingIdxs);
-        toast.success(`Merit List checked! Found ${data.missingCount} missing students.`);
+        toast.success(
+          `Merit List checked! Found ${data.missingCount} missing students.`,
+        );
       } else {
-        toast.error(data.error || 'Failed to process Merit List');
+        toast.error(data.error || "Failed to process Merit List");
       }
     } catch (err: any) {
-      console.error('Merit List Check Error:', err);
-      toast.error('Error connecting to server to process Merit List');
+      console.error("Merit List Check Error:", err);
+      toast.error("Error connecting to server to process Merit List");
     } finally {
       setIsCheckingMerit(false);
     }
@@ -462,17 +667,19 @@ export default function CallManagement({ currentUser, members, campuses, branche
     if (!file) return;
 
     if (!meritTargetClass) {
-      toast.error('Please select an existing class from the dropdown before uploading a file.');
-      if (e.target) e.target.value = '';
+      toast.error(
+        "Please select an existing class from the dropdown before uploading a file.",
+      );
+      if (e.target) e.target.value = "";
       return;
     }
 
     setIsCheckingMerit(true);
-    const reader = new FileReader();
+    const reader = new window.FileReader();
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const excelRows = XLSX.utils.sheet_to_json(ws) as any[];
@@ -482,94 +689,151 @@ export default function CallManagement({ currentUser, members, campuses, branche
           const getValue = (keys: string[]) => {
             const rowKeys = Object.keys(row);
             for (const k of keys) {
-              const normKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-              const found = rowKeys.find(rk => rk.toLowerCase().replace(/[^a-z0-9]/g, '') === normKey);
-              if (found && row[found] !== undefined && row[found] !== null) return String(row[found]).trim();
+              const normKey = k.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const found = rowKeys.find(
+                (rk) => rk.toLowerCase().replace(/[^a-z0-9]/g, "") === normKey,
+              );
+              if (found && row[found] !== undefined && row[found] !== null)
+                return String(row[found]).trim();
             }
-            return '';
+            return "";
           };
 
-          const reg = getValue(['registration', 'reg', 'regno', 'registrationno', 'pin', 'studentid', 'id']);
-          const roll = getValue(['rollno', 'roll', 'examroll']);
-          const fullName = getValue(['fullname', 'studentname', 'name']);
-          const nickName = getValue(['nickname', 'nick']);
-          const mobilePersonal = getValue(['mobilepersonal', 'personalphonenumberp', 'mobile', 'phone', 'contact']);
-          const mobileFather = getValue(['numbera', 'mobilefather', 'fatherphone', 'guardianphone']);
+          const reg = getValue([
+            "registration",
+            "reg",
+            "regno",
+            "registrationno",
+            "pin",
+            "studentid",
+            "id",
+          ]);
+          const roll = getValue(["rollno", "roll", "examroll"]);
+          const fullName = getValue(["fullname", "studentname", "name"]);
+          const nickName = getValue(["nickname", "nick"]);
+          const mobilePersonal = getValue([
+            "mobilepersonal",
+            "personalphonenumberp",
+            "mobile",
+            "phone",
+            "contact",
+          ]);
+          const mobileFather = getValue([
+            "numbera",
+            "mobilefather",
+            "fatherphone",
+            "guardianphone",
+          ]);
 
           const isHeaderValue = (val: string) => {
             if (!val) return false;
-            const norm = val.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const norm = val.toLowerCase().replace(/[^a-z0-9]/g, "");
             return [
-              'sl', 'slno', 'serial', 'serialno',
-              'registration', 'reg', 'regno', 'registrationno', 'pin', 'id',
-              'roll', 'rollno', 'examroll',
-              'studentname', 'fullname', 'name', 'nickname', 'student',
-              'mobile', 'phone', 'contact', 'mobilenumber', 'mobilepersonal',
-              'total', 'count', 'page', 'header', 'footer', 'signature', 'summary'
+              "sl",
+              "slno",
+              "serial",
+              "serialno",
+              "registration",
+              "reg",
+              "regno",
+              "registrationno",
+              "pin",
+              "id",
+              "roll",
+              "rollno",
+              "examroll",
+              "studentname",
+              "fullname",
+              "name",
+              "nickname",
+              "student",
+              "mobile",
+              "phone",
+              "contact",
+              "mobilenumber",
+              "mobilepersonal",
+              "total",
+              "count",
+              "page",
+              "header",
+              "footer",
+              "signature",
+              "summary",
             ].includes(norm);
           };
 
           // Skip header or summary rows
-          if (isHeaderValue(reg) || isHeaderValue(roll) || isHeaderValue(fullName) || isHeaderValue(mobilePersonal)) {
+          if (
+            isHeaderValue(reg) ||
+            isHeaderValue(roll) ||
+            isHeaderValue(fullName) ||
+            isHeaderValue(mobilePersonal)
+          ) {
             return;
           }
 
           // Skip completely empty/blank trailing rows
-          if (!reg && !roll && !fullName && !nickName && !mobilePersonal && !mobileFather) {
+          if (
+            !reg &&
+            !roll &&
+            !fullName &&
+            !nickName &&
+            !mobilePersonal &&
+            !mobileFather
+          ) {
             return;
           }
 
-          const studentName = fullName || nickName || (reg ? `Student ${reg}` : roll ? `Student ${roll}` : '');
+          const studentName =
+            fullName ||
+            nickName ||
+            (reg ? `Student ${reg}` : roll ? `Student ${roll}` : "");
           if (!studentName) return;
 
           parsedList.push({
-            sl: getValue(['sl', 'serial', 'slno']) || String(parsedList.length + 1),
+            sl:
+              getValue(["sl", "serial", "slno"]) ||
+              String(parsedList.length + 1),
             registrationNo: reg,
             pin: reg,
             rollNo: roll,
             roll: roll,
             nickName: nickName,
             studentName: studentName,
-            gender: getValue(['gender', 'sex']),
-            institute: getValue(['institute', 'school', 'college']),
-            district: getValue(['district']),
-            fatherName: getValue(['fathername', 'father']),
-            motherName: getValue(['mothername', 'mother']),
+            gender: getValue(["gender", "sex"]),
+            institute: getValue(["institute", "school", "college"]),
+            district: getValue(["district"]),
+            fatherName: getValue(["fathername", "father"]),
+            motherName: getValue(["mothername", "mother"]),
             mobilePersonal: mobilePersonal,
             mobileFather: mobileFather,
-            academicGroup: getValue(['academic', 'academicgroup']),
-            admissionTarget: getValue(['admission', 'admissiontarget']),
-            campus: getValue(['campus']),
-            branch: getValue(['branch']) || getValue(['campus']),
-            className: getValue(['coursebat', 'coursebatch', 'course', 'class', 'program', 'batch']) || meritTargetClass || 'Default',
-            mbbsBdsStatus: getValue(['bsbds', 'mbbsbds']),
-            streamName: getValue(['streamname', 'steamname']),
-            fullMarks: getValue(['fullmarks']),
-            mcqMarks: getValue(['mcqmark', 'mcqmarks']),
-            writtenMarks: getValue(['writtenmark', 'writtenmarks']),
-            totalObtainedMarks: getValue(['obtainedmarks', 'obtainedmark']),
-            marksDeduction: getValue(['totaldeduct', 'marksdeduction']),
-            totalMarks: getValue(['totalmark', 'totalmarks']),
-            highestMarks: getValue(['highestmark', 'highestmarks']),
-            percentMarks: getValue(['percent', 'percentmarks']),
-            averageMarks: getValue(['averagemark', 'averagemarks']),
-            branchMerit: getValue(['merit', 'branchmerit']),
-            centralMerit: getValue(['centralmerit']),
-            meritPosition: getValue(['meritrank', 'meritposition', 'rank']),
-            totalParticipant: getValue(['particip', 'participant', 'totalparticipant']),
-            examMode: getValue(['exammode']),
-            liveInstructionStatus: 'Pending',
-            feedbackStatus: 'Pending'
+            academicGroup: getValue(["academic", "academicgroup"]),
+            admissionTarget: getValue(["admission", "admissiontarget"]),
+            campus: getValue(["campus"]),
+            branch: getValue(["branch"]) || getValue(["campus"]),
+            className:
+              getValue([
+                "coursebat",
+                "coursebatch",
+                "course",
+                "class",
+                "program",
+                "batch",
+              ]) ||
+              meritTargetClass ||
+              "Default",
+            liveInstructionStatus: "Pending",
+            feedbackStatus: "Pending",
           });
         });
 
         await handleCheckMeritList(parsedList);
       } catch (err) {
-        console.error('Merit Excel parsing error:', err);
-        toast.error('Error reading Excel file');
+        console.error("Merit Excel parsing error:", err);
+        toast.error("Error reading Excel file");
         setIsCheckingMerit(false);
       } finally {
-        if (e.target) e.target.value = '';
+        if (e.target) e.target.value = "";
       }
     };
     reader.readAsBinaryString(file);
@@ -578,142 +842,170 @@ export default function CallManagement({ currentUser, members, campuses, branche
   // Import selected missing students to Call Tasks
   const handleImportMissingStudents = async () => {
     if (!meritResult || selectedMissingIndexes.length === 0) {
-      toast.error('No missing students selected to import');
+      toast.error("No missing students selected to import");
       return;
     }
 
     setIsImportingMissing(true);
     try {
       const selectedMissing = selectedMissingIndexes
-        .map(i => meritResult.missingStudents[i])
+        .map((i) => meritResult.missingStudents[i])
         .filter(Boolean)
-        .filter(st => {
-          const reg = (st.registrationNo || st.pin || '').trim();
-          const roll = (st.rollNo || st.roll || '').trim();
-          const phone = (st.mobilePersonal || st.mobileFather || st.mobileMother || '').trim();
-          const name = (st.studentName || st.nickName || '').trim();
-          if (!reg && !roll && !phone && (!name || name.match(/^student\s*\d+$/i))) {
+        .filter((st) => {
+          const reg = (st.registrationNo || st.pin || "").trim();
+          const roll = (st.rollNo || st.roll || "").trim();
+          const phone = (
+            st.mobilePersonal ||
+            st.mobileFather ||
+            st.mobileMother ||
+            ""
+          ).trim();
+          const name = (st.studentName || st.nickName || "").trim();
+          if (
+            !reg &&
+            !roll &&
+            !phone &&
+            (!name || name.match(/^student\s*\d+$/i))
+          ) {
             return false;
           }
           return true;
         });
 
       if (selectedMissing.length === 0) {
-        toast.error('No valid missing student records selected');
+        toast.error("No valid missing student records selected");
         setIsImportingMissing(false);
         return;
       }
-      
-      const assignedMember = meritAssigneePin ? members.find(m => m.pin === meritAssigneePin) : null;
+
+      const assignedMember = meritAssigneePin
+        ? members.find((m) => m.pin === meritAssigneePin)
+        : null;
 
       const newTasks: Partial<CallTask>[] = selectedMissing.map((st, idx) => {
-        let campusName = st.campus || currentUser.campus || '';
+        let campusName = st.campus || currentUser.campus || "";
         return {
           ...st,
           id: `task-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
           sl: st.sl || String(tasks.length + idx + 1),
-          registrationNo: st.registrationNo || st.pin || st.roll || '',
-          rollNo: st.rollNo || st.roll || st.pin || '',
-          pin: st.pin || st.registrationNo || '',
-          roll: st.roll || st.rollNo || '',
-          studentName: st.studentName || st.nickName || 'Unknown Student',
-          className: meritTargetClass || st.className || 'Default',
-          mobilePersonal: st.mobilePersonal || '',
-          mobileFather: st.mobileFather || '',
-          mobileMother: st.mobileMother || '',
-          branch: st.branch || st.campus || '',
+          registrationNo: st.registrationNo || st.pin || st.roll || "",
+          rollNo: st.rollNo || st.roll || st.pin || "",
+          pin: st.pin || st.registrationNo || "",
+          roll: st.roll || st.rollNo || "",
+          studentName: st.studentName || st.nickName || "Unknown Student",
+          className: meritTargetClass || st.className || "Default",
+          mobilePersonal: st.mobilePersonal || "",
+          mobileFather: st.mobileFather || "",
+          mobileMother: st.mobileMother || "",
+          branch: st.branch || st.campus || "",
           campus: campusName,
           assignedToPin: assignedMember ? assignedMember.pin : undefined,
           assignedToName: assignedMember ? assignedMember.name : undefined,
-          liveInstructionStatus: 'Pending',
-          feedbackStatus: 'Pending',
+          liveInstructionStatus: "Pending",
+          feedbackStatus: "Pending",
           createdByPin: currentUser.pin,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         };
       });
 
-      const res = await fetch('/api/call-tasks/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newTasks)
+      const res = await fetch("/api/call-tasks/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTasks),
       });
 
       if (res.ok) {
         const result = await res.json();
         await fetchTasks();
         if (result.addedCount > 0 && result.duplicateCount > 0) {
-          toast.success(`Imported ${result.addedCount} missing student(s). ${result.duplicateCount} duplicate(s) blocked.`);
+          toast.success(
+            `Imported ${result.addedCount} missing student(s). ${result.duplicateCount} duplicate(s) blocked.`,
+          );
         } else if (result.addedCount > 0) {
-          toast.success(`Successfully imported ${result.addedCount} missing student(s) to Call Tasks!`);
+          toast.success(
+            `Successfully imported ${result.addedCount} missing student(s) to Call Tasks!`,
+          );
         } else if (result.duplicateCount > 0) {
-          toast.error(`Selected missing student(s) already exist in Call Tasks (duplicate blocked).`);
+          toast.error(
+            `Selected missing student(s) already exist in Call Tasks (duplicate blocked).`,
+          );
         } else {
-          toast('No missing students added.');
+          toast("No missing students added.");
         }
         setIsMeritListModalOpen(false);
         setMeritResult(null);
       } else {
-        toast.error('Failed to import missing students');
+        toast.error("Failed to import missing students");
       }
     } catch (err) {
-      console.error('Import error:', err);
-      toast.error('Error saving missing students');
+      console.error("Import error:", err);
+      toast.error("Error saving missing students");
     } finally {
       setIsImportingMissing(false);
     }
   };
 
-  const handleAssignTasks = async (memberPin: string, assignType: 'feedback' | 'live' | 'both' = bulkAssignType) => {
+  const handleAssignTasks = async (
+    memberPin: string,
+    assignType: "feedback" | "live" | "both" = bulkAssignType,
+  ) => {
     if (selectedTasks.length === 0) return;
-    const member = members.find(m => m.pin === memberPin);
+    const member = members.find((m) => m.pin === memberPin);
     if (!member) return;
 
     try {
       const payload: any = {
         taskIds: selectedTasks,
-        assignType
+        assignType,
       };
 
-      if (assignType === 'feedback' || assignType === 'both') {
+      if (assignType === "feedback" || assignType === "both") {
         payload.assignedToPin = member.pin;
         payload.assignedToName = member.name;
       }
-      if (assignType === 'live' || assignType === 'both') {
+      if (assignType === "live" || assignType === "both") {
         payload.liveAssignedToPin = member.pin;
         payload.liveAssignedToName = member.name;
       }
 
-      const res = await fetch('/api/call-tasks/assign', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await fetch("/api/call-tasks/assign", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         fetchTasks();
         setSelectedTasks([]);
-        const typeText = assignType === 'live' ? 'Live Instruction' : assignType === 'both' ? 'Both' : 'Feedback';
-        toast.success(`Assigned ${selectedTasks.length} tasks (${typeText}) to ${member.name}`);
+        const typeText =
+          assignType === "live"
+            ? "Live Instruction"
+            : assignType === "both"
+              ? "Both"
+              : "Feedback";
+        toast.success(
+          `Assigned ${selectedTasks.length} tasks (${typeText}) to ${member.name}`,
+        );
       }
     } catch (err) {
-      console.error('Assignment error:', err);
+      console.error("Assignment error:", err);
     }
   };
 
-  const confirmUnassign = async (choice: 'live' | 'feedback' | 'both') => {
+  const confirmUnassign = async (choice: "live" | "feedback" | "both") => {
     if (!unassignTarget) return;
 
     let targetIds: string[] = [];
-    if (unassignTarget.type === 'single' && unassignTarget.taskId) {
+    if (unassignTarget.type === "single" && unassignTarget.taskId) {
       targetIds = [unassignTarget.taskId];
-    } else if (unassignTarget.type === 'bulk') {
+    } else if (unassignTarget.type === "bulk") {
       targetIds = selectedTasks;
-    } else if (unassignTarget.type === 'range' && unassignTarget.taskIds) {
+    } else if (unassignTarget.type === "range" && unassignTarget.taskIds) {
       targetIds = unassignTarget.taskIds;
     }
 
     if (targetIds.length === 0) {
-      toast.error('No tasks selected to unassign');
+      toast.error("No tasks selected to unassign");
       setIsUnassignModalOpen(false);
       return;
     }
@@ -721,55 +1013,65 @@ export default function CallManagement({ currentUser, members, campuses, branche
     try {
       const payload: any = {
         taskIds: targetIds,
-        assignType: choice
+        assignType: choice,
       };
 
-      if (choice === 'feedback' || choice === 'both') {
+      if (choice === "feedback" || choice === "both") {
         payload.assignedToPin = null;
         payload.assignedToName = null;
       }
-      if (choice === 'live' || choice === 'both') {
+      if (choice === "live" || choice === "both") {
         payload.liveAssignedToPin = null;
         payload.liveAssignedToName = null;
       }
 
-      const res = await fetch('/api/call-tasks/assign', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await fetch("/api/call-tasks/assign", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         fetchTasks();
-        if (unassignTarget.type === 'bulk') setSelectedTasks([]);
-        if (unassignTarget.type === 'range') setIsRangeModalOpen(false);
+        if (unassignTarget.type === "bulk") setSelectedTasks([]);
+        if (unassignTarget.type === "range") setIsRangeModalOpen(false);
         setIsUnassignModalOpen(false);
-        const choiceText = choice === 'live' ? 'Live Instruction' : choice === 'feedback' ? 'Feedback' : 'Both (Live & Feedback)';
+        const choiceText =
+          choice === "live"
+            ? "Live Instruction"
+            : choice === "feedback"
+              ? "Feedback"
+              : "Both (Live & Feedback)";
         toast.success(`Unassigned ${targetIds.length} tasks (${choiceText})`);
       }
     } catch (err) {
-      console.error('Unassignment error:', err);
-      toast.error('Failed to unassign task(s)');
+      console.error("Unassignment error:", err);
+      toast.error("Failed to unassign task(s)");
     }
   };
 
   const handleUnassignTask = (taskId: string) => {
-    setUnassignTarget({ type: 'single', taskId });
+    setUnassignTarget({ type: "single", taskId });
     setIsUnassignModalOpen(true);
   };
 
-  const handleUpdateTask = async (taskId: string, updates: Partial<CallTask>) => {
+  const handleUpdateTask = async (
+    taskId: string,
+    updates: Partial<CallTask>,
+  ) => {
     try {
       const res = await fetch(`/api/call-tasks/${taskId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
       });
       if (res.ok) {
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } : t));
+        setTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
+        );
       }
     } catch (err) {
-      console.error('Update task error:', err);
+      console.error("Update task error:", err);
     }
   };
 
@@ -781,21 +1083,23 @@ export default function CallManagement({ currentUser, members, campuses, branche
   const confirmDeleteTask = async () => {
     if (!taskToDelete) return;
     try {
-      const res = await fetch(`/api/call-tasks/${taskToDelete}`, { method: 'DELETE' });
+      const res = await fetch(`/api/call-tasks/${taskToDelete}`, {
+        method: "DELETE",
+      });
       if (res.ok) {
-        setTasks(prev => prev.filter(t => t.id !== taskToDelete));
-        setSelectedTasks(prev => prev.filter(id => id !== taskToDelete));
+        setTasks((prev) => prev.filter((t) => t.id !== taskToDelete));
+        setSelectedTasks((prev) => prev.filter((id) => id !== taskToDelete));
         setTaskToDelete(null);
         setTaskModalOpen(false); // also close task modal if open
       }
     } catch (err) {
-      console.error('Delete task error:', err);
+      console.error("Delete task error:", err);
     }
   };
 
   const handleDeleteClass = () => {
     if (!selectedClassForUpload) {
-      toast.error('Please select or type a class to delete.');
+      toast.error("Please select or type a class to delete.");
       return;
     }
     setIsDeleteClassModalOpen(true);
@@ -803,89 +1107,109 @@ export default function CallManagement({ currentUser, members, campuses, branche
 
   const confirmDeleteClass = async () => {
     try {
-      const res = await fetch(`/api/call-tasks/class/${encodeURIComponent(selectedClassForUpload)}`, { method: 'DELETE' });
+      const res = await fetch(
+        `/api/call-tasks/class/${encodeURIComponent(selectedClassForUpload)}`,
+        { method: "DELETE" },
+      );
       if (res.ok) {
-        setTasks(prev => prev.filter(t => t.className !== selectedClassForUpload));
+        setTasks((prev) =>
+          prev.filter((t) => t.className !== selectedClassForUpload),
+        );
         setSelectedTasks([]);
-        setSelectedClassForUpload('');
+        setSelectedClassForUpload("");
         setIsDeleteClassModalOpen(false);
       }
     } catch (err) {
-      console.error('Delete class error:', err);
-      toast.error('Failed to delete class tasks');
+      console.error("Delete class error:", err);
+      toast.error("Failed to delete class tasks");
     }
   };
 
   const handleDeleteAllTasks = async () => {
-    if (deleteAllTargetClass === 'all') {
+    if (deleteAllTargetClass === "all") {
       if (!deletePassword) {
-        toast.error('Password is required to delete all records');
+        toast.error("Password is required to delete all records");
         return;
       }
       try {
-        const authRes = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: currentUser.pin, password: deletePassword })
+        const authRes = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: currentUser.pin,
+            password: deletePassword,
+          }),
         });
         if (!authRes.ok) {
-          toast.error('Incorrect password!');
+          toast.error("Incorrect password!");
           return;
         }
       } catch (err) {
-        console.error('Auth error:', err);
-        toast.error('Verification failed');
+        console.error("Auth error:", err);
+        toast.error("Verification failed");
         return;
       }
     }
 
     try {
-      const url = deleteAllTargetClass === 'all' 
-        ? '/api/call-tasks' 
-        : `/api/call-tasks/class/${encodeURIComponent(deleteAllTargetClass)}`;
-      const res = await fetch(url, { method: 'DELETE' });
+      const url =
+        deleteAllTargetClass === "all"
+          ? "/api/call-tasks"
+          : `/api/call-tasks/class/${encodeURIComponent(deleteAllTargetClass)}`;
+      const res = await fetch(url, { method: "DELETE" });
       if (res.ok) {
-        if (deleteAllTargetClass === 'all') {
+        if (deleteAllTargetClass === "all") {
           setTasks([]);
         } else {
-          setTasks(prev => prev.filter(t => t.className !== deleteAllTargetClass));
+          setTasks((prev) =>
+            prev.filter((t) => t.className !== deleteAllTargetClass),
+          );
         }
         setSelectedTasks([]);
         setIsDeleteAllModalOpen(false);
-        setDeleteAllTargetClass('all');
-        setDeletePassword('');
-        toast.success(deleteAllTargetClass === 'all' ? 'All call tasks deleted successfully' : `Tasks for class ${deleteAllTargetClass} deleted successfully`);
+        setDeleteAllTargetClass("all");
+        setDeletePassword("");
+        toast.success(
+          deleteAllTargetClass === "all"
+            ? "All call tasks deleted successfully"
+            : `Tasks for class ${deleteAllTargetClass} deleted successfully`,
+        );
       }
     } catch (err) {
-      console.error('Delete tasks error:', err);
-      toast.error('Failed to delete tasks');
+      console.error("Delete tasks error:", err);
+      toast.error("Failed to delete tasks");
     }
   };
 
   const handleAddStudent = async () => {
     if (!newStudentFormData.studentName || !newStudentFormData.className) {
-      toast.error('Full Name and Class are required');
+      toast.error("Full Name and Class are required");
       return;
     }
-    
-    let campusName = String(newStudentFormData.campus || '').trim();
-    const branchName = String(newStudentFormData.branch || '').trim();
+
+    let campusName = String(newStudentFormData.campus || "").trim();
+    const branchName = String(newStudentFormData.branch || "").trim();
 
     if (!campusName && branchName) {
-      const normalizedBranchName = branchName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const branchObj = branches.find(b => {
-        const systemBranchName = b.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return systemBranchName === normalizedBranchName || 
-               systemBranchName.startsWith(normalizedBranchName) ||
-               normalizedBranchName.startsWith(systemBranchName);
+      const normalizedBranchName = branchName
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+      const branchObj = branches.find((b) => {
+        const systemBranchName = b.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+        return (
+          systemBranchName === normalizedBranchName ||
+          systemBranchName.startsWith(normalizedBranchName) ||
+          normalizedBranchName.startsWith(systemBranchName)
+        );
       });
       if (branchObj && branchObj.campusId) {
-        campusName = campuses.find(c => c.id === branchObj.campusId)?.name || '';
+        campusName =
+          campuses.find((c) => c.id === branchObj.campusId)?.name || "";
       }
     }
 
     // Default to coordinator's campus ONLY if it's NOT 'All'
-    if (!campusName && currentUser.campus && currentUser.campus !== 'All') {
+    if (!campusName && currentUser.campus && currentUser.campus !== "All") {
       campusName = currentUser.campus;
     }
 
@@ -894,16 +1218,16 @@ export default function CallManagement({ currentUser, members, campuses, branche
         ...newStudentFormData,
         id: `task-${Date.now()}`,
         sl: String(tasks.length + 1),
-        liveInstructionStatus: 'Pending',
-        feedbackStatus: 'Pending',
+        liveInstructionStatus: "Pending",
+        feedbackStatus: "Pending",
         createdByPin: currentUser.pin,
         createdAt: new Date().toISOString(),
-        campus: campusName
+        campus: campusName,
       };
-      const res = await fetch('/api/call-tasks/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify([newTask])
+      const res = await fetch("/api/call-tasks/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([newTask]),
       });
       if (res.ok) {
         const result = await res.json();
@@ -911,21 +1235,23 @@ export default function CallManagement({ currentUser, members, campuses, branche
           fetchTasks();
           setIsAddStudentModalOpen(false);
           setNewStudentFormData({});
-          toast.success('Student added successfully');
+          toast.success("Student added successfully");
         } else {
-          toast.error('Student already exists in system! Duplicate blocked.');
+          toast.error("Student already exists in system! Duplicate blocked.");
         }
       } else {
-        toast.error('Failed to add student');
+        toast.error("Failed to add student");
       }
     } catch (err) {
-      console.error('Failed to add student', err);
+      console.error("Failed to add student", err);
     }
   };
 
   const toggleTaskSelection = (taskId: string) => {
-    setSelectedTasks(prev => 
-      prev.includes(taskId) ? prev.filter(id => id !== taskId) : [...prev, taskId]
+    setSelectedTasks((prev) =>
+      prev.includes(taskId)
+        ? prev.filter((id) => id !== taskId)
+        : [...prev, taskId],
     );
   };
 
@@ -934,66 +1260,108 @@ export default function CallManagement({ currentUser, members, campuses, branche
 
   const getTaskCampus = (task: CallTask): string => {
     if (task.branch) {
-      const branchObj = branches.find(b => b.name === task.branch || b.name?.toLowerCase() === task.branch?.toLowerCase());
+      const branchObj = branches.find(
+        (b) =>
+          b.name === task.branch ||
+          b.name?.toLowerCase() === task.branch?.toLowerCase(),
+      );
       if (branchObj && branchObj.campusId) {
-        const campusObj = campuses.find(c => c.id === branchObj.campusId);
+        const campusObj = campuses.find((c) => c.id === branchObj.campusId);
         if (campusObj && campusObj.name) return campusObj.name;
       }
     }
-    return '';
+    return "";
   };
 
-  const filteredTasks = tasks.filter(task => {
-    const matchesSearch = 
-      task.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.registrationNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.mobilePersonal.includes(searchQuery);
-    
-    const matchesCampus = campusFilter === 'all' || getTaskCampus(task) === campusFilter;
-    const matchesLiveStatus = liveStatusFilter === 'all' || task.liveInstructionStatus === liveStatusFilter;
-    const matchesFeedbackStatus = feedbackStatusFilter === 'all' || task.feedbackStatus === feedbackStatusFilter;
-    const matchesClass = classFilter === 'all' || task.className === classFilter;
-    const matchesAssign = assignFilter === 'all' || 
-      (assignFilter === 'Assigned' ? !!task.assignedToPin : !task.assignedToPin);
-    const matchesLiveAssign = liveAssignFilter === 'all' ||
-      (liveAssignFilter === 'Assigned' ? (!!task.liveAssignedToPin || !!task.liveInstructorPin) : (!task.liveAssignedToPin && !task.liveInstructorPin));
-    
-    // Date Filtering Logic
-    const checkDateInRange = (dStr?: string) => {
-      if (!dStr) return false;
-      const dateOnly = dStr.split('T')[0];
-      if (fromDateFilter && dateOnly < fromDateFilter) return false;
-      if (toDateFilter && dateOnly > toDateFilter) return false;
-      return true;
-    };
+  const filteredTasks = tasks
+    .filter((task) => {
+      const matchesSearch =
+        task.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.registrationNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        task.mobilePersonal.includes(searchQuery);
 
-    let matchesDate = true;
-    if (fromDateFilter || toDateFilter) {
-      if (dateTypeFilter === 'live') {
-        matchesDate = checkDateInRange(task.liveInstructionSubmitDate);
-      } else if (dateTypeFilter === 'feedback') {
-        matchesDate = checkDateInRange(task.feedbackSubmitDate);
-      } else {
-        matchesDate = checkDateInRange(task.liveInstructionSubmitDate) || checkDateInRange(task.feedbackSubmitDate);
+      const matchesCampus =
+        campusFilter === "all" || getTaskCampus(task) === campusFilter;
+      const matchesLiveStatus =
+        liveStatusFilter === "all" ||
+        task.liveInstructionStatus === liveStatusFilter;
+      const matchesFeedbackStatus =
+        feedbackStatusFilter === "all" ||
+        task.feedbackStatus === feedbackStatusFilter;
+      const matchesClass =
+        classFilter === "all" || task.className === classFilter;
+      const matchesAssign =
+        assignFilter === "all" ||
+        (assignFilter === "Assigned"
+          ? !!task.assignedToPin
+          : !task.assignedToPin);
+      const matchesLiveAssign =
+        liveAssignFilter === "all" ||
+        (liveAssignFilter === "Assigned"
+          ? !!task.liveAssignedToPin || !!task.liveInstructorPin
+          : !task.liveAssignedToPin && !task.liveInstructorPin);
+
+      // Date Filtering Logic
+      const checkDateInRange = (dStr?: string) => {
+        if (!dStr) return false;
+        const dateOnly = dStr.split("T")[0];
+        if (fromDateFilter && dateOnly < fromDateFilter) return false;
+        if (toDateFilter && dateOnly > toDateFilter) return false;
+        return true;
+      };
+
+      let matchesDate = true;
+      if (fromDateFilter || toDateFilter) {
+        if (dateTypeFilter === "live") {
+          matchesDate = checkDateInRange(task.liveInstructionSubmitDate);
+        } else if (dateTypeFilter === "feedback") {
+          matchesDate = checkDateInRange(task.feedbackSubmitDate);
+        } else {
+          matchesDate =
+            checkDateInRange(task.liveInstructionSubmitDate) ||
+            checkDateInRange(task.feedbackSubmitDate);
+        }
       }
-    }
-    
-    const matchesBranch = selectedBranches.length === 0 || selectedBranches.includes(task.branch);
-    
-    return matchesSearch && matchesCampus && matchesLiveStatus && matchesFeedbackStatus && matchesClass && matchesAssign && matchesLiveAssign && matchesDate && matchesBranch;
-  }).sort((a, b) => {
-    const numA = parseInt(a.sl);
-    const numB = parseInt(b.sl);
-    if (!isNaN(numA) && !isNaN(numB)) {
-      return numA - numB;
-    }
-    return a.sl.localeCompare(b.sl);
-  });
+
+      const matchesBranch =
+        selectedBranches.length === 0 || selectedBranches.includes(task.branch);
+
+      // Visibility Logic for Coordinators: In Management tab, hide tasks assigned to Mentors
+      if (activeSubTab === "management" && isCoordinator && !canUpload) {
+        const isAssignedToMentor =
+          (task.assignedToPin && mentorPins.has(task.assignedToPin)) ||
+          (task.liveAssignedToPin && mentorPins.has(task.liveAssignedToPin));
+        if (isAssignedToMentor) return false;
+      }
+
+      return (
+        matchesSearch &&
+        matchesCampus &&
+        matchesLiveStatus &&
+        matchesFeedbackStatus &&
+        matchesClass &&
+        matchesAssign &&
+        matchesLiveAssign &&
+        matchesDate &&
+        matchesBranch
+      );
+    })
+    .sort((a, b) => {
+      const numA = parseInt(a.sl);
+      const numB = parseInt(b.sl);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return a.sl.localeCompare(b.sl);
+    });
 
   const totalPages = Math.ceil(filteredTasks.length / pageSize);
-  const paginatedTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedTasks = filteredTasks.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
-  const [jumpPageInput, setJumpPageInput] = useState<string>('');
+  const [jumpPageInput, setJumpPageInput] = useState<string>("");
 
   useEffect(() => {
     if (totalPages > 0 && currentPage > totalPages) {
@@ -1006,7 +1374,7 @@ export default function CallManagement({ currentUser, members, campuses, branche
     const pageNum = parseInt(jumpPageInput, 10);
     if (!isNaN(pageNum) && pageNum >= 1 && pageNum <= totalPages) {
       setCurrentPage(pageNum);
-      setJumpPageInput('');
+      setJumpPageInput("");
     } else {
       toast.error(`Please enter a page number between 1 and ${totalPages}`);
     }
@@ -1016,90 +1384,111 @@ export default function CallManagement({ currentUser, members, campuses, branche
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [isDeleteClassModalOpen, setIsDeleteClassModalOpen] = useState(false);
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
-  const [newStudentFormData, setNewStudentFormData] = useState<Partial<CallTask>>({});
+  const [newStudentFormData, setNewStudentFormData] = useState<
+    Partial<CallTask>
+  >({});
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
-  const [modalTab, setModalTab] = useState<'live' | 'feedback' | 'student'>('live');
+  const [modalTab, setModalTab] = useState<"live" | "feedback" | "student">(
+    "live",
+  );
   const [editingTask, setEditingTask] = useState<CallTask | null>(null);
   const [modalFormData, setModalFormData] = useState<Partial<CallTask>>({});
-  
+
   const openTaskModal = (task: CallTask) => {
     setEditingTask(task);
     setModalFormData(task);
-    if (!canUpload && currentUser.role === 'member') {
-      const isAssignedLive = task.liveAssignedToPin === currentUser.pin || task.liveInstructorPin === currentUser.pin;
+    if (!canUpload && currentUser.role === "member") {
+      const isAssignedLive =
+        task.liveAssignedToPin === currentUser.pin ||
+        task.liveInstructorPin === currentUser.pin;
       const isAssignedFeedback = task.assignedToPin === currentUser.pin;
       if (isAssignedLive && !isAssignedFeedback) {
-        setModalTab('live');
+        setModalTab("live");
       } else if (isAssignedFeedback && !isAssignedLive) {
-        setModalTab('feedback');
+        setModalTab("feedback");
       } else {
-        setModalTab('live');
+        setModalTab("live");
       }
     } else {
-      setModalTab('live');
+      setModalTab("live");
     }
     setTaskModalOpen(true);
   };
 
-  const [rangeStart, setRangeStart] = useState('');
-  const [rangeEnd, setRangeEnd] = useState('');
-  const [rangeTargetMember, setRangeTargetMember] = useState('');
-  const [rangeAction, setRangeAction] = useState<'assign' | 'unassign'>('assign');
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [rangeTargetMember, setRangeTargetMember] = useState("");
+  const [rangeAction, setRangeAction] = useState<"assign" | "unassign">(
+    "assign",
+  );
 
   const tasksInRange = useMemo(() => {
     const start = parseInt(rangeStart);
     const end = parseInt(rangeEnd);
     if (isNaN(start) || isNaN(end)) return [];
-    return tasks.filter(t => {
+    return tasks.filter((t) => {
       const sl = parseInt(t.sl);
       return !isNaN(sl) && sl >= start && sl <= end;
     });
   }, [rangeStart, rangeEnd, tasks]);
 
   const getValidMembers = (taskSubset: CallTask[]) => {
+    const allAssignable = [...members, ...mentors];
+
     // Managers or users with management/upload permissions can assign to ANY member across all campuses
-    if (showManagementTabs || currentUser.role === 'manager' || currentUser.campus === 'All') {
-      return members;
+    if (canUpload || currentUser.campus === "All") {
+      return allAssignable;
     }
 
-    if (taskSubset.length === 0) return members;
-    
-    // Check if task subset belongs to an Online class (e.g. className contains "online")
-    const isOnlineTaskSet = taskSubset.some(t => /online/i.test(t.className || ''));
+    // For others (Coordinators), they can only see members of their OWN campus
+    const myCampusMembers = allAssignable.filter(
+      (m) => m.campus === currentUser.campus,
+    );
+
+    if (taskSubset.length === 0) return myCampusMembers;
+
+    // Check if task subset belongs to an Online class
+    const isOnlineTaskSet = taskSubset.some((t) =>
+      /online/i.test(t.className || ""),
+    );
 
     if (isOnlineTaskSet) {
-      if (currentUser.campus === 'All' || !currentUser.campus) {
-        return members;
-      }
-      return members.filter(m => m.campus === currentUser.campus);
+      return myCampusMembers;
     }
 
-    const taskBranches = [...new Set(taskSubset.map(t => t.branch))];
-    if (taskBranches.length > 1) return []; // If range has students from multiple branches, assignment not allowed
-    const campusId = branches.find(b => b.name === taskBranches[0])?.campusId;
-    if (!campusId) return members;
-    const campusObj = campuses.find(c => c.id === campusId);
-    if (!campusObj) return members;
-    return members.filter(m => m.campus === campusObj.name);
+    const taskBranches = [...new Set(taskSubset.map((t) => t.branch))];
+
+    if (taskBranches.length > 1 && currentUser.role !== "mentor") return []; // If range has students from multiple branches, assignment not allowed
+    const campusId = branches.find((b) => b.name === taskBranches[0])?.campusId;
+    if (!campusId) return myCampusMembers;
+    const campusObj = campuses.find((c) => c.id === campusId);
+    if (!campusObj) return myCampusMembers;
+
+    // Intersect task campus with user campus
+    if (campusObj.name !== currentUser.campus) {
+      return []; // Coordinator cannot assign tasks from another campus
+    }
+
+    return myCampusMembers;
   };
 
-  const renderMemberOptions = (memberList: TeamMember[]) => {
+  const renderMemberOptions = (memberList: (TeamMember | Mentor)[]) => {
     if (!memberList || memberList.length === 0) return null;
-    const grouped: { [campus: string]: TeamMember[] } = {};
-    memberList.forEach(m => {
-      const campus = m.campus || 'General / Other';
+    const grouped: { [campus: string]: (TeamMember | Mentor)[] } = {};
+    memberList.forEach((m) => {
+      const campus = m.campus || "General / Other";
       if (!grouped[campus]) grouped[campus] = [];
       grouped[campus].push(m);
     });
 
     const sortedCampuses = Object.keys(grouped).sort();
 
-    return sortedCampuses.map(campusName => (
+    return sortedCampuses.map((campusName) => (
       <optgroup key={campusName} label={`📍 ${campusName}`}>
-        {grouped[campusName].map(m => (
+        {grouped[campusName].map((m) => (
           <option key={m.pin} value={m.pin}>
-            {m.name} ({m.campus || 'General'}) - PIN: {m.pin}
+            {m.name} ({m.campus || "General"}) - PIN: {m.pin}
           </option>
         ))}
       </optgroup>
@@ -1107,50 +1496,60 @@ export default function CallManagement({ currentUser, members, campuses, branche
   };
 
   const handleRangeAssign = async () => {
-    if (rangeAction === 'assign') {
+    if (rangeAction === "assign") {
       if (!rangeStart || !rangeEnd || !rangeTargetMember) {
-        toast.error('Please fill all range assignment fields');
+        toast.error("Please fill all range assignment fields");
         return;
       }
     } else {
       if (!rangeStart || !rangeEnd) {
-        toast.error('Please fill start and end SL');
+        toast.error("Please fill start and end SL");
         return;
       }
     }
 
     if (tasksInRange.length === 0) {
-      toast.error('No tasks found in this serial range');
+      toast.error("No tasks found in this serial range");
       return;
     }
 
     let taskIdsToProcess: string[] = [];
     let member: any = null;
 
-    if (rangeAction === 'assign') {
-      const isOnlineRange = tasksInRange.some(t => /online/i.test(t.className || ''));
-      const taskBranches = [...new Set(tasksInRange.map(t => t.branch))];
+    if (rangeAction === "assign") {
+      const isOnlineRange = tasksInRange.some((t) =>
+        /online/i.test(t.className || ""),
+      );
+      const taskBranches = [...new Set(tasksInRange.map((t) => t.branch))];
       if (!isOnlineRange && taskBranches.length > 1 && !showManagementTabs) {
-        toast.error('Cannot assign tasks when multiple branches are present in the selected serial range');
+        toast.error(
+          "Cannot assign tasks when multiple branches are present in the selected serial range",
+        );
         return;
       }
 
       const validMembersForRange = getValidMembers(tasksInRange);
-      member = validMembersForRange.find(m => m.pin === rangeTargetMember);
-      
+      member = validMembersForRange.find((m) => m.pin === rangeTargetMember);
+
       if (!member) {
-        toast.error('This member is not authorized for this branch/campus range');
+        toast.error(
+          "This member is not authorized for this branch/campus range",
+        );
         return;
       }
-      taskIdsToProcess = tasksInRange.map(t => t.id);
+      taskIdsToProcess = tasksInRange.map((t) => t.id);
     } else {
       // Unassign only assigned tasks
-      taskIdsToProcess = tasksInRange.filter(t => t.assignedToPin || t.liveAssignedToPin || t.liveInstructorPin).map(t => t.id);
+      taskIdsToProcess = tasksInRange
+        .filter(
+          (t) => t.assignedToPin || t.liveAssignedToPin || t.liveInstructorPin,
+        )
+        .map((t) => t.id);
       if (taskIdsToProcess.length === 0) {
-        toast.error('No assigned tasks found in this range to unassign');
+        toast.error("No assigned tasks found in this range to unassign");
         return;
       }
-      setUnassignTarget({ type: 'range', taskIds: taskIdsToProcess });
+      setUnassignTarget({ type: "range", taskIds: taskIdsToProcess });
       setIsUnassignModalOpen(true);
       return;
     }
@@ -1158,54 +1557,74 @@ export default function CallManagement({ currentUser, members, campuses, branche
     try {
       const payload: any = {
         taskIds: taskIdsToProcess,
-        assignType: rangeAssignType
+        assignType: rangeAssignType,
       };
 
-      if (rangeAssignType === 'feedback' || rangeAssignType === 'both') {
+      if (rangeAssignType === "feedback" || rangeAssignType === "both") {
         payload.assignedToPin = member.pin;
         payload.assignedToName = member.name;
       }
-      if (rangeAssignType === 'live' || rangeAssignType === 'both') {
+      if (rangeAssignType === "live" || rangeAssignType === "both") {
         payload.liveAssignedToPin = member.pin;
         payload.liveAssignedToName = member.name;
       }
 
-      const res = await fetch('/api/call-tasks/assign', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await fetch("/api/call-tasks/assign", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         fetchTasks();
         setIsRangeModalOpen(false);
-        setRangeStart('');
-        setRangeEnd('');
-        setRangeTargetMember('');
-        const typeText = rangeAssignType === 'live' ? 'Live Instruction' : rangeAssignType === 'both' ? 'Both' : 'Feedback';
-        toast.success(`Successfully assigned ${taskIdsToProcess.length} tasks (${typeText}) to ${member.name}`);
+        setRangeStart("");
+        setRangeEnd("");
+        setRangeTargetMember("");
+        const typeText =
+          rangeAssignType === "live"
+            ? "Live Instruction"
+            : rangeAssignType === "both"
+              ? "Both"
+              : "Feedback";
+        toast.success(
+          `Successfully assigned ${taskIdsToProcess.length} tasks (${typeText}) to ${member.name}`,
+        );
       }
     } catch (err) {
-      console.error('Range operation error:', err);
-      toast.error('Operation failed');
+      console.error("Range operation error:", err);
+      toast.error("Operation failed");
     }
   };
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, campusFilter, liveStatusFilter, dateTypeFilter, fromDateFilter, toDateFilter, feedbackStatusFilter, classFilter, assignFilter, selectedBranches]);
+  }, [
+    searchQuery,
+    campusFilter,
+    liveStatusFilter,
+    dateTypeFilter,
+    fromDateFilter,
+    toDateFilter,
+    feedbackStatusFilter,
+    classFilter,
+    assignFilter,
+    selectedBranches,
+  ]);
 
-  const uniqueClasses = Array.from(new Set(tasks.map(t => t.className))).filter(Boolean);
+  const uniqueClasses = Array.from(
+    new Set(tasks.map((t) => t.className)),
+  ).filter(Boolean);
 
   const availableCampuses = useMemo(() => {
     const set = new Set<string>();
-    campuses.forEach(c => {
+    campuses.forEach((c) => {
       if (c.name && c.name.trim()) set.add(c.name.trim());
     });
-    members.forEach(m => {
+    members.forEach((m) => {
       if (m.campus && m.campus.trim()) set.add(m.campus.trim());
     });
-    tasks.forEach(t => {
+    tasks.forEach((t) => {
       const camp = getTaskCampus(t);
       if (camp) set.add(camp);
     });
@@ -1213,74 +1632,115 @@ export default function CallManagement({ currentUser, members, campuses, branche
   }, [campuses, members, tasks, branches]);
 
   const availableBranches = useMemo(() => {
-    const fromTasks = tasks.map(t => t.branch).filter((b): b is string => Boolean(b && b.trim()));
+    const fromTasks = tasks
+      .map((t) => t.branch)
+      .filter((b): b is string => Boolean(b && b.trim()));
     return Array.from(new Set(fromTasks)).sort();
   }, [tasks]);
 
-  const filteredDashboardTasks = dashboardClassFilter === 'all' 
-    ? tasks 
-    : tasks.filter(t => t.className === dashboardClassFilter);
+  const filteredDashboardTasks = useMemo(() => {
+    let baseTasks = tasks;
+    if (isCoordinator && !canUpload) {
+      baseTasks = tasks.filter((task) => {
+        const isAssignedToMentor =
+          (task.assignedToPin && mentorPins.has(task.assignedToPin)) ||
+          (task.liveAssignedToPin && mentorPins.has(task.liveAssignedToPin));
+        return !isAssignedToMentor;
+      });
+    }
+    return dashboardClassFilter === "all"
+      ? baseTasks
+      : baseTasks.filter((t) => t.className === dashboardClassFilter);
+  }, [tasks, isCoordinator, canUpload, mentorPins, dashboardClassFilter]);
 
   const totalTasks = filteredDashboardTasks.length;
-  const liveCompleted = filteredDashboardTasks.filter(t => t.liveInstructionStatus === 'Completed').length;
-  const livePending = filteredDashboardTasks.filter(t => t.liveInstructionStatus === 'Pending').length;
-  const feedbackCompleted = filteredDashboardTasks.filter(t => t.feedbackStatus === 'Completed').length;
-  const feedbackPending = filteredDashboardTasks.filter(t => t.feedbackStatus === 'Pending').length;
+  const liveCompleted = filteredDashboardTasks.filter(
+    (t) => t.liveInstructionStatus === "Completed",
+  ).length;
+  const livePending = filteredDashboardTasks.filter(
+    (t) => t.liveInstructionStatus === "Pending",
+  ).length;
+  const feedbackCompleted = filteredDashboardTasks.filter(
+    (t) => t.feedbackStatus === "Completed",
+  ).length;
+  const feedbackPending = filteredDashboardTasks.filter(
+    (t) => t.feedbackStatus === "Pending",
+  ).length;
 
-  const liveCompletedPercent = totalTasks > 0 ? Math.round((liveCompleted / totalTasks) * 100) : 0;
-  const livePendingPercent = totalTasks > 0 ? Math.round((livePending / totalTasks) * 100) : 0;
-  const feedbackCompletedPercent = totalTasks > 0 ? Math.round((feedbackCompleted / totalTasks) * 100) : 0;
-  const feedbackPendingPercent = totalTasks > 0 ? Math.round((feedbackPending / totalTasks) * 100) : 0;
+  const liveCompletedPercent =
+    totalTasks > 0 ? Math.round((liveCompleted / totalTasks) * 100) : 0;
+  const livePendingPercent =
+    totalTasks > 0 ? Math.round((livePending / totalTasks) * 100) : 0;
+  const feedbackCompletedPercent =
+    totalTasks > 0 ? Math.round((feedbackCompleted / totalTasks) * 100) : 0;
+  const feedbackPendingPercent =
+    totalTasks > 0 ? Math.round((feedbackPending / totalTasks) * 100) : 0;
 
   const liveData = [
-    { name: 'Completed', value: liveCompleted },
-    { name: 'Pending', value: livePending }
+    { name: "Completed", value: liveCompleted },
+    { name: "Pending", value: livePending },
   ];
 
   const feedbackData = [
-    { name: 'Completed', value: feedbackCompleted },
-    { name: 'Pending', value: feedbackPending }
+    { name: "Completed", value: feedbackCompleted },
+    { name: "Pending", value: feedbackPending },
   ];
 
   const memberPerformanceData = useMemo(() => {
-    const data: Record<string, { name: string; completed: number; pending: number }> = {};
-    
-    filteredDashboardTasks.forEach(t => {
+    const data: Record<
+      string,
+      { name: string; completed: number; pending: number }
+    > = {};
+
+    filteredDashboardTasks.forEach((t) => {
       // For feedback
       if (t.assignedToPin) {
         if (!data[t.assignedToPin]) {
-          data[t.assignedToPin] = { name: t.assignedToName || t.assignedToPin, completed: 0, pending: 0 };
+          data[t.assignedToPin] = {
+            name: t.assignedToName || t.assignedToPin,
+            completed: 0,
+            pending: 0,
+          };
         }
-        if (t.feedbackStatus === 'Completed') data[t.assignedToPin].completed++;
+        if (t.feedbackStatus === "Completed") data[t.assignedToPin].completed++;
         else data[t.assignedToPin].pending++;
       }
-      
+
       // For live instruction
       if (t.liveAssignedToPin) {
         if (!data[t.liveAssignedToPin]) {
-          data[t.liveAssignedToPin] = { name: t.liveAssignedToName || t.liveAssignedToPin, completed: 0, pending: 0 };
+          data[t.liveAssignedToPin] = {
+            name: t.liveAssignedToName || t.liveAssignedToPin,
+            completed: 0,
+            pending: 0,
+          };
         }
-        if (t.liveInstructionStatus === 'Completed') data[t.liveAssignedToPin].completed++;
+        if (t.liveInstructionStatus === "Completed")
+          data[t.liveAssignedToPin].completed++;
         else data[t.liveAssignedToPin].pending++;
       }
     });
 
-    return Object.values(data).sort((a, b) => (b.completed + b.pending) - (a.completed + a.pending)).slice(0, 10); // top 10
+    return Object.values(data)
+      .sort((a, b) => b.completed + b.pending - (a.completed + a.pending))
+      .slice(0, 10); // top 10
   }, [filteredDashboardTasks]);
 
   const tasksByBranchData = useMemo(() => {
     const data: Record<string, { name: string; total: number }> = {};
-    filteredDashboardTasks.forEach(t => {
-      const branch = t.branch || 'Unknown';
+    filteredDashboardTasks.forEach((t) => {
+      const branch = t.branch || "Unknown";
       if (!data[branch]) {
         data[branch] = { name: branch, total: 0 };
       }
       data[branch].total++;
     });
-    return Object.values(data).sort((a, b) => b.total - a.total).slice(0, 10);
+    return Object.values(data)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
   }, [filteredDashboardTasks]);
 
-  const COLORS = ['#10b981', '#f59e0b'];
+  const COLORS = ["#10b981", "#f59e0b"];
 
   return (
     <div className="space-y-6">
@@ -1290,36 +1750,36 @@ export default function CallManagement({ currentUser, members, campuses, branche
           {showManagementTabs && (
             <>
               <button
-                onClick={() => setActiveSubTab('dashboard')}
-                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => setActiveSubTab("dashboard")}
+                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "dashboard" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Dashboard
               </button>
               <button
-                onClick={() => setActiveSubTab('management')}
-                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === 'management' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => setActiveSubTab("management")}
+                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "management" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Call Management
               </button>
             </>
           )}
-          {currentUser.role !== 'manager' && (
+          {currentUser.role !== "manager" && (
             <button
-              onClick={() => setActiveSubTab('my-tasks')}
-              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === 'my-tasks' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              onClick={() => setActiveSubTab("my-tasks")}
+              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "my-tasks" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
-              {showManagementTabs ? 'My Assigned Calls' : 'Call Management'}
+              {showManagementTabs ? "My Assigned Calls" : "Call Management"}
             </button>
           )}
           <button
-            onClick={() => setActiveSubTab('live-instruction')}
-            className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === 'live-instruction' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            onClick={() => setActiveSubTab("live-instruction")}
+            className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "live-instruction" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
           >
             Live Instruction
           </button>
         </div>
 
-        {activeSubTab === 'management' && canUpload && (
+        {activeSubTab === "management" && canUpload && (
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -1352,7 +1812,7 @@ export default function CallManagement({ currentUser, members, campuses, branche
       </div>
 
       <AnimatePresence mode="wait">
-        {activeSubTab === 'dashboard' && showManagementTabs && (
+        {activeSubTab === "dashboard" && showManagementTabs && (
           <motion.div
             key="dashboard"
             initial={{ opacity: 0, y: 10 }}
@@ -1360,11 +1820,36 @@ export default function CallManagement({ currentUser, members, campuses, branche
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
-            {/* Dashboard Class Filter */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+            {loading ? (
+              <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                <div className="relative">
+                  <RotateCcw className="w-12 h-12 text-indigo-600 animate-spin" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-6 h-6 bg-white rounded-full" />
+                  </div>
+                </div>
+                <div className="space-y-2 text-center">
+                  <p className="text-sm font-black text-slate-800 uppercase tracking-widest animate-pulse">
+                    Preparing Dashboard
+                  </p>
+                  <div className="flex gap-1 justify-center">
+                    <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Dashboard Class Filter */}
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
               <div>
-                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Dashboard Overview</h3>
-                <p className="text-[11px] text-slate-500">Filter statistics and analytics by class</p>
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  Dashboard Overview
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Filter statistics and analytics by class
+                </p>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <span className="text-xs font-bold text-slate-600">Class:</span>
@@ -1374,82 +1859,160 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   className="bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-48"
                 >
                   <option value="all">All Classes</option>
-                  {uniqueClasses.map(cls => (
-                    <option key={cls} value={cls}>{cls}</option>
+                  {uniqueClasses.map((cls) => (
+                    <option key={cls} value={cls}>
+                      {cls}
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4"
+            >
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm"
+              >
                 <div className="flex items-center justify-between mb-2 md:mb-4">
                   <div className="p-2 bg-indigo-50 rounded-xl">
                     <Phone className="w-4 h-4 md:w-5 md:h-5 text-indigo-600" />
                   </div>
-                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Tasks</span>
+                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Total Tasks
+                  </span>
                 </div>
-                <div className="text-xl md:text-2xl font-black text-slate-800">{totalTasks}</div>
-                <div className="text-[10px] md:text-xs text-slate-500 mt-1">Total assigned calls</div>
-              </div>
+                <div className="text-xl md:text-2xl font-black text-slate-800">
+                  {totalTasks}
+                </div>
+                <div className="text-[10px] md:text-xs text-slate-500 mt-1">
+                  Total assigned calls
+                </div>
+              </motion.div>
 
-              <div className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm"
+              >
                 <div className="flex items-center justify-between mb-2 md:mb-4">
                   <div className="p-2 bg-emerald-50 rounded-xl">
                     <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-emerald-600" />
                   </div>
-                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Instruction Completed</span>
+                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Live Instruction Completed
+                  </span>
                 </div>
                 <div className="text-xl md:text-2xl font-black text-slate-800">
-                  {liveCompleted} <span className="text-xs text-emerald-600 font-bold"></span>
+                  {liveCompleted}
                 </div>
-                <div className="text-[10px] md:text-xs text-slate-500 mt-1">Live Instruction Completed</div>
-              </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${liveCompletedPercent}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className="h-full bg-emerald-500"
+                    />
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-600">{liveCompletedPercent}%</span>
+                </div>
+              </motion.div>
 
-              <div className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm"
+              >
                 <div className="flex items-center justify-between mb-2 md:mb-4">
                   <div className="p-2 bg-amber-50 rounded-xl">
                     <Clock className="w-4 h-4 md:w-5 md:h-5 text-amber-600" />
                   </div>
-                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Instruction Pending</span>
+                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Live Instruction Pending
+                  </span>
                 </div>
                 <div className="text-xl md:text-2xl font-black text-slate-800">
-                  {livePending} <span className="text-xs text-amber-600 font-bold"></span>
+                  {livePending}
                 </div>
-                <div className="text-[10px] md:text-xs text-slate-500 mt-1">Live Instruction Pending</div>
-              </div>
-
-              <div className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-2 md:mb-4">
-                  <div className="p-2 bg-emerald-50 rounded-xl">
-                    <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-emerald-600" />
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${livePendingPercent}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className="h-full bg-amber-500"
+                    />
                   </div>
-                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Feedback Completed</span>
+                  <span className="text-[10px] font-bold text-amber-600">{livePendingPercent}%</span>
+                </div>
+              </motion.div>
+
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm"
+              >
+                <div className="flex items-center justify-between mb-2 md:mb-4">
+                  <div className="p-2 bg-indigo-50 rounded-xl">
+                    <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-indigo-600" />
+                  </div>
+                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Feedback Completed
+                  </span>
                 </div>
                 <div className="text-xl md:text-2xl font-black text-slate-800">
-                  {feedbackCompleted} <span className="text-xs text-emerald-600 font-bold"></span>
+                  {feedbackCompleted}
                 </div>
-                <div className="text-[10px] md:text-xs text-slate-500 mt-1">Feedback done</div>
-              </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${feedbackCompletedPercent}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className="h-full bg-indigo-600"
+                    />
+                  </div>
+                  <span className="text-[10px] font-bold text-indigo-600">{feedbackCompletedPercent}%</span>
+                </div>
+              </motion.div>
 
-              <div className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="bg-white p-4 md:p-6 rounded-3xl border border-slate-200 shadow-sm"
+              >
                 <div className="flex items-center justify-between mb-2 md:mb-4">
                   <div className="p-2 bg-amber-50 rounded-xl">
                     <Clock className="w-4 h-4 md:w-5 md:h-5 text-amber-600" />
                   </div>
-                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">Feedback Pending</span>
+                  <span className="text-[8px] md:text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Feedback Pending
+                  </span>
                 </div>
                 <div className="text-xl md:text-2xl font-black text-slate-800">
-                  {feedbackPending} <span className="text-xs text-amber-600 font-bold"></span>
+                  {feedbackPending}
                 </div>
-                <div className="text-[10px] md:text-xs text-slate-500 mt-1">Feedback pending</div>
-              </div>
-            </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${feedbackPendingPercent}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className="h-full bg-amber-500"
+                    />
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-600">{feedbackPendingPercent}%</span>
+                </div>
+              </motion.div>
+            </motion.div>
 
             {/* Pie Charts Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <h4 className="text-sm font-black text-slate-800 mb-4">Live Instruction Status Distribution</h4>
+                <h4 className="text-sm font-black text-slate-800 mb-4">
+                  Live Instruction Status Distribution
+                </h4>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1461,10 +2024,15 @@ export default function CallManagement({ currentUser, members, campuses, branche
                         outerRadius={90}
                         paddingAngle={5}
                         dataKey="value"
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        label={({ name, percent }) =>
+                          `${name}: ${(percent * 100).toFixed(0)}%`
+                        }
                       >
                         {liveData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
                         ))}
                       </Pie>
                       <Tooltip />
@@ -1475,7 +2043,9 @@ export default function CallManagement({ currentUser, members, campuses, branche
               </div>
 
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <h4 className="text-sm font-black text-slate-800 mb-4">Feedback Status Distribution</h4>
+                <h4 className="text-sm font-black text-slate-800 mb-4">
+                  Feedback Status Distribution
+                </h4>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1487,10 +2057,15 @@ export default function CallManagement({ currentUser, members, campuses, branche
                         outerRadius={90}
                         paddingAngle={5}
                         dataKey="value"
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        label={({ name, percent }) =>
+                          `${name}: ${(percent * 100).toFixed(0)}%`
+                        }
                       >
                         {feedbackData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
                         ))}
                       </Pie>
                       <Tooltip />
@@ -1504,47 +2079,122 @@ export default function CallManagement({ currentUser, members, campuses, branche
             {/* Bar Charts Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <h4 className="text-sm font-black text-slate-800 mb-4">Top 10 Members by Performance</h4>
+                <h4 className="text-sm font-black text-slate-800 mb-4">
+                  Top 10 Members by Performance
+                </h4>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={memberPerformanceData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-45} textAnchor="end" />
-                      <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                    <BarChart
+                      data={memberPerformanceData}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f1f5f9"
                       />
-                      <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 'bold', paddingTop: '10px' }} />
-                      <Bar dataKey="completed" name="Completed" stackId="a" fill="#10b981" radius={[0, 0, 4, 4]} />
-                      <Bar dataKey="pending" name="Pending" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        angle={-45}
+                        textAnchor="end"
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        }}
+                        itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
+                      />
+                      <Legend
+                        wrapperStyle={{
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          paddingTop: "10px",
+                        }}
+                      />
+                      <Bar
+                        dataKey="completed"
+                        name="Completed"
+                        stackId="a"
+                        fill="#10b981"
+                        radius={[0, 0, 4, 4]}
+                      />
+                      <Bar
+                        dataKey="pending"
+                        name="Pending"
+                        stackId="a"
+                        fill="#f59e0b"
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <h4 className="text-sm font-black text-slate-800 mb-4">Top 10 Branches by Task Volume</h4>
+                <h4 className="text-sm font-black text-slate-800 mb-4">
+                  Top 10 Branches by Task Volume
+                </h4>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={tasksByBranchData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} angle={-45} textAnchor="end" />
-                      <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                    <BarChart
+                      data={tasksByBranchData}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f1f5f9"
                       />
-                      <Bar dataKey="total" name="Total Tasks" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        angle={-45}
+                        textAnchor="end"
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        }}
+                        itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
+                      />
+                      <Bar
+                        dataKey="total"
+                        name="Total Tasks"
+                        fill="#6366f1"
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
             </div>
+              </>
+            )}
           </motion.div>
         )}
 
-        {activeSubTab === 'live-instruction' && (
+        {activeSubTab === "live-instruction" && (
           <motion.div
             key="live-instruction"
             initial={{ opacity: 0, y: 10 }}
@@ -1554,8 +2204,12 @@ export default function CallManagement({ currentUser, members, campuses, branche
           >
             <div className="max-w-md mx-auto space-y-6 text-center">
               <div>
-                <h3 className="text-base md:text-lg font-black text-slate-800 tracking-tight">Live Instruction Search</h3>
-                <p className="text-[10px] md:text-xs text-slate-500 font-bold mt-1">Search any student in your campus by Registration Number</p>
+                <h3 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
+                  Live Instruction Search
+                </h3>
+                <p className="text-[10px] md:text-xs text-slate-500 font-bold mt-1">
+                  Search any student in your campus by Registration Number
+                </p>
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2">
@@ -1578,35 +2232,55 @@ export default function CallManagement({ currentUser, members, campuses, branche
                 <div className="mt-8 p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-200 text-left space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Student Name</div>
-                      <div className="text-sm font-black text-slate-800">{liveFoundTask.studentName || 'N/A'}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Student Name
+                      </div>
+                      <div className="text-sm font-black text-slate-800">
+                        {liveFoundTask.studentName || "N/A"}
+                      </div>
                     </div>
                     <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Reg No</div>
-                      <div className="text-sm font-black text-slate-800">{liveFoundTask.registrationNo}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Reg No
+                      </div>
+                      <div className="text-sm font-black text-slate-800">
+                        {liveFoundTask.registrationNo}
+                      </div>
                     </div>
                     <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Branch / Class</div>
-                      <div className="text-sm font-black text-slate-800">{liveFoundTask.branch} / {liveFoundTask.className}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Branch / Class
+                      </div>
+                      <div className="text-sm font-black text-slate-800">
+                        {liveFoundTask.branch} / {liveFoundTask.className}
+                      </div>
                     </div>
                     <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact</div>
-                      <div className="text-sm font-black text-slate-800">{liveFoundTask.mobilePersonal}</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Contact Numbers
+                      </div>
+                      <div className="text-sm font-black text-slate-800 space-y-1">
+                        <div>P: {liveFoundTask.mobilePersonal || "N/A"}</div>
+                        <div>F: {liveFoundTask.mobileFather || "N/A"}</div>
+                        <div>M: {liveFoundTask.mobileMother || "N/A"}</div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="pt-4 border-t border-slate-200 space-y-4">
                     <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Live Instruction Status</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                        Live Instruction Status
+                      </label>
                       <div className="flex gap-2">
-                        {['Pending', 'Completed'].map((s) => (
+                        {["Pending", "Completed"].map((s) => (
                           <button
                             key={s}
                             onClick={() => setLiveStatus(s as any)}
                             className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                              liveStatus === s 
-                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' 
-                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                              liveStatus === s
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100"
+                                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                             }`}
                           >
                             {s}
@@ -1617,16 +2291,22 @@ export default function CallManagement({ currentUser, members, campuses, branche
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Instructor Name</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                          Instructor Name
+                        </label>
                         <input
                           type="text"
                           value={liveInstructorName}
-                          onChange={(e) => setLiveInstructorName(e.target.value)}
+                          onChange={(e) =>
+                            setLiveInstructorName(e.target.value)
+                          }
                           className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Instructor PIN</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                          Instructor PIN
+                        </label>
                         <input
                           type="text"
                           value={liveInstructorPin}
@@ -1641,16 +2321,23 @@ export default function CallManagement({ currentUser, members, campuses, branche
                         type="checkbox"
                         id="liveTabTeacherCheckbox"
                         checked={isLiveInstructorTeacher}
-                        onChange={(e) => setIsLiveInstructorTeacher(e.target.checked)}
+                        onChange={(e) =>
+                          setIsLiveInstructorTeacher(e.target.checked)
+                        }
                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                       />
-                      <label htmlFor="liveTabTeacherCheckbox" className="text-xs font-bold text-slate-700 cursor-pointer">
+                      <label
+                        htmlFor="liveTabTeacherCheckbox"
+                        className="text-xs font-bold text-slate-700 cursor-pointer"
+                      >
                         Teacher
                       </label>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Live Instruction Comment</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                        Live Instruction Comment
+                      </label>
                       <textarea
                         value={liveComment}
                         onChange={(e) => setLiveComment(e.target.value)}
@@ -1661,40 +2348,56 @@ export default function CallManagement({ currentUser, members, campuses, branche
 
                     <div>
                       <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                        Khata / Exam Script Image (স্ক্রিনশট বা লিংক)
+                        Exam Script Image / Link / Paste
                       </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                        <div>
-                          <label className="block text-[9px] font-bold text-slate-500 mb-1">Upload Screenshot / Image</label>
-                          <label className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white border border-dashed border-indigo-300 hover:border-indigo-500 rounded-xl cursor-pointer text-xs font-bold text-indigo-600 transition-colors">
-                            <Upload className="w-4 h-4 text-indigo-500" />
-                            <span>Choose Image File</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setLiveInstructionImage(reader.result as string);
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }}
-                            />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                        <input
+                          type="text"
+                          placeholder="Image URL (Link)"
+                          value={liveInstructionLink}
+                          onChange={(e) => setLiveInstructionLink(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new window.FileReader();
+                                reader.onloadend = () => {
+                                  setLiveInstructionImage(
+                                    reader.result as string,
+                                  );
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="hidden"
+                            id="liveTabExamScriptUpload"
+                          />
+                          <label
+                            htmlFor="liveTabExamScriptUpload"
+                            className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors text-slate-600"
+                            title="Click to upload image"
+                          >
+                            <Upload className="w-4 h-4" />
+                            Upload Image
                           </label>
                         </div>
-                        <div>
-                          <label className="block text-[9px] font-bold text-slate-500 mb-1">Image URL / Link</label>
-                          <input
-                            type="url"
-                            placeholder="https://..."
-                            value={liveInstructionLink}
-                            onChange={(e) => setLiveInstructionLink(e.target.value)}
-                            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          />
+                      </div>
+
+                      {/* Dedicated Paste Zone */}
+                      <div 
+                        onPaste={(e) => handleImagePaste(e, (url) => setLiveInstructionImage(url))}
+                        className="mb-3 p-4 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50 hover:bg-slate-50 hover:border-indigo-300 transition-all cursor-pointer group text-center"
+                      >
+                        <div className="flex flex-col items-center gap-1.5">
+                          <ClipboardIcon className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                          <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600">
+                            Click here & Paste Image (Ctrl+V)
+                          </span>
                         </div>
                       </div>
 
@@ -1704,30 +2407,45 @@ export default function CallManagement({ currentUser, members, campuses, branche
                             <img
                               src={liveInstructionImage || liveInstructionLink}
                               alt="Khata Script Preview"
-                              className="w-16 h-16 object-cover rounded-xl border border-slate-200 flex-shrink-0"
+                              className="w-16 h-16 object-cover rounded-xl border border-slate-200 flex-shrink-0 cursor-pointer"
+                              onClick={() => {
+                                setViewingImageUrl(
+                                  liveInstructionImage ||
+                                    liveInstructionLink ||
+                                    "",
+                                );
+                                setIsImageViewerOpen(true);
+                              }}
                               onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
+                                (e.target as HTMLElement).style.display =
+                                  "none";
                               }}
                             />
                             <div className="text-xs truncate">
-                              <div className="font-bold text-slate-700">Khata/Script Image Attached</div>
-                              {(liveInstructionImage || liveInstructionLink) && (
-                                <a
-                                  href={liveInstructionImage || liveInstructionLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-indigo-600 hover:underline text-[11px] truncate block font-bold"
-                                >
-                                  View Full Size Image
-                                </a>
-                              )}
+                              <div className="font-bold text-slate-700">
+                                Scripts Image Attached
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewingImageUrl(
+                                    liveInstructionImage ||
+                                      liveInstructionLink ||
+                                      "",
+                                  );
+                                  setIsImageViewerOpen(true);
+                                }}
+                                className="text-indigo-600 hover:underline text-[11px] truncate block font-bold"
+                              >
+                                Click to View Full Size
+                              </button>
                             </div>
                           </div>
                           <button
                             type="button"
                             onClick={() => {
-                              setLiveInstructionImage('');
-                              setLiveInstructionLink('');
+                              setLiveInstructionImage("");
+                              setLiveInstructionLink("");
                             }}
                             className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
                             title="Remove Image"
@@ -1743,7 +2461,7 @@ export default function CallManagement({ currentUser, members, campuses, branche
                       disabled={isUpdatingLive}
                       className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
                     >
-                      {isUpdatingLive ? 'Updating...' : 'Save Live Instruction'}
+                      {isUpdatingLive ? "Updating..." : "Save Live Instruction"}
                     </button>
                   </div>
                 </div>
@@ -1752,7 +2470,7 @@ export default function CallManagement({ currentUser, members, campuses, branche
           </motion.div>
         )}
 
-        {(activeSubTab === 'management' || activeSubTab === 'my-tasks') && (
+        {(activeSubTab === "management" || activeSubTab === "my-tasks") && (
           <motion.div
             key="table"
             initial={{ opacity: 0, y: 10 }}
@@ -1776,7 +2494,7 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   />
                   {searchQuery && (
                     <button
-                      onClick={() => setSearchQuery('')}
+                      onClick={() => setSearchQuery("")}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition-colors"
                       title="Clear search"
                     >
@@ -1791,14 +2509,16 @@ export default function CallManagement({ currentUser, members, campuses, branche
                     value={campusFilter}
                     onChange={(e) => setCampusFilter(e.target.value)}
                     className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer ${
-                      campusFilter !== 'all'
-                        ? 'border-indigo-500 text-indigo-700 bg-indigo-50/50'
-                        : 'border-slate-200/80 text-slate-700'
+                      campusFilter !== "all"
+                        ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                        : "border-slate-200/80 text-slate-700"
                     }`}
                   >
                     <option value="all">Campus: All</option>
-                    {availableCampuses.map(camp => (
-                      <option key={camp} value={camp}>{camp}</option>
+                    {availableCampuses.map((camp) => (
+                      <option key={camp} value={camp}>
+                        {camp}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -1807,32 +2527,36 @@ export default function CallManagement({ currentUser, members, campuses, branche
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={() => setIsBranchFilterOpen(prev => !prev)}
+                    onClick={() => setIsBranchFilterOpen((prev) => !prev)}
                     className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer flex items-center justify-between hover:bg-slate-50 transition-colors ${
-                      selectedBranches.length > 0 
-                        ? 'border-indigo-500 text-indigo-700 bg-indigo-50/50' 
-                        : 'border-slate-200/80 text-slate-700'
+                      selectedBranches.length > 0
+                        ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                        : "border-slate-200/80 text-slate-700"
                     }`}
                   >
                     <div className="flex items-center gap-1.5 truncate">
-                      <Building2 className={`w-3.5 h-3.5 flex-shrink-0 ${selectedBranches.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <Building2
+                        className={`w-3.5 h-3.5 flex-shrink-0 ${selectedBranches.length > 0 ? "text-indigo-600" : "text-slate-400"}`}
+                      />
                       <span className="truncate">
                         {selectedBranches.length === 0
-                          ? 'Branch: All'
+                          ? "Branch: All"
                           : selectedBranches.length === 1
-                          ? `Branch: ${selectedBranches[0]}`
-                          : `Branch: (${selectedBranches.length} selected)`}
+                            ? `Branch: ${selectedBranches[0]}`
+                            : `Branch: (${selectedBranches.length} selected)`}
                       </span>
                     </div>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform flex-shrink-0 ${isBranchFilterOpen ? 'rotate-180' : ''} ${selectedBranches.length > 0 ? 'text-indigo-600' : 'text-slate-400'}`} />
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 transition-transform flex-shrink-0 ${isBranchFilterOpen ? "rotate-180" : ""} ${selectedBranches.length > 0 ? "text-indigo-600" : "text-slate-400"}`}
+                    />
                   </button>
 
                   {/* Popover Dropdown */}
                   {isBranchFilterOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-20 bg-transparent" 
-                        onClick={() => setIsBranchFilterOpen(false)} 
+                      <div
+                        className="fixed inset-0 z-20 bg-transparent"
+                        onClick={() => setIsBranchFilterOpen(false)}
                       />
                       <div className="absolute left-0 mt-1.5 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl z-30 p-3 space-y-2.5">
                         <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs">
@@ -1857,14 +2581,16 @@ export default function CallManagement({ currentUser, members, campuses, branche
                           <input
                             type="text"
                             value={branchSearchQuery}
-                            onChange={(e) => setBranchSearchQuery(e.target.value)}
+                            onChange={(e) =>
+                              setBranchSearchQuery(e.target.value)
+                            }
                             placeholder="Search branch..."
                             className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                           />
                           {branchSearchQuery && (
                             <button
                               type="button"
-                              onClick={() => setBranchSearchQuery('')}
+                              onClick={() => setBranchSearchQuery("")}
                               className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
                             >
                               <X className="w-3 h-3" />
@@ -1877,8 +2603,14 @@ export default function CallManagement({ currentUser, members, campuses, branche
                           <button
                             type="button"
                             onClick={() => {
-                              const matching = availableBranches.filter(b => b.toLowerCase().includes(branchSearchQuery.toLowerCase()));
-                              const combined = Array.from(new Set([...selectedBranches, ...matching]));
+                              const matching = availableBranches.filter((b) =>
+                                b
+                                  .toLowerCase()
+                                  .includes(branchSearchQuery.toLowerCase()),
+                              );
+                              const combined = Array.from(
+                                new Set([...selectedBranches, ...matching]),
+                              );
                               setSelectedBranches(combined);
                             }}
                             className="text-indigo-600 hover:underline"
@@ -1896,13 +2628,24 @@ export default function CallManagement({ currentUser, members, campuses, branche
 
                         {/* Scrollable Checkbox List */}
                         <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                          {availableBranches.filter(b => b.toLowerCase().includes(branchSearchQuery.toLowerCase())).length === 0 ? (
-                            <div className="text-center py-3 text-xs text-slate-400 font-medium">No branch found</div>
+                          {availableBranches.filter((b) =>
+                            b
+                              .toLowerCase()
+                              .includes(branchSearchQuery.toLowerCase()),
+                          ).length === 0 ? (
+                            <div className="text-center py-3 text-xs text-slate-400 font-medium">
+                              No branch found
+                            </div>
                           ) : (
                             availableBranches
-                              .filter(b => b.toLowerCase().includes(branchSearchQuery.toLowerCase()))
-                              .map(branchName => {
-                                const isChecked = selectedBranches.includes(branchName);
+                              .filter((b) =>
+                                b
+                                  .toLowerCase()
+                                  .includes(branchSearchQuery.toLowerCase()),
+                              )
+                              .map((branchName) => {
+                                const isChecked =
+                                  selectedBranches.includes(branchName);
                                 return (
                                   <label
                                     key={branchName}
@@ -1913,14 +2656,23 @@ export default function CallManagement({ currentUser, members, campuses, branche
                                       checked={isChecked}
                                       onChange={(e) => {
                                         if (e.target.checked) {
-                                          setSelectedBranches(prev => [...prev, branchName]);
+                                          setSelectedBranches((prev) => [
+                                            ...prev,
+                                            branchName,
+                                          ]);
                                         } else {
-                                          setSelectedBranches(prev => prev.filter(b => b !== branchName));
+                                          setSelectedBranches((prev) =>
+                                            prev.filter(
+                                              (b) => b !== branchName,
+                                            ),
+                                          );
                                         }
                                       }}
                                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                     />
-                                    <span className="truncate flex-1">{branchName}</span>
+                                    <span className="truncate flex-1">
+                                      {branchName}
+                                    </span>
                                   </label>
                                 );
                               })
@@ -1938,16 +2690,16 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
                 >
                   <option value="all">Class: All</option>
-                  {uniqueClasses.map(c => (
-                    <option key={c} value={c}>{c}</option>
+                  {uniqueClasses.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
                   ))}
                 </select>
               </div>
 
               {/* Row 2: Status & Assignment Filters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-center pt-1">
-              
-
                 <select
                   value={liveAssignFilter}
                   onChange={(e) => setLiveAssignFilter(e.target.value)}
@@ -1967,7 +2719,7 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
                 </select>
-  <select
+                <select
                   value={assignFilter}
                   onChange={(e) => setAssignFilter(e.target.value)}
                   className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
@@ -1999,16 +2751,24 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   {/* Target Date Type Selection */}
                   <select
                     value={dateTypeFilter}
-                    onChange={(e) => setDateTypeFilter(e.target.value as 'all' | 'live' | 'feedback')}
+                    onChange={(e) =>
+                      setDateTypeFilter(
+                        e.target.value as "all" | "live" | "feedback",
+                      )
+                    }
                     className="bg-white border border-slate-200/80 text-[11px] sm:text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
                   >
-                    <option value="all">Target: Live Instruction & Feedback</option>
+                    <option value="all">
+                      Target: Live Instruction & Feedback
+                    </option>
                     <option value="live">Live Instruction</option>
                     <option value="feedback">Feedback</option>
                   </select>
 
                   <div className="flex items-center gap-1.5 bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl text-xs shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20">
-                    <span className="text-[10px] font-black uppercase text-indigo-600">From</span>
+                    <span className="text-[10px] font-black uppercase text-indigo-600">
+                      From
+                    </span>
                     <input
                       type="date"
                       value={fromDateFilter}
@@ -2019,7 +2779,9 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   </div>
 
                   <div className="flex items-center gap-1.5 bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl text-xs shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20">
-                    <span className="text-[10px] font-black uppercase text-indigo-600">To</span>
+                    <span className="text-[10px] font-black uppercase text-indigo-600">
+                      To
+                    </span>
                     <input
                       type="date"
                       value={toDateFilter}
@@ -2030,21 +2792,31 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   </div>
 
                   {/* Reset All Filters Button */}
-                  {(searchQuery || campusFilter !== 'all' || liveStatusFilter !== 'all' || feedbackStatusFilter !== 'all' || classFilter !== 'all' || assignFilter !== 'all' || liveAssignFilter !== 'all' || dateTypeFilter !== 'all' || fromDateFilter || toDateFilter || selectedBranches.length > 0) && (
+                  {(searchQuery ||
+                    campusFilter !== "all" ||
+                    liveStatusFilter !== "all" ||
+                    feedbackStatusFilter !== "all" ||
+                    classFilter !== "all" ||
+                    assignFilter !== "all" ||
+                    liveAssignFilter !== "all" ||
+                    dateTypeFilter !== "all" ||
+                    fromDateFilter ||
+                    toDateFilter ||
+                    selectedBranches.length > 0) && (
                     <button
                       onClick={() => {
-                        setSearchQuery('');
-                        setCampusFilter('all');
-                        setLiveStatusFilter('all');
-                        setFeedbackStatusFilter('all');
-                        setClassFilter('all');
-                        setAssignFilter('all');
-                        setLiveAssignFilter('all');
-                        setDateTypeFilter('all');
-                        setFromDateFilter('');
-                        setToDateFilter('');
+                        setSearchQuery("");
+                        setCampusFilter("all");
+                        setLiveStatusFilter("all");
+                        setFeedbackStatusFilter("all");
+                        setClassFilter("all");
+                        setAssignFilter("all");
+                        setLiveAssignFilter("all");
+                        setDateTypeFilter("all");
+                        setFromDateFilter("");
+                        setToDateFilter("");
                         setSelectedBranches([]);
-                        setBranchSearchQuery('');
+                        setBranchSearchQuery("");
                       }}
                       className="flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:text-rose-700 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100/80 border border-rose-200/60 transition-colors shadow-xs"
                     >
@@ -2055,7 +2827,8 @@ export default function CallManagement({ currentUser, members, campuses, branche
                 </div>
 
                 {/* Right Action Tools */}
-                {(activeSubTab === 'management' || activeSubTab === 'my-tasks') && (
+                {(activeSubTab === "management" ||
+                  activeSubTab === "my-tasks") && (
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => setIsRangeModalOpen(true)}
@@ -2064,51 +2837,74 @@ export default function CallManagement({ currentUser, members, campuses, branche
                       <UserPlus className="w-3.5 h-3.5" />
                       By SL Range
                     </button>
-                    {selectedTasks.length > 0 && tasks.some(t => selectedTasks.includes(t.id) && (t.assignedToPin || t.liveAssignedToPin || t.liveInstructorPin)) && (
-                      <div className="flex items-center gap-2 flex-wrap animate-in fade-in slide-in-from-right-4">
-                        <button
-                          onClick={() => {
-                            setUnassignTarget({ type: 'bulk' });
-                            setIsUnassignModalOpen(true);
-                          }}
-                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1.5 transition-colors"
-                        >
-                          <UserMinus className="w-3.5 h-3.5" />
-                          <span>Unassign Selected</span>
-                        </button>
-                      </div>
-                    )}
+                    {selectedTasks.length > 0 &&
+                      tasks.some(
+                        (t) =>
+                          selectedTasks.includes(t.id) &&
+                          (t.assignedToPin ||
+                            t.liveAssignedToPin ||
+                            t.liveInstructorPin),
+                      ) && (
+                        <div className="flex items-center gap-2 flex-wrap animate-in fade-in slide-in-from-right-4">
+                          <button
+                            onClick={() => {
+                              setUnassignTarget({ type: "bulk" });
+                              setIsUnassignModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1.5 transition-colors"
+                          >
+                            <UserMinus className="w-3.5 h-3.5" />
+                            <span>Unassign Selected</span>
+                          </button>
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
             </div>
 
-
-            <div 
+            <div
               ref={tableContainerRef}
               onMouseDown={handleMouseDown}
               onMouseLeave={handleMouseLeave}
               onMouseUp={handleMouseUp}
               onMouseMove={handleMouseMove}
               className="overflow-x-auto cursor-grab active:cursor-grabbing scrollbar-hide"
-              style={{ scrollBehavior: isDragging ? 'auto' : 'smooth' }}
+              style={{ scrollBehavior: isDragging ? "auto" : "smooth" }}
             >
               <table className="w-full text-left border-collapse min-w-[1200px]">
                 <thead>
                   <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    {(activeSubTab === 'management' || activeSubTab === 'my-tasks') && (
+                    {(activeSubTab === "management" ||
+                      activeSubTab === "my-tasks") && (
                       <th className="p-4 w-10">
-                        <input 
-                          type="checkbox" 
-                          checked={paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTasks.includes(t.id))}
+                        <input
+                          type="checkbox"
+                          checked={
+                            paginatedTasks.length > 0 &&
+                            paginatedTasks.every((t) =>
+                              selectedTasks.includes(t.id),
+                            )
+                          }
                           onChange={() => {
-                            const isAllVisibleSelected = paginatedTasks.length > 0 && paginatedTasks.every(t => selectedTasks.includes(t.id));
+                            const isAllVisibleSelected =
+                              paginatedTasks.length > 0 &&
+                              paginatedTasks.every((t) =>
+                                selectedTasks.includes(t.id),
+                              );
                             if (isAllVisibleSelected) {
-                              setSelectedTasks(prev => prev.filter(id => !paginatedTasks.some(t => t.id === id)));
+                              setSelectedTasks((prev) =>
+                                prev.filter(
+                                  (id) =>
+                                    !paginatedTasks.some((t) => t.id === id),
+                                ),
+                              );
                             } else {
-                              setSelectedTasks(prev => {
+                              setSelectedTasks((prev) => {
                                 const newSelection = new Set(prev);
-                                paginatedTasks.forEach(t => newSelection.add(t.id));
+                                paginatedTasks.forEach((t) =>
+                                  newSelection.add(t.id),
+                                );
                                 return Array.from(newSelection);
                               });
                             }
@@ -2127,190 +2923,332 @@ export default function CallManagement({ currentUser, members, campuses, branche
                     <th className="p-4 text-center">Live Assign Status</th>
                     <th className="p-4">Live Assigned Member</th>
                     <th className="p-4">Live Instructor Name</th>
-                    <th className="p-4">Live Instruction Comment</th>
                     <th className="p-4">Feedback Status</th>
                     <th className="p-4">Feedback Date</th>
                     <th className="p-4 text-center">Feedback Assign Status</th>
                     <th className="p-4">Feedback Assigned Team Member</th>
-                    <th className="p-4">Feedback Comment</th>
+                    <th className="p-4">Assigned to Coordinator</th>
                     <th className="p-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {loading ? (
                     <tr>
-                      <td colSpan={(activeSubTab === 'management' || activeSubTab === 'my-tasks') ? 18 : 17} className="p-8 text-center text-slate-400 font-medium italic">Loading tasks...</td>
+                      <td
+                        colSpan={
+                          activeSubTab === "management" ||
+                          activeSubTab === "my-tasks"
+                            ? 17
+                            : 16
+                        }
+                        className="p-16 text-center"
+                      >
+                        <div className="flex flex-col items-center justify-center space-y-4">
+                          <div className="relative">
+                            <RotateCcw className="w-10 h-10 text-indigo-600 animate-spin" />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div className="w-5 h-5 bg-white rounded-full" />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs font-black text-slate-800 uppercase tracking-widest animate-pulse">
+                              Fetching Calls Data
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-bold">
+                              Please wait while we sync with the server
+                            </p>
+                          </div>
+                        </div>
+                      </td>
                     </tr>
                   ) : paginatedTasks.length === 0 ? (
                     <tr>
-                      <td colSpan={(activeSubTab === 'management' || activeSubTab === 'my-tasks') ? 18 : 17} className="p-8 text-center text-slate-400 font-medium italic">No tasks found.</td>
+                      <td
+                        colSpan={
+                          activeSubTab === "management" ||
+                          activeSubTab === "my-tasks"
+                            ? 17
+                            : 16
+                        }
+                        className="p-8 text-center text-slate-400 font-medium italic"
+                      >
+                        No tasks found.
+                      </td>
                     </tr>
-                  ) : paginatedTasks.map((task, index) => (
-                    <tr key={task.id} className={`hover:bg-slate-50/30 transition-colors ${selectedTasks.includes(task.id) ? 'bg-indigo-50/20' : ''}`}>
-                      {(activeSubTab === 'management' || activeSubTab === 'my-tasks') && (
-                        <td className="p-4">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedTasks.includes(task.id)}
-                            onChange={() => toggleTaskSelection(task.id)}
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                          />
+                  ) : (
+                    paginatedTasks.map((task, index) => (
+                      <motion.tr
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: index * 0.01 }}
+                        key={task.id}
+                        className={`hover:bg-slate-50/30 transition-colors ${selectedTasks.includes(task.id) ? "bg-indigo-50/20" : ""}`}
+                      >
+                        {(activeSubTab === "management" ||
+                          activeSubTab === "my-tasks") && (
+                          <td className="p-4">
+                            <input
+                              type="checkbox"
+                              checked={selectedTasks.includes(task.id)}
+                              onChange={() => toggleTaskSelection(task.id)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                          </td>
+                        )}
+                        <td className="p-4 font-black text-slate-400">
+                          {(currentPage - 1) * pageSize + index + 1}
                         </td>
-                      )}
-                      <td className="p-4 font-black text-slate-400">{(currentPage - 1) * pageSize + index + 1}</td>
-                      <td className="p-4 cursor-pointer" onClick={() => openTaskModal(task)}>
-                        <div className="font-bold text-slate-800 hover:text-indigo-600 transition-colors">
-                          {task.studentName || '-'}
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">Reg: {task.registrationNo}</div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-medium text-slate-700">
-                          {task.nickName || '-'}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-black text-slate-300 w-4">S:</span>
-                            <span className="font-medium text-slate-600">{task.mobilePersonal}</span>
+                        <td
+                          className="p-4 cursor-pointer"
+                          onClick={() => openTaskModal(task)}
+                        >
+                          <div className="font-bold text-slate-800 hover:text-indigo-600 transition-colors">
+                            {task.studentName || "-"}
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-black text-slate-300 w-4">F:</span>
-                            <span className="font-medium text-slate-600">{task.mobileFather}</span>
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            Reg: {task.registrationNo}
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-black text-slate-300 w-4">M:</span>
-                            <span className="font-medium text-slate-600">{task.mobileMother}</span>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-medium text-slate-700">
+                            {task.nickName || "-"}
                           </div>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-bold text-slate-700">{task.branch}</div>
-                        <div className="text-[10px] font-black text-indigo-500 uppercase mt-0.5">{task.className}</div>
-                      </td>
-                      <td className="p-4 cursor-pointer" onClick={() => openTaskModal(task)}>
-                        <div className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase hover:opacity-80 transition-opacity ${
-                          task.liveInstructionStatus === 'Completed' ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' : 'bg-amber-50 text-amber-600 ring-1 ring-amber-500/20'
-                        }`}>
-                          {task.liveInstructionStatus}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-mono text-slate-600 text-[11px]">
-                          {task.liveInstructionSubmitDate || '-'}
-                        </div>
-                      </td>
-                      <td className="p-4 text-center">
-                        <div className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
-                          (task.liveAssignedToPin || task.liveInstructorPin) ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' : 'bg-rose-50 text-rose-600 ring-1 ring-rose-500/20'
-                        }`}>
-                          {(task.liveAssignedToPin || task.liveInstructorPin) ? 'Assigned' : 'Unassigned'}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-medium text-slate-700 text-[10px]">
-                          {task.liveAssignedToName || '-'}
-                        </div>
-                        {task.liveAssignedToPin && (
-                          <div className="text-[9px] text-slate-400 font-mono">Pin: {task.liveAssignedToPin}</div>
-                        )}
-                      </td>
-                      <td className="p-4">
-                        <div className="font-medium text-slate-700 text-[10px]">
-                          {task.liveInstructorName || '-'}
-                        </div>
-                        {task.liveInstructorPin && (
-                          <div className="text-[9px] text-slate-400 font-mono">Pin: {task.liveInstructorPin}</div>
-                        )}
-                        {task.isLiveInstructorTeacher && (
-                          <span className="inline-block mt-0.5 px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded text-[8px] font-bold">Teacher</span>
-                        )}
-                      </td>
-                      <td className="p-4 cursor-pointer" onClick={() => openTaskModal(task)}>
-                        <div className="text-[10px] text-slate-600 max-w-[140px] truncate" title={task.liveInstructionComment || ''}>
-                          {task.liveInstructionComment || '-'}
-                        </div>
-                      </td>
-                      <td className="p-4 cursor-pointer" onClick={() => openTaskModal(task)}>
-                        <div className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase hover:opacity-80 transition-opacity ${
-                          task.feedbackStatus === 'Completed' ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' : 'bg-amber-50 text-amber-600 ring-1 ring-amber-500/20'
-                        }`}>
-                          {task.feedbackStatus}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-mono text-slate-600 text-[11px]">
-                          {task.feedbackSubmitDate || '-'}
-                        </div>
-                      </td>
-                      <td className="p-4 text-center">
-                        <div className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
-                          task.assignedToPin ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' : 'bg-rose-50 text-rose-600 ring-1 ring-rose-500/20'
-                        }`}>
-                          {task.assignedToPin ? 'Assigned' : 'Unassigned'}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-medium text-slate-700 text-[10px]">
-                          {task.assignedToName || '-'}
-                        </div>
-                        {task.assignedToPin && (
-                          <div className="text-[9px] text-slate-400 font-mono">Pin: {task.assignedToPin}</div>
-                        )}
-                      </td>
-                      <td className="p-4 cursor-pointer" onClick={() => openTaskModal(task)}>
-                        <div className="text-[10px] text-slate-600 max-w-[140px] truncate" title={task.feedbackComment || ''}>
-                          {task.feedbackComment || '-'}
-                        </div>
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className="flex justify-end gap-1">
-                          {showManagementTabs && !(task.assignedToPin && task.liveAssignedToPin) && (
+                        </td>
+                        <td className="p-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-black text-slate-300 w-4">
+                                S:
+                              </span>
+                              <span className="font-medium text-slate-600">
+                                {task.mobilePersonal}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-black text-slate-300 w-4">
+                                F:
+                              </span>
+                              <span className="font-medium text-slate-600">
+                                {task.mobileFather}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-black text-slate-300 w-4">
+                                M:
+                              </span>
+                              <span className="font-medium text-slate-600">
+                                {task.mobileMother}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-bold text-slate-700">
+                            {task.branch}
+                          </div>
+                          <div className="text-[10px] font-black text-indigo-500 uppercase mt-0.5">
+                            {task.className}
+                          </div>
+                        </td>
+                        <td
+                          className="p-4 cursor-pointer"
+                          onClick={() => openTaskModal(task)}
+                        >
+                          <div
+                            className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase hover:opacity-80 transition-opacity ${
+                              task.liveInstructionStatus === "Completed"
+                                ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20"
+                                : "bg-amber-50 text-amber-600 ring-1 ring-amber-500/20"
+                            }`}
+                          >
+                            {task.liveInstructionStatus}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-mono text-slate-600 text-[11px]">
+                            {task.liveInstructionSubmitDate || "-"}
+                          </div>
+                        </td>
+                        <td className="p-4 text-center">
+                          <div
+                            className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
+                              (task.liveAssignedToPin &&
+                                !mentorPins.has(task.liveAssignedToPin)) ||
+                              task.liveInstructorPin
+                                ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20"
+                                : "bg-rose-50 text-rose-600 ring-1 ring-rose-500/20"
+                            }`}
+                          >
+                            {(task.liveAssignedToPin &&
+                              !mentorPins.has(task.liveAssignedToPin)) ||
+                            task.liveInstructorPin
+                              ? "Assigned"
+                              : "Unassigned"}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-medium text-slate-700 text-[10px]">
+                            {task.liveAssignedToPin &&
+                            mentorPins.has(task.liveAssignedToPin)
+                              ? "-"
+                              : task.liveAssignedToName || "-"}
+                          </div>
+                          {task.liveAssignedToPin &&
+                            !mentorPins.has(task.liveAssignedToPin) && (
+                              <div className="text-[9px] text-slate-400 font-mono">
+                                Pin: {task.liveAssignedToPin}
+                              </div>
+                            )}
+                        </td>
+                        <td className="p-4">
+                          <div className="font-medium text-slate-700 text-[10px]">
+                            {task.liveInstructorPin &&
+                            mentorPins.has(task.liveInstructorPin)
+                              ? "-"
+                              : task.liveInstructorName || "-"}
+                          </div>
+                          {task.liveInstructorPin &&
+                            !mentorPins.has(task.liveInstructorPin) && (
+                              <div className="text-[9px] text-slate-400 font-mono">
+                                Pin: {task.liveInstructorPin}
+                              </div>
+                            )}
+                          {task.isLiveInstructorTeacher && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded text-[8px] font-bold">
+                              Teacher
+                            </span>
+                          )}
+                        </td>
+                        <td
+                          className="p-4 cursor-pointer"
+                          onClick={() => openTaskModal(task)}
+                        >
+                          <div
+                            className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase hover:opacity-80 transition-opacity ${
+                              task.feedbackStatus === "Completed"
+                                ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20"
+                                : "bg-amber-50 text-amber-600 ring-1 ring-amber-500/20"
+                            }`}
+                          >
+                            {task.feedbackStatus}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-mono text-slate-600 text-[11px]">
+                            {task.feedbackSubmitDate || "-"}
+                          </div>
+                        </td>
+                        <td className="p-4 text-center">
+                          <div
+                            className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
+                              task.assignedToPin &&
+                              !mentorPins.has(task.assignedToPin)
+                                ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20"
+                                : "bg-rose-50 text-rose-600 ring-1 ring-rose-500/20"
+                            }`}
+                          >
+                            {task.assignedToPin &&
+                            !mentorPins.has(task.assignedToPin)
+                              ? "Assigned"
+                              : "Unassigned"}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-medium text-slate-700 text-[10px]">
+                            {task.assignedToPin &&
+                            mentorPins.has(task.assignedToPin)
+                              ? "-"
+                              : task.assignedToName || "-"}
+                          </div>
+                          {task.assignedToPin &&
+                            !mentorPins.has(task.assignedToPin) && (
+                              <div className="text-[9px] text-slate-400 font-mono">
+                                Pin: {task.assignedToPin}
+                              </div>
+                            )}
+                        </td>
+                        <td className="p-4">
+                          <div className="font-medium text-indigo-600 text-[10px]">
+                            {task.liveAssignedToPin &&
+                            mentorPins.has(task.liveAssignedToPin)
+                              ? task.liveAssignedToName
+                              : task.assignedToPin &&
+                                  mentorPins.has(task.assignedToPin)
+                                ? task.assignedToName
+                                : "-"}
+                          </div>
+                        </td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end gap-1">
+                            {showManagementTabs &&
+                              !(
+                                task.assignedToPin &&
+                                !mentorPins.has(task.assignedToPin) &&
+                                task.liveAssignedToPin &&
+                                !mentorPins.has(task.liveAssignedToPin)
+                              ) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAssignTarget(task);
+                                    if (
+                                      !task.assignedToPin &&
+                                      !task.liveAssignedToPin
+                                    )
+                                      setAssignChoice("both");
+                                    else if (!task.assignedToPin)
+                                      setAssignChoice("feedback");
+                                    else setAssignChoice("live");
+                                    setIsAssignModalOpen(true);
+                                  }}
+                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                  title="Assign Task"
+                                >
+                                  <UserPlus className="w-4 h-4" />
+                                </button>
+                              )}
+                            {(task.assignedToPin ||
+                              task.liveAssignedToPin ||
+                              task.liveInstructorPin) &&
+                              showManagementTabs && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUnassignTask(task.id);
+                                  }}
+                                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                  title="Unassign Task"
+                                >
+                                  <UserMinus className="w-4 h-4" />
+                                </button>
+                              )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setAssignTarget(task);
-                                if (!task.assignedToPin && !task.liveAssignedToPin) setAssignChoice('both');
-                                else if (!task.assignedToPin) setAssignChoice('feedback');
-                                else setAssignChoice('live');
-                                setIsAssignModalOpen(true);
+                                openTaskModal(task);
                               }}
-                              className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                              title="Assign Task"
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="View Details"
                             >
-                              <UserPlus className="w-4 h-4" />
+                              <Eye className="w-4 h-4" />
                             </button>
-                          )}
-                          {(task.assignedToPin || task.liveAssignedToPin || task.liveInstructorPin) && showManagementTabs && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleUnassignTask(task.id); }}
-                              className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                              title="Unassign Task"
-                            >
-                              <UserMinus className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); openTaskModal(task); }}
-                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                            title="View Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {canUpload && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Delete Task"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {canUpload && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteTask(task.id);
+                                }}
+                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Delete Task"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </motion.tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2318,7 +3256,9 @@ export default function CallManagement({ currentUser, members, campuses, branche
             <div className="flex flex-col lg:flex-row items-center justify-between p-4 border-t border-slate-100 bg-slate-50/50 rounded-b-3xl gap-4">
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-500">Rows per page:</span>
+                  <span className="text-xs font-bold text-slate-500">
+                    Rows per page:
+                  </span>
                   <select
                     value={pageSize}
                     onChange={(e) => {
@@ -2332,21 +3272,41 @@ export default function CallManagement({ currentUser, members, campuses, branche
                     <option value="200">200</option>
                     <option value="500">500</option>
                     <option value="1000">1000</option>
-                    <option value={Math.max(filteredTasks.length, 1)}>All</option>
+                    <option value={Math.max(filteredTasks.length, 1)}>
+                      All
+                    </option>
                   </select>
                 </div>
-                
+
                 {/* Page Range Info */}
                 <div className="text-xs font-bold text-slate-500 flex flex-wrap items-center gap-2 hidden sm:flex">
                   <span>
-                    Showing <span className="text-indigo-600 font-extrabold">{filteredTasks.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</span> to{' '}
-                    <span className="text-indigo-600 font-extrabold">{Math.min(currentPage * pageSize, filteredTasks.length)}</span> of{' '}
-                    <span className="text-slate-800 font-black">{filteredTasks.length}</span> students
+                    Showing{" "}
+                    <span className="text-indigo-600 font-extrabold">
+                      {filteredTasks.length > 0
+                        ? (currentPage - 1) * pageSize + 1
+                        : 0}
+                    </span>{" "}
+                    to{" "}
+                    <span className="text-indigo-600 font-extrabold">
+                      {Math.min(currentPage * pageSize, filteredTasks.length)}
+                    </span>{" "}
+                    of{" "}
+                    <span className="text-slate-800 font-black">
+                      {filteredTasks.length}
+                    </span>{" "}
+                    students
                   </span>
                   <span className="text-slate-300">|</span>
                   <span>
-                    Page <span className="text-indigo-600 font-extrabold">{totalPages > 0 ? currentPage : 0}</span> of{' '}
-                    <span className="text-slate-800 font-black">{totalPages}</span>
+                    Page{" "}
+                    <span className="text-indigo-600 font-extrabold">
+                      {totalPages > 0 ? currentPage : 0}
+                    </span>{" "}
+                    of{" "}
+                    <span className="text-slate-800 font-black">
+                      {totalPages}
+                    </span>
                   </span>
                 </div>
               </div>
@@ -2364,7 +3324,9 @@ export default function CallManagement({ currentUser, members, campuses, branche
                       <ChevronsLeft className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      onClick={() =>
+                        setCurrentPage((prev) => Math.max(1, prev - 1))
+                      }
                       disabled={currentPage === 1}
                       title="Previous Page"
                       className="p-1.5 bg-white border border-slate-200 rounded-xl text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed hover:text-indigo-600 hover:border-indigo-600 transition-all shadow-sm"
@@ -2377,21 +3339,27 @@ export default function CallManagement({ currentUser, members, campuses, branche
                       {(() => {
                         const pageNumbers: (number | string)[] = [];
                         if (totalPages <= 7) {
-                          for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
+                          for (let i = 1; i <= totalPages; i++)
+                            pageNumbers.push(i);
                         } else {
                           pageNumbers.push(1);
-                          if (currentPage > 3) pageNumbers.push('...');
+                          if (currentPage > 3) pageNumbers.push("...");
                           const start = Math.max(2, currentPage - 1);
                           const end = Math.min(totalPages - 1, currentPage + 1);
-                          for (let i = start; i <= end; i++) pageNumbers.push(i);
-                          if (currentPage < totalPages - 2) pageNumbers.push('...');
+                          for (let i = start; i <= end; i++)
+                            pageNumbers.push(i);
+                          if (currentPage < totalPages - 2)
+                            pageNumbers.push("...");
                           pageNumbers.push(totalPages);
                         }
 
                         return pageNumbers.map((p, idx) => {
-                          if (typeof p === 'string') {
+                          if (typeof p === "string") {
                             return (
-                              <span key={`dots-${idx}`} className="px-1 text-xs text-slate-400 font-bold">
+                              <span
+                                key={`dots-${idx}`}
+                                className="px-1 text-xs text-slate-400 font-bold"
+                              >
                                 ...
                               </span>
                             );
@@ -2402,8 +3370,8 @@ export default function CallManagement({ currentUser, members, campuses, branche
                               onClick={() => setCurrentPage(p)}
                               className={`min-w-[28px] h-7 px-2 text-xs font-bold rounded-xl transition-all ${
                                 currentPage === p
-                                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                                  : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600'
+                                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                                  : "bg-white border border-slate-200 text-slate-600 hover:border-indigo-500 hover:text-indigo-600"
                               }`}
                             >
                               {p}
@@ -2414,7 +3382,9 @@ export default function CallManagement({ currentUser, members, campuses, branche
                     </div>
 
                     <button
-                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      onClick={() =>
+                        setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                      }
                       disabled={currentPage === totalPages}
                       title="Next Page"
                       className="p-1.5 bg-white border border-slate-200 rounded-xl text-slate-500 disabled:opacity-40 disabled:cursor-not-allowed hover:text-indigo-600 hover:border-indigo-600 transition-all shadow-sm"
@@ -2432,8 +3402,13 @@ export default function CallManagement({ currentUser, members, campuses, branche
                   </div>
 
                   {/* Jump to Page Form */}
-                  <form onSubmit={handleJumpToPage} className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                    <span className="text-[11px] font-bold text-slate-500 pl-2">Go to page:</span>
+                  <form
+                    onSubmit={handleJumpToPage}
+                    className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm"
+                  >
+                    <span className="text-[11px] font-bold text-slate-500 pl-2">
+                      Go to page:
+                    </span>
                     <input
                       type="number"
                       min={1}
@@ -2460,1386 +3435,1962 @@ export default function CallManagement({ currentUser, members, campuses, branche
       {/* Task Detail Modal for Feedback */}
       <AnimatePresence>
         {taskModalOpen && editingTask && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl my-auto space-y-5 max-h-[90vh] overflow-y-auto"
-                  >
-                    {/* Header */}
-                    <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-                      <div>
-                        <h3 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                          <span>Task Details & Management</span>
-                          <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
-                            SL: {editingTask.sl}
-                          </span>
-                        </h3>
-                        <p className="text-xs text-slate-500 font-medium mt-0.5">
-                          Student: <span className="font-bold text-slate-800">{modalFormData.studentName || 'N/A'}</span> ({modalFormData.nickName || 'N/A'}) | Reg: <span className="font-bold text-slate-800">{modalFormData.registrationNo || 'N/A'}</span> | Mobile: <span className="font-bold text-slate-800">{modalFormData.mobilePersonal || 'N/A'}</span>
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setTaskModalOpen(false)}
-                        className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-xl transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                    {/* Modal Partition Tabs */}
-                    {(() => {
-                      const isAssignedLive = canUpload || currentUser.role !== 'member' || editingTask?.liveAssignedToPin === currentUser.pin || editingTask?.liveInstructorPin === currentUser.pin;
-                      const isAssignedFeedback = canUpload || currentUser.role !== 'member' || editingTask?.assignedToPin === currentUser.pin;
-                      
-                      const visibleTabs = [];
-                      if (isAssignedLive) visibleTabs.push('live');
-                      if (isAssignedFeedback) visibleTabs.push('feedback');
-                      visibleTabs.push('student');
-
-                      const gridColsClass = visibleTabs.length === 3 ? 'grid-cols-3' : visibleTabs.length === 2 ? 'grid-cols-2' : 'grid-cols-1';
-
-                      return (
-                        <div className={`grid ${gridColsClass} gap-1.5 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/80`}>
-                          {isAssignedLive && (
-                            <button
-                              type="button"
-                              onClick={() => setModalTab('live')}
-                              className={`flex items-center justify-center gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${
-                                modalTab === 'live'
-                                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200'
-                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                              }`}
-                            >
-                              <Headphones className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate">Live Instruction</span>
-                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold hidden sm:inline-block ${
-                                modalTab === 'live'
-                                  ? 'bg-white/20 text-white'
-                                  : modalFormData.liveInstructionStatus === 'Completed'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-amber-100 text-amber-800'
-                              }`}>
-                                {modalFormData.liveInstructionStatus === 'Completed' ? 'Done' : 'Pending'}
-                              </span>
-                            </button>
-                          )}
-
-                          {isAssignedFeedback && (
-                            <button
-                              type="button"
-                              onClick={() => setModalTab('feedback')}
-                              className={`flex items-center justify-center gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${
-                                modalTab === 'feedback'
-                                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                              }`}
-                            >
-                              <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate">Feedback</span>
-                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold hidden sm:inline-block ${
-                                modalTab === 'feedback'
-                                  ? 'bg-white/20 text-white'
-                                  : modalFormData.feedbackStatus === 'Completed'
-                                    ? 'bg-indigo-100 text-indigo-800'
-                                    : 'bg-amber-100 text-amber-800'
-                              }`}>
-                                {modalFormData.feedbackStatus === 'Completed' ? 'Done' : 'Pending'}
-                              </span>
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => setModalTab('student')}
-                            className={`flex items-center justify-center gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${
-                              modalTab === 'student'
-                                ? 'bg-slate-800 text-white shadow-md'
-                                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                            }`}
-                          >
-                            <User className="w-4 h-4 flex-shrink-0" />
-                            <span className="truncate">Student Info</span>
-                          </button>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Tab 1: Live Instruction Section */}
-                    {modalTab === 'live' && (
-                      <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 space-y-3.5">
-                        <div className="flex items-center justify-between pb-2 border-b border-emerald-200/60">
-                          <span className="text-xs font-black uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                            <Headphones className="w-4 h-4 text-emerald-600" />
-                      Live Instruction Details
-                          </span>
-                          <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
-                            modalFormData.liveInstructionStatus === 'Completed'
-                              ? 'bg-emerald-200 text-emerald-900 border border-emerald-300'
-                              : 'bg-amber-100 text-amber-800 border border-amber-200'
-                          }`}>
-                            {modalFormData.liveInstructionStatus || 'Pending'}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
-                              Live Instruction Status
-                            </label>
-                            <select 
-                              value={modalFormData.liveInstructionStatus || 'Pending'} 
-                              onChange={e => {
-                                const val = e.target.value as 'Pending'|'Completed';
-                                const today = getTodayLocalDate();
-                                setModalFormData({
-                                  ...modalFormData, 
-                                  liveInstructionStatus: val,
-                                  liveInstructionSubmitDate: val === 'Completed' ? (modalFormData.liveInstructionSubmitDate || today) : undefined
-                                });
-                              }} 
-                              className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer"
-                            >
-                              <option value="Pending">Pending</option>
-                              <option value="Completed">Completed</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
-                              Live Instruction Date
-                            </label>
-                            <input 
-                              type="date" 
-                              value={modalFormData.liveInstructionSubmitDate || ''} 
-                              onChange={e => setModalFormData({...modalFormData, liveInstructionSubmitDate: e.target.value})} 
-                              className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer" 
-                            />
-                          </div>
-
-                          {canUpload && (
-                            <div className="sm:col-span-2">
-                              <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
-                             Live Instruction Assigned Member
-                              </label>
-                              <select
-                                value={modalFormData.liveAssignedToPin || ''}
-                                onChange={e => {
-                                  const selectedPin = e.target.value;
-                                  const foundMember = members.find(m => m.pin === selectedPin);
-                                  setModalFormData({
-                                    ...modalFormData,
-                                    liveAssignedToPin: foundMember ? foundMember.pin : undefined,
-                                    liveAssignedToName: foundMember ? foundMember.name : undefined
-                                  });
-                                }}
-                                className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer"
-                              >
-                                <option value="">Unassigned</option>
-                                {renderMemberOptions(getValidMembers([editingTask]))}
-                              </select>
-                            </div>
-                          )}
-
-                          <div>
-                            <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
-                              Live Instructor Name
-                            </label>
-                            <input
-                              type="text"
-                              value={modalFormData.liveInstructorName || ''}
-                              onChange={e => setModalFormData({...modalFormData, liveInstructorName: e.target.value})}
-                              placeholder="Instructor Name"
-                              className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
-                              Live Instructor PIN
-                            </label>
-                            <input
-                              type="text"
-                              value={modalFormData.liveInstructorPin || ''}
-                              onChange={e => setModalFormData({...modalFormData, liveInstructorPin: e.target.value})}
-                              placeholder="Instructor PIN"
-                              className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-2 flex items-center gap-2 pt-0.5">
-                            <input
-                              type="checkbox"
-                              id="modalTeacherCheckbox"
-                              checked={modalFormData.isLiveInstructorTeacher || false}
-                              onChange={e => setModalFormData({...modalFormData, isLiveInstructorTeacher: e.target.checked})}
-                              className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                            />
-                            <label htmlFor="modalTeacherCheckbox" className="text-xs font-bold text-emerald-900 cursor-pointer">
-                              Teacher
-                            </label>
-                          </div>
-
-                          <div className="sm:col-span-2 space-y-2 border-t border-emerald-200/60 pt-3">
-                            <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider">
-                              Exam Script Image
-                            </label>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-[9px] font-bold text-emerald-800 mb-1">Upload Screenshot</label>
-                                <label className="flex items-center justify-center gap-2 px-3 py-2 bg-white border border-dashed border-emerald-300 hover:border-emerald-500 rounded-xl cursor-pointer text-xs font-bold text-emerald-700 transition-colors">
-                                  <Upload className="w-4 h-4 text-emerald-600" />
-                                  <span>Choose File</span>
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) {
-                                        const reader = new FileReader();
-                                        reader.onloadend = () => {
-                                          setModalFormData({ ...modalFormData, liveInstructionImage: reader.result as string });
-                                        };
-                                        reader.readAsDataURL(file);
-                                      }
-                                    }}
-                                  />
-                                </label>
-                              </div>
-                              <div>
-                                <label className="block text-[9px] font-bold text-emerald-800 mb-1">Image URL / Link</label>
-                                <input
-                                  type="url"
-                                  placeholder="https://..."
-                                  value={modalFormData.liveInstructionLink || ''}
-                                  onChange={(e) => setModalFormData({ ...modalFormData, liveInstructionLink: e.target.value })}
-                                  className="w-full px-3 py-2 bg-white border border-emerald-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
-                                />
-                              </div>
-                            </div>
-
-                            {(modalFormData.liveInstructionImage || modalFormData.liveInstructionLink) && (
-                              <div className="p-3 bg-white border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 mt-2">
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                  <img
-                                    src={modalFormData.liveInstructionImage || modalFormData.liveInstructionLink}
-                                    alt="Script Preview"
-                                    className="w-14 h-14 object-cover rounded-xl border border-emerald-200 flex-shrink-0"
-                                    onError={(e) => {
-                                      (e.target as HTMLElement).style.display = 'none';
-                                    }}
-                                  />
-                                  <div className="text-xs truncate">
-                                    <div className="font-bold text-emerald-900">Khata Script Attached</div>
-                                    <a
-                                      href={modalFormData.liveInstructionImage || modalFormData.liveInstructionLink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-emerald-600 hover:underline text-[11px] truncate block font-bold"
-                                    >
-                                      View Image
-                                    </a>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setModalFormData({ ...modalFormData, liveInstructionImage: undefined, liveInstructionLink: undefined })}
-                                  className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
-                              Live Instruction Comment
-                            </label>
-                            <textarea
-                              value={modalFormData.liveInstructionComment || ''}
-                              onChange={e => setModalFormData({...modalFormData, liveInstructionComment: e.target.value})}
-                              rows={2}
-                              className="w-full bg-white border border-emerald-200 text-xs font-bold p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 resize-none"
-                              placeholder="Enter live instruction comments..."
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tab 2: Feedback Section */}
-                    {modalTab === 'feedback' && (
-                      <div className="bg-indigo-50/60 border border-indigo-200/80 rounded-2xl p-4 space-y-3.5">
-                        <div className="flex items-center justify-between pb-2 border-b border-indigo-200/60">
-                          <span className="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
-                            <MessageSquare className="w-4 h-4 text-indigo-600" />
-                         Feedback Details
-                          </span>
-                          <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
-                            modalFormData.feedbackStatus === 'Completed'
-                              ? 'bg-indigo-200 text-indigo-900 border border-indigo-300'
-                              : 'bg-amber-100 text-amber-800 border border-amber-200'
-                          }`}>
-                            {modalFormData.feedbackStatus || 'Pending'}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
-                              Feedback Status
-                            </label>
-                            <select 
-                              value={modalFormData.feedbackStatus || 'Pending'} 
-                              onChange={e => {
-                                const val = e.target.value as 'Pending'|'Completed';
-                                const today = getTodayLocalDate();
-                                setModalFormData({
-                                  ...modalFormData, 
-                                  feedbackStatus: val,
-                                  feedbackSubmitDate: val === 'Completed' ? (modalFormData.feedbackSubmitDate || today) : undefined
-                                });
-                              }} 
-                              className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
-                            >
-                              <option value="Pending">Pending</option>
-                              <option value="Completed">Completed</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
-                              Feedback Date
-                            </label>
-                            <input 
-                              type="date" 
-                              value={modalFormData.feedbackSubmitDate || ''} 
-                              onChange={e => setModalFormData({...modalFormData, feedbackSubmitDate: e.target.value})} 
-                              className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer" 
-                            />
-                          </div>
-
-                          {canUpload && (
-                            <div className="sm:col-span-2">
-                              <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
-                              Feedback Assigned Member
-                                </label>
-                              <select
-                                value={modalFormData.assignedToPin || ''}
-                                onChange={e => {
-                                  const selectedPin = e.target.value;
-                                  const foundMember = members.find(m => m.pin === selectedPin);
-                                  setModalFormData({
-                                    ...modalFormData,
-                                    assignedToPin: foundMember ? foundMember.pin : undefined,
-                                    assignedToName: foundMember ? foundMember.name : undefined
-                                  });
-                                }}
-                                className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
-                              >
-                                <option value="">Unassigned</option>
-                                {renderMemberOptions(getValidMembers([editingTask]))}
-                              </select>
-                            </div>
-                          )}
-
-                          <div className="sm:col-span-2">
-                            <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
-                              Feedback Comment
-                            </label>
-                            <textarea
-                              value={modalFormData.feedbackComment || ''}
-                              onChange={e => setModalFormData({...modalFormData, feedbackComment: e.target.value})}
-                              rows={3}
-                              className="w-full bg-white border border-indigo-200 text-xs font-bold p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 resize-none"
-                              placeholder="Enter feedback comments..."
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tab 3: Student Information Section */}
-                    {modalTab === 'student' && (
-                      <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/80 space-y-3">
-                        <div className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
-                          <User className="w-4 h-4 text-slate-600" />
-                          <span>Student Basic Information (শিক্ষার্থীর বিস্তারিত তথ্য)</span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Full Name (পূর্ণ নাম)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.studentName || ''}
-                              onChange={e => setModalFormData({...modalFormData, studentName: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Nick Name (ডাক নাম)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.nickName || ''}
-                              onChange={e => setModalFormData({...modalFormData, nickName: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Registration No (রেজিঃ নম্বর)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.registrationNo || ''}
-                              onChange={e => setModalFormData({...modalFormData, registrationNo: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Personal Mobile (ব্যক্তিগত মোবাইল)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.mobilePersonal || ''}
-                              onChange={e => setModalFormData({...modalFormData, mobilePersonal: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Father's Name (বাবার নাম)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.fatherName || ''}
-                              onChange={e => setModalFormData({...modalFormData, fatherName: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Father's Mobile (বাবার মোবাইল নম্বর)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.mobileFather || ''}
-                              onChange={e => setModalFormData({...modalFormData, mobileFather: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Mother's Name (মায়ের নাম)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.motherName || ''}
-                              onChange={e => setModalFormData({...modalFormData, motherName: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Mother's Mobile (মায়ের মোবাইল নম্বর)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.mobileMother || ''}
-                              onChange={e => setModalFormData({...modalFormData, mobileMother: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Branch (শাখা)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.branch || ''}
-                              onChange={e => setModalFormData({...modalFormData, branch: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Class Name (শ্রেণি)</label>
-                            <input
-                              type="text"
-                              value={modalFormData.className || ''}
-                              onChange={e => setModalFormData({...modalFormData, className: e.target.value})}
-                              disabled={!canUpload}
-                              className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                      {canUpload && (
-                        <button
-                          onClick={() => {
-                            handleDeleteTask(editingTask.id);
-                          }}
-                          className="px-4 py-2 text-rose-500 hover:bg-rose-50 rounded-xl text-xs font-bold transition-colors"
-                        >
-                          Delete Task
-                        </button>
-                      )}
-                      
-                      <div className="flex gap-2 ml-auto">
-                        <button
-                          onClick={() => setTaskModalOpen(false)}
-                          className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => {
-                            const newLiveStatus = modalFormData.liveInstructionStatus;
-                            const newFeedbackStatus = modalFormData.feedbackStatus;
-
-                            let updatedData = { ...modalFormData };
-                            if (!canUpload && currentUser.role === 'member') {
-                              if (newLiveStatus === 'Completed' && !updatedData.liveInstructorName) {
-                                updatedData.liveInstructorName = currentUser.name;
-                                updatedData.liveInstructorPin = currentUser.pin;
-                              }
-                            }
-
-                            if (newLiveStatus === 'Completed') {
-                              if (!updatedData.liveInstructionSubmitDate) {
-                                toast.error('অনুগ্রহ করে লাইভ ইন্সট্রাকশনের তারিখ (Date) দিন');
-                                return;
-                              }
-                              if (!updatedData.liveInstructionComment?.trim()) {
-                                toast.error('অনুগ্রহ করে লাইভ ইন্সট্রাকশনের মন্তব্য (Comment) লিখুন');
-                                return;
-                              }
-                              if (!updatedData.liveInstructorName?.trim() || !updatedData.liveInstructorPin?.trim()) {
-                                toast.error('লাইভ ইন্সট্রাকশনের জন্য ইন্সট্রাক্টরের নাম ও পিন নম্বর বাধ্যতামূলক');
-                                return;
-                              }
-                            }
-
-                            if (newFeedbackStatus === 'Completed') {
-                              if (!updatedData.feedbackSubmitDate) {
-                                toast.error('অনুগ্রহ করে ফিডব্যাকের তারিখ (Date) দিন');
-                                return;
-                              }
-                              if (!updatedData.feedbackComment?.trim()) {
-                                toast.error('অনুগ্রহ করে ফিডব্যাকের মন্তব্য (Comment) লিখুন');
-                                return;
-                              }
-                            }
-
-                            const liveSubmitDate = newLiveStatus === 'Completed' 
-                              ? updatedData.liveInstructionSubmitDate
-                              : undefined;
-
-                            const feedbackSubmitDate = newFeedbackStatus === 'Completed' 
-                              ? updatedData.feedbackSubmitDate
-                              : undefined;
-
-                            handleUpdateTask(editingTask.id, {
-                              ...updatedData,
-                              liveInstructionSubmitDate: liveSubmitDate,
-                              feedbackSubmitDate: feedbackSubmitDate,
-                              completedAt: (newLiveStatus === 'Completed' && newFeedbackStatus === 'Completed') ? (editingTask.completedAt || new Date().toISOString()) : undefined
-                            });
-                            setTaskModalOpen(false);
-                          }}
-                          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md shadow-indigo-100"
-                        >
-                          Save Changes
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl my-auto space-y-5 max-h-[90vh] overflow-y-auto"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                    <span>Task Details & Management</span>
+                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                      SL: {editingTask.sl}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Student:{" "}
+                    <span className="font-bold text-slate-800">
+                      {modalFormData.studentName || "N/A"}
+                    </span>{" "}
+                    ({modalFormData.nickName || "N/A"}) | Reg:{" "}
+                    <span className="font-bold text-slate-800">
+                      {modalFormData.registrationNo || "N/A"}
+                    </span>{" "}
+                    | Mobile:{" "}
+                    <span className="font-bold text-slate-800">
+                      {modalFormData.mobilePersonal || "N/A"}
+                    </span>
+                  </p>
                 </div>
-              )}
-            </AnimatePresence>
+                <button
+                  onClick={() => setTaskModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            {/* Range Assignment Modal */}
-            <AnimatePresence>
-              {isRangeModalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl"
+              {/* Modal Partition Tabs */}
+              {(() => {
+                const isAssignedLive =
+                  canUpload ||
+                  currentUser.role !== "member" ||
+                  editingTask?.liveAssignedToPin === currentUser.pin ||
+                  editingTask?.liveInstructorPin === currentUser.pin;
+                const isAssignedFeedback =
+                  canUpload ||
+                  currentUser.role !== "member" ||
+                  editingTask?.assignedToPin === currentUser.pin;
+
+                const visibleTabs = [];
+                if (isAssignedLive) visibleTabs.push("live");
+                if (isAssignedFeedback) visibleTabs.push("feedback");
+                visibleTabs.push("student");
+
+                const gridColsClass =
+                  visibleTabs.length === 3
+                    ? "grid-cols-3"
+                    : visibleTabs.length === 2
+                      ? "grid-cols-2"
+                      : "grid-cols-1";
+
+                return (
+                  <div
+                    className={`grid ${gridColsClass} gap-1.5 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/80`}
                   >
-                    <div className="flex justify-between items-center mb-6">
-                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">By SL Range</h3>
-                      <button onClick={() => setIsRangeModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                        <X className="w-4 h-4 text-slate-400" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Select Action</label>
-                        <div className="flex gap-2">
-                          {['assign', 'unassign'].map((action) => (
-                            <button
-                              key={action}
-                              onClick={() => setRangeAction(action as any)}
-                              className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                                rangeAction === action 
-                                  ? 'bg-slate-800 text-white border-slate-800' 
-                                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                              }`}
-                            >
-                              {action}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Start SL</label>
-                          <input
-                            type="number"
-                            value={rangeStart}
-                            onChange={(e) => setRangeStart(e.target.value)}
-                            placeholder="e.g. 1"
-                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">End SL</label>
-                          <input
-                            type="number"
-                            value={rangeEnd}
-                            onChange={(e) => setRangeEnd(e.target.value)}
-                            placeholder="e.g. 100"
-                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          />
-                        </div>
-                      </div>
-
-                      {rangeAction === 'assign' && (
-                        <>
-                          <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Assignment Type</label>
-                            <select
-                              value={rangeAssignType}
-                              onChange={(e) => setRangeAssignType(e.target.value as any)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            >
-                              <option value="feedback">Feedback Assign</option>
-                              <option value="live">Live Instruction Assign</option>
-                              <option value="both">Both</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Assign To Member</label>
-                            <select
-                              value={rangeTargetMember}
-                              onChange={(e) => setRangeTargetMember(e.target.value)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            >
-                              <option value="">Select Member</option>
-                              {getValidMembers(tasksInRange).map(m => (
-                                <option key={m.pin} value={m.pin}>{m.name} ({m.campus})</option>
-                              ))}
-                            </select>
-                          </div>
-                        </>
-                      )}
-
+                    {isAssignedLive && (
                       <button
-                        onClick={handleRangeAssign}
-                        className={`w-full py-3 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg mt-2 ${
-                          rangeAction === 'assign' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100' : 'bg-rose-600 hover:bg-rose-700 shadow-rose-100'
+                        type="button"
+                        onClick={() => setModalTab("live")}
+                        className={`flex items-center justify-center gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${
+                          modalTab === "live"
+                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-200"
+                            : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
                         }`}
                       >
-                        Execute {rangeAction === 'assign' ? 'Assignment' : 'Unassignment'}
-                      </button>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Unassign Confirmation Modal */}
-            <AnimatePresence>
-              {isUnassignModalOpen && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-rose-100"
-                  >
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="flex items-center gap-2 text-rose-600 font-black text-sm uppercase tracking-wider">
-                        <UserMinus className="w-5 h-5" />
-                        <span>Confirm Unassign</span>
-                      </div>
-                      <button onClick={() => setIsUnassignModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                        <X className="w-4 h-4 text-slate-400" />
-                      </button>
-                    </div>
-
-                    <p className="text-xs text-slate-600 font-medium mb-4">
-                      {unassignTarget?.type === 'bulk' ? (
-                        <span className="block mb-2 font-black text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100">
-                          মোট {selectedTasks.length} জনকে আন-এসাইন করা হবে।
-                        </span>
-                      ) : unassignTarget?.type === 'range' ? (
-                        <span className="block mb-2 font-black text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100">
-                          মোট {unassignTarget.taskIds?.length || 0} জনকে আন-এসাইন করা হবে।
-                        </span>
-                      ) : null}
-                      কাকে বা কোন টাইপটি আন-এসাইন (Unassign) করতে চান তা সিলেক্ট করুন:
-                    </p>
-
-                    <div className="space-y-3 mb-6">
-                      <label className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl cursor-pointer transition-colors">
-                        <input
-                          type="radio"
-                          name="unassignChoice"
-                          value="feedback"
-                          checked={unassignChoice === 'feedback'}
-                          onChange={() => setUnassignChoice('feedback')}
-                          className="text-rose-600 focus:ring-rose-500"
-                        />
-                        <div>
-                          <div className="text-xs font-bold text-slate-800">Feedback Assignment Only</div>
-                          <div className="text-[10px] text-slate-500">শুধুমাত্র ফিডব্যাক এসাইনমেন্ট বাদ দেওয়া হবে</div>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl cursor-pointer transition-colors">
-                        <input
-                          type="radio"
-                          name="unassignChoice"
-                          value="live"
-                          checked={unassignChoice === 'live'}
-                          onChange={() => setUnassignChoice('live')}
-                          className="text-rose-600 focus:ring-rose-500"
-                        />
-                        <div>
-                          <div className="text-xs font-bold text-slate-800">Live Instruction Assignment Only</div>
-                          <div className="text-[10px] text-slate-500">শুধুমাত্র লাইভ ইন্সট্রাকশন এসাইনমেন্ট বাদ দেওয়া হবে</div>
-                        </div>
-                      </label>
-
-                      <label className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl cursor-pointer transition-colors">
-                        <input
-                          type="radio"
-                          name="unassignChoice"
-                          value="both"
-                          checked={unassignChoice === 'both'}
-                          onChange={() => setUnassignChoice('both')}
-                          className="text-rose-600 focus:ring-rose-500"
-                        />
-                        <div>
-                          <div className="text-xs font-bold text-rose-700">Both Assignments</div>
-                          <div className="text-[10px] text-slate-500">ফিডব্যাক ও লাইভ ইন্সট্রাকশন দুটোই আন-এসাইন করা হবে</div>
-                        </div>
-                      </label>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setIsUnassignModalOpen(false)}
-                        className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => confirmUnassign(unassignChoice)}
-                        className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-100"
-                      >
-                        Confirm Unassign
-                      </button>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-            
-            {/* Individual Assign Modal */}
-            <AnimatePresence>
-              {isAssignModalOpen && assignTarget && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-indigo-100"
-                  >
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="flex items-center gap-2 text-indigo-600 font-black text-sm uppercase tracking-wider">
-                        <UserPlus className="w-5 h-5" />
-                        <span>Assign Member (SL: {assignTarget.sl})</span>
-                      </div>
-                      <button onClick={() => { setIsAssignModalOpen(false); setAssignTarget(null); setAssignTargetMember(''); }} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                        <X className="w-4 h-4 text-slate-400" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-4 mb-6">
-                      <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Assignment Type</label>
-                        <select
-                          value={assignChoice}
-                          onChange={(e) => setAssignChoice(e.target.value as any)}
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        <Headphones className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">Live Instruction</span>
+                        <span
+                          className={`text-[9px] px-2 py-0.5 rounded-full font-bold hidden sm:inline-block ${
+                            modalTab === "live"
+                              ? "bg-white/20 text-white"
+                              : modalFormData.liveInstructionStatus ===
+                                  "Completed"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-amber-100 text-amber-800"
+                          }`}
                         >
-                          {!assignTarget?.assignedToPin && <option value="feedback">Feedback Assign Only</option>}
-                          {!assignTarget?.liveAssignedToPin && <option value="live">Live Instruction Assign Only</option>}
-                          {!assignTarget?.assignedToPin && !assignTarget?.liveAssignedToPin && <option value="both">Both (Feedback & Live Instruction)</option>}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Assign To Member</label>
-                        <select
-                          value={assignTargetMember}
-                          onChange={(e) => setAssignTargetMember(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
-                        >
-                          <option value="">Select Member...</option>
-                          {getValidMembers([assignTarget]).map(m => (
-                            <option key={m.pin} value={m.pin}>{m.name} ({m.campus})</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => { setIsAssignModalOpen(false); setAssignTarget(null); setAssignTargetMember(''); }}
-                        className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
-                      >
-                        Cancel
+                          {modalFormData.liveInstructionStatus === "Completed"
+                            ? "Done"
+                            : "Pending"}
+                        </span>
                       </button>
+                    )}
+
+                    {isAssignedFeedback && (
                       <button
-                        onClick={() => {
-                          if (!assignTargetMember) {
-                            toast.error('Please select a member to assign.');
-                            return;
-                          }
-                          const updates: Partial<CallTask> = {};
-                          const selectedMember = members.find(m => m.pin === assignTargetMember);
-                          const mName = selectedMember?.name || '';
-                          
-                          if (assignChoice === 'feedback' || assignChoice === 'both') {
-                            updates.assignedToPin = assignTargetMember;
-                            updates.assignedToName = mName;
-                          }
-                          if (assignChoice === 'live' || assignChoice === 'both') {
-                            updates.liveAssignedToPin = assignTargetMember;
-                            updates.liveAssignedToName = mName;
-                          }
-                          handleUpdateTask(assignTarget.id, updates);
-                          setIsAssignModalOpen(false);
-                          setAssignTarget(null);
-                          setAssignTargetMember('');
+                        type="button"
+                        onClick={() => setModalTab("feedback")}
+                        className={`flex items-center justify-center gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${
+                          modalTab === "feedback"
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                            : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+                        }`}
+                      >
+                        <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">Feedback</span>
+                        <span
+                          className={`text-[9px] px-2 py-0.5 rounded-full font-bold hidden sm:inline-block ${
+                            modalTab === "feedback"
+                              ? "bg-white/20 text-white"
+                              : modalFormData.feedbackStatus === "Completed"
+                                ? "bg-indigo-100 text-indigo-800"
+                                : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {modalFormData.feedbackStatus === "Completed"
+                            ? "Done"
+                            : "Pending"}
+                        </span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setModalTab("student")}
+                      className={`flex items-center justify-center gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${
+                        modalTab === "student"
+                          ? "bg-slate-800 text-white shadow-md"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+                      }`}
+                    >
+                      <UserIcon className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">Student Info</span>
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* Tab 1: Live Instruction Section */}
+              {modalTab === "live" && (
+                <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-4 space-y-3.5">
+                  <div className="flex items-center justify-between pb-2 border-b border-emerald-200/60">
+                    <span className="text-xs font-black uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                      <Headphones className="w-4 h-4 text-emerald-600" />
+                      Live Instruction Details
+                    </span>
+                    <span
+                      className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                        modalFormData.liveInstructionStatus === "Completed"
+                          ? "bg-emerald-200 text-emerald-900 border border-emerald-300"
+                          : "bg-amber-100 text-amber-800 border border-amber-200"
+                      }`}
+                    >
+                      {modalFormData.liveInstructionStatus || "Pending"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                        Live Instruction Status
+                      </label>
+                      <select
+                        value={modalFormData.liveInstructionStatus || "Pending"}
+                        onChange={(e) => {
+                          const val = e.target.value as "Pending" | "Completed";
+                          const today = getTodayLocalDate();
+                          setModalFormData({
+                            ...modalFormData,
+                            liveInstructionStatus: val,
+                            liveInstructionSubmitDate:
+                              val === "Completed"
+                                ? modalFormData.liveInstructionSubmitDate ||
+                                  today
+                                : undefined,
+                          });
                         }}
-                        className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100"
+                        className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer"
                       >
-                        Confirm Assign
-                      </button>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Delete Class Confirmation Modal */}
-            <AnimatePresence>
-              {isDeleteClassModalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-rose-100"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-4">
-                      <div className="p-4 bg-rose-50 rounded-full">
-                        <Trash2 className="w-8 h-8 text-rose-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-black text-slate-800 tracking-tight">Delete Class Records?</h3>
-                        <p className="text-xs text-slate-500 font-bold mt-2">
-                          Are you sure you want to delete all tasks for class <span className="text-rose-600">{selectedClassForUpload}</span>? This action cannot be undone.
-                        </p>
-                      </div>
-                      <div className="flex flex-col w-full gap-2 pt-4">
-                        <button
-                          onClick={confirmDeleteClass}
-                          className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
-                        >
-                          Confirm Delete Class
-                        </button>
-                        <button
-                          onClick={() => setIsDeleteClassModalOpen(false)}
-                          className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Delete All Confirmation Modal */}
-            <AnimatePresence>
-              {isDeleteAllModalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-rose-100"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-4">
-                      <div className="p-4 bg-rose-50 rounded-full">
-                        <Trash2 className="w-8 h-8 text-rose-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-black text-slate-800 tracking-tight">Delete All Records?</h3>
-                        <p className="text-xs text-slate-500 font-bold mt-2 mb-4">
-                          Are you sure you want to delete records? This action cannot be undone.
-                        </p>
-                        
-                        <div className="w-full text-left space-y-4">
-                          <div>
-                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Target Class</label>
-                            <select
-                              value={deleteAllTargetClass}
-                              onChange={(e) => {
-                                setDeleteAllTargetClass(e.target.value);
-                                setDeletePassword('');
-                              }}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                            >
-                              <option value="all">All Classes (Entire Database)</option>
-                              {Array.from(new Set(tasks.map(t => t.className))).filter(Boolean).sort().map(c => (
-                                <option key={c} value={c}>{c}</option>
-                              ))}
-                            </select>
-                          </div>
-                          
-                          {deleteAllTargetClass === 'all' && (
-                            <div>
-                              <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Your Password to Confirm</label>
-                              <input
-                                type="password"
-                                value={deletePassword}
-                                onChange={(e) => setDeletePassword(e.target.value)}
-                                placeholder="Enter your portal password"
-                                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col w-full gap-2 pt-4">
-                        <button
-                          onClick={handleDeleteAllTasks}
-                          className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
-                        >
-                          Confirm Delete All
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsDeleteAllModalOpen(false);
-                            setDeletePassword('');
-                          }}
-                          className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Single Task Delete Confirmation Modal */}
-            {/* Add Student Modal */}
-            <AnimatePresence>
-              {isAddStudentModalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl my-auto"
-                  >
-                    <div className="flex justify-between items-center mb-6">
-                      <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Add Students</h3>
-                      <button onClick={() => setIsAddStudentModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
-                        <X className="w-5 h-5 text-slate-400" />
-                      </button>
+                        <option value="Pending">Pending</option>
+                        <option value="Completed">Completed</option>
+                      </select>
                     </div>
 
-                    <div className="space-y-6">
-                      {/* Manual Entry Section */}
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                        <h4 className="text-sm font-bold text-slate-800 mb-4">Manual Entry</h4>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          <div className="col-span-2">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Full Name *</label>
-                            <input type="text" value={newStudentFormData.studentName || ''} onChange={e => setNewStudentFormData({...newStudentFormData, studentName: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Class *</label>
-                            <input type="text" value={newStudentFormData.className || ''} onChange={e => setNewStudentFormData({...newStudentFormData, className: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Reg No</label>
-                            <input type="text" value={newStudentFormData.registrationNo || ''} onChange={e => setNewStudentFormData({...newStudentFormData, registrationNo: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Nick Name</label>
-                            <input type="text" value={newStudentFormData.nickName || ''} onChange={e => setNewStudentFormData({...newStudentFormData, nickName: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Branch</label>
-                            <input type="text" value={newStudentFormData.branch || ''} onChange={e => setNewStudentFormData({...newStudentFormData, branch: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Student Mobile</label>
-                            <input type="text" value={newStudentFormData.mobilePersonal || ''} onChange={e => setNewStudentFormData({...newStudentFormData, mobilePersonal: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Father Mobile</label>
-                            <input type="text" value={newStudentFormData.mobileFather || ''} onChange={e => setNewStudentFormData({...newStudentFormData, mobileFather: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Mother Mobile</label>
-                            <input type="text" value={newStudentFormData.mobileMother || ''} onChange={e => setNewStudentFormData({...newStudentFormData, mobileMother: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
-                          </div>
-                        </div>
-                        <div className="mt-4 flex justify-end">
-                          <button onClick={handleAddStudent} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md">
-                            Add Student
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="relative flex items-center py-2">
-                        <div className="flex-grow border-t border-slate-200"></div>
-                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-widest">OR</span>
-                        <div className="flex-grow border-t border-slate-200"></div>
-                      </div>
-
-                      {/* Excel Upload Section */}
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col sm:flex-row items-end gap-4">
-                        <div className="flex-grow w-full">
-                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Class for Excel Upload *</label>
-                          <input 
-                            type="text" 
-                            list="class-options"
-                            value={selectedClassForUpload}
-                            onChange={(e) => setSelectedClassForUpload(e.target.value)}
-                            placeholder="Enter class name (Required for upload)"
-                            className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          />
-                        </div>
-                        <label className={`flex-shrink-0 flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md w-full sm:w-auto ${!selectedClassForUpload ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-indigo-200'}`}>
-                          <Upload className="w-4 h-4" />
-                          Upload Excel
-                          <input 
-                            type="file" 
-                            accept=".xlsx, .xls" 
-                            onChange={(e) => {
-                              if (!selectedClassForUpload) {
-                                toast.error('Please provide a class name for the upload first.');
-                                return;
-                              }
-                              handleFileUpload(e);
-                              setIsAddStudentModalOpen(false);
-                            }} 
-                            className="hidden" 
-                            disabled={!selectedClassForUpload}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-            <AnimatePresence>
-              {taskToDelete && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-rose-100"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-4">
-                      <div className="p-4 bg-rose-50 rounded-full">
-                        <Trash2 className="w-8 h-8 text-rose-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-black text-slate-800 tracking-tight">Delete Task?</h3>
-                        <p className="text-xs text-slate-500 font-bold mt-2">
-                          Are you sure you want to delete this task? This action cannot be undone.
-                        </p>
-                      </div>
-                      <div className="flex flex-col w-full gap-2 pt-4">
-                        <button
-                          onClick={confirmDeleteTask}
-                          className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
-                        >
-                          Confirm Delete
-                        </button>
-                        <button
-                          onClick={() => setTaskToDelete(null)}
-                          className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Merit List Sync & Missing Student Finder Modal */}
-            <AnimatePresence>
-              {isMeritListModalOpen && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-900/50 backdrop-blur-md overflow-y-auto">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: 15 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                    className="bg-white rounded-3xl p-5 sm:p-7 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border border-indigo-100 my-auto overflow-hidden"
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-shrink-0">
-                      <div className="flex items-center gap-3">
-                        <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                          <Sparkles className="w-6 h-6 text-indigo-600" />
-                        </div>
-                        <div>
-                          <h3 className="text-base sm:text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-                            Merit List Check & Missing Student Data Import
-                          </h3>
-                          <p className="text-xs text-slate-500 font-bold">
-                            Check program-wise merit lists and filter missing students
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setIsMeritListModalOpen(false)}
-                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
+                    <div>
+                      <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                        Live Instruction Date
+                      </label>
+                      <input
+                        type="date"
+                        value={modalFormData.liveInstructionSubmitDate || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            liveInstructionSubmitDate: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer"
+                      />
                     </div>
 
-                    {/* Body */}
-                    <div className="py-4 space-y-5 overflow-y-auto flex-grow pr-1">
-                      {/* Existing Class Dropdown Selector */}
-                      <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-center gap-3">
-                        <label className="text-xs font-bold text-slate-700 flex-shrink-0">
-                          Select Existing Target Class for Import:
+                    {canUpload && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                          Live Instruction Assigned Member
                         </label>
                         <select
-                          value={meritTargetClass}
-                          onChange={(e) => setMeritTargetClass(e.target.value)}
-                          className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer text-slate-800"
+                          value={modalFormData.liveAssignedToPin || ""}
+                          onChange={(e) => {
+                            const selectedPin = e.target.value;
+                            const allPeople = [...members, ...mentors];
+                            const foundMember = allPeople.find(
+                              (m) => m.pin === selectedPin,
+                            );
+                            setModalFormData({
+                              ...modalFormData,
+                              liveAssignedToPin: foundMember
+                                ? foundMember.pin
+                                : undefined,
+                              liveAssignedToName: foundMember
+                                ? foundMember.name
+                                : undefined,
+                            });
+                          }}
+                          className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer"
                         >
-                          <option value="">-- Select Existing Class --</option>
-                          {uniqueClasses.map((cls) => (
-                            <option key={cls} value={cls}>
-                              {cls}
-                            </option>
-                          ))}
+                          <option value="">Unassigned</option>
+                          {renderMemberOptions(getValidMembers([editingTask]))}
                         </select>
                       </div>
+                    )}
 
-                      {/* Upload File Section */}
-                      <div className="space-y-3 bg-emerald-50/40 p-4 rounded-2xl border border-emerald-100 text-center">
-                        <label className="block text-xs font-bold text-emerald-900 mb-2">
-                          Upload Merit List Excel / CSV File
-                        </label>
-                        <label className={`inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-md shadow-emerald-200 ${!meritTargetClass ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                          <Upload className="w-4 h-4" />
-                          <span>Select File (.xlsx, .xls, .csv)</span>
+                    <div>
+                      <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                        Live Instructor Name
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.liveInstructorName || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            liveInstructorName: e.target.value,
+                          })
+                        }
+                        placeholder="Instructor Name"
+                        className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                        Live Instructor PIN
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.liveInstructorPin || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            liveInstructorPin: e.target.value,
+                          })
+                        }
+                        placeholder="Instructor PIN"
+                        className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 flex items-center gap-2 pt-0.5">
+                      <input
+                        type="checkbox"
+                        id="modalTeacherCheckbox"
+                        checked={modalFormData.isLiveInstructorTeacher || false}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            isLiveInstructorTeacher: e.target.checked,
+                          })
+                        }
+                        className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <label
+                        htmlFor="modalTeacherCheckbox"
+                        className="text-xs font-bold text-emerald-900 cursor-pointer"
+                      >
+                        Teacher
+                      </label>
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-2 border-t border-emerald-200/60 pt-3">
+                      <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider">
+                        Exam Script Image / Link / Paste
+                      </label>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
                           <input
-                            type="file"
-                            accept=".xlsx, .xls, .csv"
-                            disabled={!meritTargetClass}
-                            onChange={handleMeritFileUpload}
-                            className="hidden"
+                            type="text"
+                            placeholder="Image URL (Link)"
+                            value={modalFormData.liveInstructionLink || ""}
+                            onChange={(e) =>
+                              setModalFormData({
+                                ...modalFormData,
+                                liveInstructionLink: e.target.value,
+                              })
+                            }
+                            onPaste={(e) => handleImagePaste(e, (url) => setModalFormData({ ...modalFormData, liveInstructionImage: url }))}
+                            className="w-full bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
                           />
-                        </label>
+                        </div>
+                        <div>
+                          <div className="relative">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new window.FileReader();
+                                  reader.onloadend = () => {
+                                    setModalFormData({
+                                      ...modalFormData,
+                                      liveInstructionImage:
+                                        reader.result as string,
+                                    });
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                              className="hidden"
+                              id="modalExamScriptUpload"
+                            />
+                            <label
+                              htmlFor="modalExamScriptUpload"
+                              className="w-full flex items-center justify-center gap-2 bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl hover:bg-emerald-50 cursor-pointer transition-colors text-emerald-700"
+                              title="Click to upload image"
+                            >
+                              <Upload className="w-3 h-3" />
+                              Upload Image
+                            </label>
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Results Section */}
-                      {meritResult && (
-                        <div className="space-y-4 pt-2 border-t border-slate-200">
-                          {/* Overview Badges */}
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div className="bg-slate-100 p-3.5 rounded-2xl text-center">
-                              <div className="text-xs font-bold text-slate-500">Total in Merit List</div>
-                              <div className="text-xl font-black text-slate-800">{meritResult.totalInMeritList} Students</div>
-                            </div>
-                            <div className="bg-emerald-50 p-3.5 rounded-2xl text-center border border-emerald-100">
-                              <div className="text-xs font-bold text-emerald-600">Already in Call List</div>
-                              <div className="text-xl font-black text-emerald-700">{meritResult.matchedCount} Students</div>
-                            </div>
-                            <div className="bg-rose-50 p-3.5 rounded-2xl text-center border border-rose-200">
-                              <div className="text-xs font-bold text-rose-600">Missing Students (Not Found)</div>
-                              <div className="text-xl font-black text-rose-700">{meritResult.missingCount} Students</div>
+                      {/* Dedicated Paste Zone */}
+                      <div 
+                        onPaste={(e) => handleImagePaste(e, (url) => setModalFormData({ ...modalFormData, liveInstructionImage: url }))}
+                        className="p-3 border-2 border-dashed border-emerald-100 rounded-xl bg-emerald-50/30 hover:bg-emerald-50 hover:border-emerald-300 transition-all cursor-pointer group text-center"
+                      >
+                        <div className="flex flex-col items-center gap-1">
+                          <ClipboardIcon className="w-4 h-4 text-emerald-400 group-hover:text-emerald-600 transition-colors" />
+                          <span className="text-[9px] font-bold text-emerald-600/70 group-hover:text-emerald-700">
+                            Click here & Paste Image (Ctrl+V)
+                          </span>
+                        </div>
+                      </div>
+
+                      {(modalFormData.liveInstructionImage ||
+                        modalFormData.liveInstructionLink) && (
+                        <div className="p-3 bg-white border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 mt-2">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <img
+                              src={
+                                modalFormData.liveInstructionImage ||
+                                modalFormData.liveInstructionLink
+                              }
+                              alt="Script Preview"
+                              className="w-14 h-14 object-cover rounded-xl border border-emerald-200 flex-shrink-0 cursor-pointer"
+                              onClick={() => {
+                                setViewingImageUrl(
+                                  modalFormData.liveInstructionImage ||
+                                    modalFormData.liveInstructionLink ||
+                                    "",
+                                );
+                                setIsImageViewerOpen(true);
+                              }}
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display =
+                                  "none";
+                              }}
+                            />
+                            <div className="text-xs truncate">
+                              <div className="font-bold text-emerald-900">
+                                Khata Script Attached
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewingImageUrl(
+                                    modalFormData.liveInstructionImage ||
+                                      modalFormData.liveInstructionLink ||
+                                      "",
+                                  );
+                                  setIsImageViewerOpen(true);
+                                }}
+                                className="text-emerald-600 hover:underline text-[11px] truncate block font-bold"
+                              >
+                                Click to View Full Size
+                              </button>
                             </div>
                           </div>
-
-                          {/* Missing Student Table */}
-                          {meritResult.missingCount > 0 ? (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                  <AlertCircle className="w-4 h-4 text-rose-600" />
-                                  <span>Missing Students List ({meritResult.missingCount})</span>
-                                </h4>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => {
-                                      if (selectedMissingIndexes.length === meritResult.missingStudents.length) {
-                                        setSelectedMissingIndexes([]);
-                                      } else {
-                                        setSelectedMissingIndexes(meritResult.missingStudents.map((_, i) => i));
-                                      }
-                                    }}
-                                    className="text-[11px] font-bold text-indigo-600 hover:underline"
-                                  >
-                                    {selectedMissingIndexes.length === meritResult.missingStudents.length ? 'Deselect All' : 'Select All'}
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200">
-                                <table className="w-full text-left text-xs">
-                                  <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 sticky top-0">
-                                    <tr>
-                                      <th className="p-2.5 w-10 text-center">
-                                        <input
-                                          type="checkbox"
-                                          checked={selectedMissingIndexes.length === meritResult.missingStudents.length && meritResult.missingStudents.length > 0}
-                                          onChange={(e) => {
-                                            if (e.target.checked) {
-                                              setSelectedMissingIndexes(meritResult.missingStudents.map((_, i) => i));
-                                            } else {
-                                              setSelectedMissingIndexes([]);
-                                            }
-                                          }}
-                                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                        />
-                                      </th>
-                                      <th className="p-2.5">SL / Rank</th>
-                                      <th className="p-2.5">Reg / Roll</th>
-                                      <th className="p-2.5">Student Name</th>
-                                      <th className="p-2.5">Program / Class</th>
-                                      <th className="p-2.5">Marks</th>
-                                      <th className="p-2.5">Mobile</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 bg-white">
-                                    {meritResult.missingStudents.map((st, i) => {
-                                      const isSelected = selectedMissingIndexes.includes(i);
-                                      return (
-                                        <tr key={i} className={`hover:bg-slate-50/80 ${isSelected ? 'bg-indigo-50/30' : ''}`}>
-                                          <td className="p-2.5 text-center">
-                                            <input
-                                              type="checkbox"
-                                              checked={isSelected}
-                                              onChange={(e) => {
-                                                if (e.target.checked) {
-                                                  setSelectedMissingIndexes(prev => [...prev, i]);
-                                                } else {
-                                                  setSelectedMissingIndexes(prev => prev.filter(idx => idx !== i));
-                                                }
-                                              }}
-                                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                            />
-                                          </td>
-                                          <td className="p-2.5 font-bold text-slate-700">{st.sl || st.meritPosition || (i + 1)}</td>
-                                          <td className="p-2.5 font-mono font-bold text-indigo-600">{st.pin || st.roll || '—'}</td>
-                                          <td className="p-2.5 font-bold text-slate-800">{st.studentName}</td>
-                                          <td className="p-2.5 font-medium text-slate-600">{st.className}</td>
-                                          <td className="p-2.5 font-bold text-slate-700">{st.marks || '—'}</td>
-                                          <td className="p-2.5 font-mono text-slate-600">{st.mobilePersonal || '—'}</td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-
-                              <div className="pt-2 space-y-3">
-                                {/* Assignee Selection */}
-                                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-                                  <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                                    <UserPlus className="w-4 h-4 text-indigo-600" />
-                                    <span>Assign Selected Students To (Optional):</span>
-                                  </div>
-                                  <select
-                                    value={meritAssigneePin}
-                                    onChange={(e) => setMeritAssigneePin(e.target.value)}
-                                    className="bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 min-w-[220px]"
-                                  >
-                                    <option value="">Unassigned (Leave Empty)</option>
-                                    {(/online/i.test(meritTargetClass)
-                                      ? members
-                                      : (showManagementTabs
-                                          ? (currentUser.campus === 'All' ? members : members.filter(m => m.campus === currentUser.campus))
-                                          : members.filter(m => m.campus === currentUser.campus)
-                                        )
-                                    ).map(m => (
-                                      <option key={m.pin} value={m.pin}>{m.name} ({m.campus})</option>
-                                    ))}
-                                  </select>
-                                </div>
-
-                                <div className="flex justify-end">
-                                  <button
-                                    onClick={handleImportMissingStudents}
-                                    disabled={isImportingMissing || selectedMissingIndexes.length === 0}
-                                    className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-100 flex items-center gap-2 disabled:opacity-50"
-                                  >
-                                    {isImportingMissing ? (
-                                      <RotateCcw className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <Plus className="w-4 h-4" />
-                                    )}
-                                    <span>Add to Call List ({selectedMissingIndexes.length} Students)</span>
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="p-6 bg-emerald-50 rounded-2xl text-center border border-emerald-100 space-y-1">
-                              <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-                              <h4 className="text-sm font-black text-emerald-800">All Students Already Added!</h4>
-                              <p className="text-xs text-emerald-600 font-medium">All students from the merit list already exist in the call system. No missing students found.</p>
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModalFormData({
+                                ...modalFormData,
+                                liveInstructionImage: undefined,
+                                liveInstructionLink: undefined,
+                              })
+                            }
+                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       )}
                     </div>
-                  </motion.div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                        Live Instruction Comment
+                      </label>
+                      <textarea
+                        value={modalFormData.liveInstructionComment || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            liveInstructionComment: e.target.value,
+                          })
+                        }
+                        rows={2}
+                        className="w-full bg-white border border-emerald-200 text-xs font-bold p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 resize-none"
+                        placeholder="Enter live instruction comments..."
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
-            </AnimatePresence>
+
+              {/* Tab 2: Feedback Section */}
+              {modalTab === "feedback" && (
+                <div className="bg-indigo-50/60 border border-indigo-200/80 rounded-2xl p-4 space-y-3.5">
+                  <div className="flex items-center justify-between pb-2 border-b border-indigo-200/60">
+                    <span className="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
+                      <MessageSquare className="w-4 h-4 text-indigo-600" />
+                      Feedback Details
+                    </span>
+                    <span
+                      className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                        modalFormData.feedbackStatus === "Completed"
+                          ? "bg-indigo-200 text-indigo-900 border border-indigo-300"
+                          : "bg-amber-100 text-amber-800 border border-amber-200"
+                      }`}
+                    >
+                      {modalFormData.feedbackStatus || "Pending"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
+                        Feedback Status
+                      </label>
+                      <select
+                        value={modalFormData.feedbackStatus || "Pending"}
+                        onChange={(e) => {
+                          const val = e.target.value as "Pending" | "Completed";
+                          const today = getTodayLocalDate();
+                          setModalFormData({
+                            ...modalFormData,
+                            feedbackStatus: val,
+                            feedbackSubmitDate:
+                              val === "Completed"
+                                ? modalFormData.feedbackSubmitDate || today
+                                : undefined,
+                          });
+                        }}
+                        className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
+                        Feedback Date
+                      </label>
+                      <input
+                        type="date"
+                        value={modalFormData.feedbackSubmitDate || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            feedbackSubmitDate: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
+                      />
+                    </div>
+
+                    {canUpload && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
+                          Feedback Assigned Member
+                        </label>
+                        <select
+                          value={modalFormData.assignedToPin || ""}
+                          onChange={(e) => {
+                            const selectedPin = e.target.value;
+                            const allPeople = [...members, ...mentors];
+                            const foundMember = allPeople.find(
+                              (m) => m.pin === selectedPin,
+                            );
+                            setModalFormData({
+                              ...modalFormData,
+                              assignedToPin: foundMember
+                                ? foundMember.pin
+                                : undefined,
+                              assignedToName: foundMember
+                                ? foundMember.name
+                                : undefined,
+                            });
+                          }}
+                          className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
+                        >
+                          <option value="">Unassigned</option>
+                          {renderMemberOptions(getValidMembers([editingTask]))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
+                        Feedback Comment
+                      </label>
+                      <textarea
+                        value={modalFormData.feedbackComment || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            feedbackComment: e.target.value,
+                          })
+                        }
+                        rows={3}
+                        className="w-full bg-white border border-indigo-200 text-xs font-bold p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 resize-none"
+                        placeholder="Enter feedback comments..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Student Information Section */}
+              {modalTab === "student" && (
+                <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/80 space-y-3">
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                    <UserIcon className="w-4 h-4 text-slate-600" />
+                    <span>
+                      Student Basic Information (শিক্ষার্থীর বিস্তারিত তথ্য)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Full Name (পূর্ণ নাম)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.studentName || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            studentName: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Nick Name (ডাক নাম)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.nickName || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            nickName: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Registration No (রেজিঃ নম্বর)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.registrationNo || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            registrationNo: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Personal Mobile (ব্যক্তিগত মোবাইল)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.mobilePersonal || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            mobilePersonal: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Father's Name (বাবার নাম)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.fatherName || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            fatherName: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Father's Mobile (বাবার মোবাইল নম্বর)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.mobileFather || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            mobileFather: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Mother's Name (মায়ের নাম)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.motherName || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            motherName: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Mother's Mobile (মায়ের মোবাইল নম্বর)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.mobileMother || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            mobileMother: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Branch (শাখা)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.branch || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            branch: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Class Name (শ্রেণি)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.className || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            className: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                {canUpload && (
+                  <button
+                    onClick={() => {
+                      handleDeleteTask(editingTask.id);
+                    }}
+                    className="px-4 py-2 text-rose-500 hover:bg-rose-50 rounded-xl text-xs font-bold transition-colors"
+                  >
+                    Delete Task
+                  </button>
+                )}
+
+                <div className="flex gap-2 ml-auto">
+                  <button
+                    onClick={() => setTaskModalOpen(false)}
+                    className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-xl text-xs font-bold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      const newLiveStatus = modalFormData.liveInstructionStatus;
+                      const newFeedbackStatus = modalFormData.feedbackStatus;
+
+                      let updatedData = { ...modalFormData };
+                      if (!canUpload && currentUser.role === "member") {
+                        if (
+                          newLiveStatus === "Completed" &&
+                          !updatedData.liveInstructorName
+                        ) {
+                          updatedData.liveInstructorName = currentUser.name;
+                          updatedData.liveInstructorPin = currentUser.pin;
+                        }
+                      }
+
+                      if (newLiveStatus === "Completed") {
+                        if (!updatedData.liveInstructionSubmitDate) {
+                          toast.error(
+                            "অনুগ্রহ করে লাইভ ইন্সট্রাকশনের তারিখ (Date) দিন",
+                          );
+                          return;
+                        }
+                        if (!updatedData.liveInstructionComment?.trim()) {
+                          toast.error(
+                            "অনুগ্রহ করে লাইভ ইন্সট্রাকশনের মন্তব্য (Comment) লিখুন",
+                          );
+                          return;
+                        }
+                        if (
+                          !updatedData.liveInstructorName?.trim() ||
+                          !updatedData.liveInstructorPin?.trim()
+                        ) {
+                          toast.error(
+                            "লাইভ ইন্সট্রাকশনের জন্য ইন্সট্রাক্টরের নাম ও পিন নম্বর বাধ্যতামূলক",
+                          );
+                          return;
+                        }
+                      }
+
+                      if (newFeedbackStatus === "Completed") {
+                        if (!updatedData.feedbackSubmitDate) {
+                          toast.error(
+                            "অনুগ্রহ করে ফিডব্যাকের তারিখ (Date) দিন",
+                          );
+                          return;
+                        }
+                        if (!updatedData.feedbackComment?.trim()) {
+                          toast.error(
+                            "অনুগ্রহ করে ফিডব্যাকের মন্তব্য (Comment) লিখুন",
+                          );
+                          return;
+                        }
+                      }
+
+                      const liveSubmitDate =
+                        newLiveStatus === "Completed"
+                          ? updatedData.liveInstructionSubmitDate
+                          : undefined;
+
+                      const feedbackSubmitDate =
+                        newFeedbackStatus === "Completed"
+                          ? updatedData.feedbackSubmitDate
+                          : undefined;
+
+                      handleUpdateTask(editingTask.id, {
+                        ...updatedData,
+                        liveInstructionSubmitDate: liveSubmitDate,
+                        feedbackSubmitDate: feedbackSubmitDate,
+                        completedAt:
+                          newLiveStatus === "Completed" &&
+                          newFeedbackStatus === "Completed"
+                            ? editingTask.completedAt ||
+                              new Date().toISOString()
+                            : undefined,
+                      });
+                      setTaskModalOpen(false);
+                    }}
+                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md shadow-indigo-100"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Range Assignment Modal */}
+      <AnimatePresence>
+        {isRangeModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  By SL Range
+                </h3>
+                <button
+                  onClick={() => setIsRangeModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                    Select Action
+                  </label>
+                  <div className="flex gap-2">
+                    {["assign", "unassign"].map((action) => (
+                      <button
+                        key={action}
+                        onClick={() => setRangeAction(action as any)}
+                        className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                          rangeAction === action
+                            ? "bg-slate-800 text-white border-slate-800"
+                            : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        {action}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                      Start SL
+                    </label>
+                    <input
+                      type="number"
+                      value={rangeStart}
+                      onChange={(e) => setRangeStart(e.target.value)}
+                      placeholder="e.g. 1"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                      End SL
+                    </label>
+                    <input
+                      type="number"
+                      value={rangeEnd}
+                      onChange={(e) => setRangeEnd(e.target.value)}
+                      placeholder="e.g. 100"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                </div>
+
+                {rangeAction === "assign" && (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        Assignment Type
+                      </label>
+                      <select
+                        value={rangeAssignType}
+                        onChange={(e) =>
+                          setRangeAssignType(e.target.value as any)
+                        }
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      >
+                        <option value="feedback">Feedback Assign</option>
+                        <option value="live">Live Instruction Assign</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        Assign To Member
+                      </label>
+                      <select
+                        value={rangeTargetMember}
+                        onChange={(e) => setRangeTargetMember(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      >
+                        <option value="">Select Member</option>
+                        {renderMemberOptions(getValidMembers(tasksInRange))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                <button
+                  onClick={handleRangeAssign}
+                  className={`w-full py-3 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg mt-2 ${
+                    rangeAction === "assign"
+                      ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100"
+                      : "bg-rose-600 hover:bg-rose-700 shadow-rose-100"
+                  }`}
+                >
+                  Execute{" "}
+                  {rangeAction === "assign" ? "Assignment" : "Unassignment"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Unassign Confirmation Modal */}
+      <AnimatePresence>
+        {isUnassignModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-rose-100"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2 text-rose-600 font-black text-sm uppercase tracking-wider">
+                  <UserMinus className="w-5 h-5" />
+                  <span>Confirm Unassign</span>
+                </div>
+                <button
+                  onClick={() => setIsUnassignModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 font-medium mb-4">
+                {unassignTarget?.type === "bulk" ? (
+                  <span className="block mb-2 font-black text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100">
+                 Total   {selectedTasks.length} Persons will be unassigned from the selected tasks.
+                  </span>
+                ) : unassignTarget?.type === "range" ? (
+                  <span className="block mb-2 font-black text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100">
+                   {unassignTarget.taskIds?.length || 0} 
+                  </span>
+                ) : null}
+                Select which assignment type do you want to unassign? 
+              </p>
+
+              <div className="space-y-3 mb-6">
+                <label className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl cursor-pointer transition-colors">
+                  <input
+                    type="radio"
+                    name="unassignChoice"
+                    value="feedback"
+                    checked={unassignChoice === "feedback"}
+                    onChange={() => setUnassignChoice("feedback")}
+                    className="text-rose-600 focus:ring-rose-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">
+                      Feedback Assignment
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                     
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl cursor-pointer transition-colors">
+                  <input
+                    type="radio"
+                    name="unassignChoice"
+                    value="live"
+                    checked={unassignChoice === "live"}
+                    onChange={() => setUnassignChoice("live")}
+                    className="text-rose-600 focus:ring-rose-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">
+                      Live Instruction Assignment
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl cursor-pointer transition-colors">
+                  <input
+                    type="radio"
+                    name="unassignChoice"
+                    value="both"
+                    checked={unassignChoice === "both"}
+                    onChange={() => setUnassignChoice("both")}
+                    className="text-rose-600 focus:ring-rose-500"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-rose-700">
+                      Both Assignments
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsUnassignModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => confirmUnassign(unassignChoice)}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-100"
+                >
+                  Confirm Unassign
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Individual Assign Modal */}
+      <AnimatePresence>
+        {isAssignModalOpen && assignTarget && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-indigo-100"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2 text-indigo-600 font-black text-sm uppercase tracking-wider">
+                  <UserPlus className="w-5 h-5" />
+                  <span>Assign Member (SL: {assignTarget.sl})</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsAssignModalOpen(false);
+                    setAssignTarget(null);
+                    setAssignTargetMember("");
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                    Assignment Type
+                  </label>
+                  <select
+                    value={assignChoice}
+                    onChange={(e) => setAssignChoice(e.target.value as any)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    {!assignTarget?.assignedToPin && (
+                      <option value="feedback">Feedback Assign Only</option>
+                    )}
+                    {!assignTarget?.liveAssignedToPin && (
+                      <option value="live">Live Instruction Assign Only</option>
+                    )}
+                    {!assignTarget?.assignedToPin &&
+                      !assignTarget?.liveAssignedToPin && (
+                        <option value="both">
+                          Both (Feedback & Live Instruction)
+                        </option>
+                      )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                    Assign To Member
+                  </label>
+                  <select
+                    value={assignTargetMember}
+                    onChange={(e) => setAssignTargetMember(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                  >
+                    <option value="">Select Member...</option>
+                    {getValidMembers([assignTarget]).map((m) => (
+                      <option key={m.pin} value={m.pin}>
+                        {m.name} ({m.campus})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setIsAssignModalOpen(false);
+                    setAssignTarget(null);
+                    setAssignTargetMember("");
+                  }}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (!assignTargetMember) {
+                      toast.error("Please select a member to assign.");
+                      return;
+                    }
+                    const updates: Partial<CallTask> = {};
+                    const allPeople = [...members, ...mentors];
+                    const selectedMember = allPeople.find(
+                      (m) => m.pin === assignTargetMember,
+                    );
+                    const mName = selectedMember?.name || "";
+
+                    if (
+                      assignChoice === "feedback" ||
+                      assignChoice === "both"
+                    ) {
+                      updates.assignedToPin = assignTargetMember;
+                      updates.assignedToName = mName;
+                    }
+                    if (assignChoice === "live" || assignChoice === "both") {
+                      updates.liveAssignedToPin = assignTargetMember;
+                      updates.liveAssignedToName = mName;
+                    }
+                    handleUpdateTask(assignTarget.id, updates);
+                    setIsAssignModalOpen(false);
+                    setAssignTarget(null);
+                    setAssignTargetMember("");
+                  }}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100"
+                >
+                  Confirm Assign
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Class Confirmation Modal */}
+      <AnimatePresence>
+        {isDeleteClassModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-rose-100"
+            >
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="p-4 bg-rose-50 rounded-full">
+                  <Trash2 className="w-8 h-8 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight">
+                    Delete Class Records?
+                  </h3>
+                  <p className="text-xs text-slate-500 font-bold mt-2">
+                    Are you sure you want to delete all tasks for class{" "}
+                    <span className="text-rose-600">
+                      {selectedClassForUpload}
+                    </span>
+                    ? This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex flex-col w-full gap-2 pt-4">
+                  <button
+                    onClick={confirmDeleteClass}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                  >
+                    Confirm Delete Class
+                  </button>
+                  <button
+                    onClick={() => setIsDeleteClassModalOpen(false)}
+                    className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete All Confirmation Modal */}
+      <AnimatePresence>
+        {isDeleteAllModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-rose-100"
+            >
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="p-4 bg-rose-50 rounded-full">
+                  <Trash2 className="w-8 h-8 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight">
+                    Delete All Records?
+                  </h3>
+                  <p className="text-xs text-slate-500 font-bold mt-2 mb-4">
+                    Are you sure you want to delete records? This action cannot
+                    be undone.
+                  </p>
+
+                  <div className="w-full text-left space-y-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        Target Class
+                      </label>
+                      <select
+                        value={deleteAllTargetClass}
+                        onChange={(e) => {
+                          setDeleteAllTargetClass(e.target.value);
+                          setDeletePassword("");
+                        }}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                      >
+                        <option value="all">
+                          All
+                        </option>
+                        {Array.from(new Set(tasks.map((t) => t.className)))
+                          .filter(Boolean)
+                          .sort()
+                          .map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    {deleteAllTargetClass === "all" && (
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                          Your Password to Confirm
+                        </label>
+                        <input
+                          type="password"
+                          value={deletePassword}
+                          onChange={(e) => setDeletePassword(e.target.value)}
+                          placeholder="Enter your portal password"
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col w-full gap-2 pt-4">
+                  <button
+                    onClick={handleDeleteAllTasks}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                  >
+                    Confirm Delete All
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsDeleteAllModalOpen(false);
+                      setDeletePassword("");
+                    }}
+                    className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Single Task Delete Confirmation Modal */}
+      {/* Add Student Modal */}
+      <AnimatePresence>
+        {isAddStudentModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl my-auto"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">
+                  Add Students
+                </h3>
+                <button
+                  onClick={() => setIsAddStudentModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Manual Entry Section */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-800 mb-4">
+                    Manual Entry
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Full Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.studentName || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            studentName: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Class *
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.className || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            className: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Reg No
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.registrationNo || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            registrationNo: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Nick Name
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.nickName || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            nickName: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Branch
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.branch || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            branch: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Student Mobile
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.mobilePersonal || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            mobilePersonal: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Father Mobile
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.mobileFather || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            mobileFather: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Mother Mobile
+                      </label>
+                      <input
+                        type="text"
+                        value={newStudentFormData.mobileMother || ""}
+                        onChange={(e) =>
+                          setNewStudentFormData({
+                            ...newStudentFormData,
+                            mobileMother: e.target.value,
+                          })
+                        }
+                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={handleAddStudent}
+                      className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md"
+                    >
+                      Add Student
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative flex items-center py-2">
+                  <div className="flex-grow border-t border-slate-200"></div>
+                  <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-widest">
+                    OR
+                  </span>
+                  <div className="flex-grow border-t border-slate-200"></div>
+                </div>
+
+                {/* Excel Upload Section */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col sm:flex-row items-end gap-4">
+                  <div className="flex-grow w-full">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                      Class for Excel Upload *
+                    </label>
+                    <input
+                      type="text"
+                      list="class-options"
+                      value={selectedClassForUpload}
+                      onChange={(e) =>
+                        setSelectedClassForUpload(e.target.value)
+                      }
+                      placeholder="Enter class name (Required for upload)"
+                      className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <label
+                    className={`flex-shrink-0 flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md w-full sm:w-auto ${!selectedClassForUpload ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-indigo-200"}`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    Upload Excel
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls"
+                      onChange={(e) => {
+                        if (!selectedClassForUpload) {
+                          toast.error(
+                            "Please provide a class name for the upload first.",
+                          );
+                          return;
+                        }
+                        handleFileUpload(e);
+                        setIsAddStudentModalOpen(false);
+                      }}
+                      className="hidden"
+                      disabled={!selectedClassForUpload}
+                    />
+                  </label>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {taskToDelete && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-rose-100"
+            >
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="p-4 bg-rose-50 rounded-full">
+                  <Trash2 className="w-8 h-8 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight">
+                    Delete Task?
+                  </h3>
+                  <p className="text-xs text-slate-500 font-bold mt-2">
+                    Are you sure you want to delete this task? This action
+                    cannot be undone.
+                  </p>
+                </div>
+                <div className="flex flex-col w-full gap-2 pt-4">
+                  <button
+                    onClick={confirmDeleteTask}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                  >
+                    Confirm Delete
+                  </button>
+                  <button
+                    onClick={() => setTaskToDelete(null)}
+                    className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Merit List Sync & Missing Student Finder Modal */}
+      <AnimatePresence>
+        {isMeritListModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-900/50 backdrop-blur-md overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-5 sm:p-7 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border border-indigo-100 my-auto overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                    <Sparkles className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
+                      Merit List Check & Missing Student Data Import
+                    </h3>
+                    <p className="text-xs text-slate-500 font-bold">
+                      Check program-wise merit lists and filter missing students
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsMeritListModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="py-4 space-y-5 overflow-y-auto flex-grow pr-1">
+                {/* Existing Class Dropdown Selector */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-center gap-3">
+                  <label className="text-xs font-bold text-slate-700 flex-shrink-0">
+                    Select Existing Target Class for Import:
+                  </label>
+                  <select
+                    value={meritTargetClass}
+                    onChange={(e) => setMeritTargetClass(e.target.value)}
+                    className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer text-slate-800"
+                  >
+                    <option value="">-- Select Existing Class --</option>
+                    {uniqueClasses.map((cls) => (
+                      <option key={cls} value={cls}>
+                        {cls}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Upload File Section */}
+                <div className="space-y-3 bg-emerald-50/40 p-4 rounded-2xl border border-emerald-100 text-center">
+                  <label className="block text-xs font-bold text-emerald-900 mb-2">
+                    Upload Merit List Excel / CSV File
+                  </label>
+                  <label
+                    className={`inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-md shadow-emerald-200 ${!meritTargetClass ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Select File (.xlsx, .xls, .csv)</span>
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls, .csv"
+                      disabled={!meritTargetClass}
+                      onChange={handleMeritFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Results Section */}
+                {meritResult && (
+                  <div className="space-y-4 pt-2 border-t border-slate-200">
+                    {/* Overview Badges */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="bg-slate-100 p-3.5 rounded-2xl text-center">
+                        <div className="text-xs font-bold text-slate-500">
+                          Total in Merit List
+                        </div>
+                        <div className="text-xl font-black text-slate-800">
+                          {meritResult.totalInMeritList} Students
+                        </div>
+                      </div>
+                      <div className="bg-emerald-50 p-3.5 rounded-2xl text-center border border-emerald-100">
+                        <div className="text-xs font-bold text-emerald-600">
+                          Already in Call List
+                        </div>
+                        <div className="text-xl font-black text-emerald-700">
+                          {meritResult.matchedCount} Students
+                        </div>
+                      </div>
+                      <div className="bg-rose-50 p-3.5 rounded-2xl text-center border border-rose-200">
+                        <div className="text-xs font-bold text-rose-600">
+                          Missing Students (Not Found)
+                        </div>
+                        <div className="text-xl font-black text-rose-700">
+                          {meritResult.missingCount} Students
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Missing Student Table */}
+                    {meritResult.missingCount > 0 ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-rose-600" />
+                            <span>
+                              Missing Students List ({meritResult.missingCount})
+                            </span>
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                if (
+                                  selectedMissingIndexes.length ===
+                                  meritResult.missingStudents.length
+                                ) {
+                                  setSelectedMissingIndexes([]);
+                                } else {
+                                  setSelectedMissingIndexes(
+                                    meritResult.missingStudents.map(
+                                      (_, i) => i,
+                                    ),
+                                  );
+                                }
+                              }}
+                              className="text-[11px] font-bold text-indigo-600 hover:underline"
+                            >
+                              {selectedMissingIndexes.length ===
+                              meritResult.missingStudents.length
+                                ? "Deselect All"
+                                : "Select All"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 sticky top-0">
+                              <tr>
+                                <th className="p-2.5 w-10 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={
+                                      selectedMissingIndexes.length ===
+                                        meritResult.missingStudents.length &&
+                                      meritResult.missingStudents.length > 0
+                                    }
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedMissingIndexes(
+                                          meritResult.missingStudents.map(
+                                            (_, i) => i,
+                                          ),
+                                        );
+                                      } else {
+                                        setSelectedMissingIndexes([]);
+                                      }
+                                    }}
+                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                  />
+                                </th>
+                                <th className="p-2.5">SL / Rank</th>
+                                <th className="p-2.5">Reg / Roll</th>
+                                <th className="p-2.5">Student Name</th>
+                                <th className="p-2.5">Program / Class</th>
+                                <th className="p-2.5">Marks</th>
+                                <th className="p-2.5">Mobile</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {meritResult.missingStudents.map((st, i) => {
+                                const isSelected =
+                                  selectedMissingIndexes.includes(i);
+                                return (
+                                  <tr
+                                    key={i}
+                                    className={`hover:bg-slate-50/80 ${isSelected ? "bg-indigo-50/30" : ""}`}
+                                  >
+                                    <td className="p-2.5 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedMissingIndexes(
+                                              (prev) => [...prev, i],
+                                            );
+                                          } else {
+                                            setSelectedMissingIndexes((prev) =>
+                                              prev.filter((idx) => idx !== i),
+                                            );
+                                          }
+                                        }}
+                                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                      />
+                                    </td>
+                                    <td className="p-2.5 font-bold text-slate-700">
+                                      {st.sl || st.meritPosition || i + 1}
+                                    </td>
+                                    <td className="p-2.5 font-mono font-bold text-indigo-600">
+                                      {st.pin || st.roll || "—"}
+                                    </td>
+                                    <td className="p-2.5 font-bold text-slate-800">
+                                      {st.studentName}
+                                    </td>
+                                    <td className="p-2.5 font-medium text-slate-600">
+                                      {st.className}
+                                    </td>
+                                    <td className="p-2.5 font-bold text-slate-700">
+                                      {st.marks || "—"}
+                                    </td>
+                                    <td className="p-2.5 font-mono text-slate-600">
+                                      {st.mobilePersonal || "—"}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="pt-2 space-y-3">
+                          {/* Assignee Selection */}
+                          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                            <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <UserPlus className="w-4 h-4 text-indigo-600" />
+                              <span>
+                                Assign Selected Students To (Optional):
+                              </span>
+                            </div>
+                            <select
+                              value={meritAssigneePin}
+                              onChange={(e) =>
+                                setMeritAssigneePin(e.target.value)
+                              }
+                              className="bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 min-w-[220px]"
+                            >
+                              <option value="">Unassigned (Leave Empty)</option>
+                              {(/online/i.test(meritTargetClass)
+                                ? members
+                                : showManagementTabs
+                                  ? currentUser.campus === "All"
+                                    ? members
+                                    : members.filter(
+                                        (m) => m.campus === currentUser.campus,
+                                      )
+                                  : members.filter(
+                                      (m) => m.campus === currentUser.campus,
+                                    )
+                              ).map((m) => (
+                                <option key={m.pin} value={m.pin}>
+                                  {m.name} ({m.campus})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              onClick={handleImportMissingStudents}
+                              disabled={
+                                isImportingMissing ||
+                                selectedMissingIndexes.length === 0
+                              }
+                              className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-100 flex items-center gap-2 disabled:opacity-50"
+                            >
+                              {isImportingMissing ? (
+                                <RotateCcw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Plus className="w-4 h-4" />
+                              )}
+                              <span>
+                                Add to Call List (
+                                {selectedMissingIndexes.length} Students)
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-6 bg-emerald-50 rounded-2xl text-center border border-emerald-100 space-y-1">
+                        <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                        <h4 className="text-sm font-black text-emerald-800">
+                          All Students Already Added!
+                        </h4>
+                        <p className="text-xs text-emerald-600 font-medium">
+                          All students from the merit list already exist in the
+                          call system. No missing students found.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isImageViewerOpen && viewingImageUrl && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full max-w-5xl max-h-[90vh] flex flex-col items-center justify-center"
+            >
+              <button
+                onClick={() => {
+                  setIsImageViewerOpen(false);
+                  setViewingImageUrl("");
+                }}
+                className="absolute -top-12 right-0 p-2 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+                title="Close Viewer"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <div className="w-full h-full overflow-auto flex justify-center custom-scrollbar">
+                <img
+                  src={viewingImageUrl}
+                  alt="Exam Script Full View"
+                  className="max-w-full h-auto rounded-lg shadow-2xl"
+                />
+              </div>
+              <div className="mt-4 flex gap-3">
+                <a
+                  href={viewingImageUrl}
+                  download="exam-script.png"
+                  className="px-6 py-2.5 bg-white text-slate-900 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-slate-100 transition-all flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </a>
+                <a
+                  href={viewingImageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-indigo-700 transition-all flex items-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open in New Tab
+                </a>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* ... could add a more detailed modal here if needed ... */}
     </div>
   );

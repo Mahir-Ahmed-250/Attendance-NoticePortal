@@ -16,13 +16,19 @@ import {
   EmailMessage,
   Branch,
 } from "../types";
-import { calculateWorkingHours, getEffectiveStatus, formatDateLong, parseTimeToMinutes } from "../utils";
+import {
+  calculateWorkingHours,
+  getEffectiveStatus,
+  formatDateLong,
+  parseTimeToMinutes,
+} from "../utils";
 import {
   Calendar,
   MapPin,
   Menu,
   Users,
-  CheckCircle, XCircle,
+  CheckCircle,
+  XCircle,
   UserCheck,
   MessageSquare,
   Clock,
@@ -38,7 +44,7 @@ import {
   Upload,
   Shield,
   ShieldCheck,
-  User,
+  User as UserIcon,
   ThumbsUp,
   ThumbsDown,
   Megaphone,
@@ -69,6 +75,7 @@ import ProfileSettings from "./ProfileSettings";
 import NoticeBoard from "./NoticeBoard";
 import CallManagement from "./CallManagement";
 import ConfirmModal from "./ConfirmModal";
+import { api } from "../lib/api";
 import toast from "react-hot-toast";
 import { UserAvatar } from "./UserAvatar";
 import * as XLSX from "xlsx";
@@ -229,7 +236,7 @@ export default function ManagerDashboard({
   onAssignBranchesToCampus,
   onUnassignBranch,
   emails,
-  onMarkEmailAsRead
+  onMarkEmailAsRead,
 }: ManagerDashboardProps) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<
@@ -251,7 +258,7 @@ export default function ManagerDashboard({
   const [attendanceStartDate, setAttendanceStartDate] = useState(() => {
     const today = new Date();
     const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const m = String(today.getMonth() + 1).padStart(2, "0");
     return `${y}-${m}-01`;
   });
   const [attendanceEndDate, setAttendanceEndDate] = useState(() => {
@@ -259,13 +266,13 @@ export default function ManagerDashboard({
     const y = today.getFullYear();
     const m = today.getMonth() + 1;
     const lastDay = new Date(y, m, 0).getDate();
-    const mStr = String(m).padStart(2, '0');
+    const mStr = String(m).padStart(2, "0");
     return `${y}-${mStr}-${lastDay}`;
   });
   const [tempStartDate, setTempStartDate] = useState(() => {
     const today = new Date();
     const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const m = String(today.getMonth() + 1).padStart(2, "0");
     return `${y}-${m}-01`;
   });
   const [tempEndDate, setTempEndDate] = useState(() => {
@@ -273,7 +280,7 @@ export default function ManagerDashboard({
     const y = today.getFullYear();
     const m = today.getMonth() + 1;
     const lastDay = new Date(y, m, 0).getDate();
-    const mStr = String(m).padStart(2, '0');
+    const mStr = String(m).padStart(2, "0");
     return `${y}-${mStr}-${lastDay}`;
   });
   const [rosterSearch, setRosterSearch] = useState("");
@@ -284,44 +291,30 @@ export default function ManagerDashboard({
     "requests" | "problematic" | "missing" | "notices"
   >("requests");
 
-  // --- SINGLE PIN PASTE AND DISMISS STATES ---
-  const [dismissedNotifications, setDismissedNotifications] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem("manager_dismissed_notifications");
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  // --- NOTIFICATION & REQUEST READ STATES ---
+  const [readNotifications, setReadNotifications] = useState<string[]>(
+    currentUser.readNotifications || [],
+  );
 
-  const handleDismissNotification = (id: string, e: React.MouseEvent) => {
+  const handleDismissNotification = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setDismissedNotifications((prev) => {
-      const updated = [...prev, id];
-      localStorage.setItem("manager_dismissed_notifications", JSON.stringify(updated));
-      return updated;
-    });
-    toast.success("Marked as read!");
+    if (readNotifications.includes(id)) return;
+
+    const updated = [...readNotifications, id];
+    setReadNotifications(updated);
+    try {
+      await api.users.update(currentUser.pin, {
+        ...currentUser,
+        readNotifications: updated,
+      });
+      onInstantUpdate({ readNotifications: updated });
+      toast.success("Marked as read!");
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  // --- NOTIFICATION READ STATES ---
-  const [readRequestPins, setReadRequestPins] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem("portal_read_request_pins");
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
-  React.useEffect(() => {
-    localStorage.setItem(
-      "portal_read_request_pins",
-      JSON.stringify(readRequestPins),
-    );
-  }, [readRequestPins]);
-
-  const markAllRequestsAsRead = () => {
+  const markAllRequestsAsRead = async () => {
     const allPendingPins = [
       ...profileRequests
         .filter((r) => r.status === "Pending")
@@ -331,11 +324,20 @@ export default function ManagerDashboard({
         .map((r) => r.pin),
       ...leaveRequests.filter((r) => r.status === "Pending").map((r) => r.pin),
     ];
-    setReadRequestPins((prev) => {
-      const unique = new Set([...prev, ...allPendingPins]);
-      return Array.from(unique);
-    });
+    const unique = Array.from(
+      new Set([...readNotifications, ...allPendingPins]),
+    );
+    setReadNotifications(unique);
+    try {
+      await api.users.update(currentUser.pin, {
+        ...currentUser,
+        readNotifications: unique,
+      });
+      onInstantUpdate({ readNotifications: unique });
       toast.success("All new requests marked as read!");
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // --- DELETE CONFIRMATION STATES ---
@@ -366,7 +368,8 @@ export default function ManagerDashboard({
     date: string;
     campus: string;
   } | null>(null);
-  const [confirmDeletePreviewRowIndex, setConfirmDeletePreviewRowIndex] = useState<number | null>(null);
+  const [confirmDeletePreviewRowIndex, setConfirmDeletePreviewRowIndex] =
+    useState<number | null>(null);
   const [isAddCampusModalOpen, setIsAddCampusModalOpen] = useState(false);
   const [newCampusName, setNewCampusName] = useState("");
   const [newCampusHead, setNewCampusHead] = useState("");
@@ -384,7 +387,8 @@ export default function ManagerDashboard({
     Record<string, string[]>
   >({});
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
-  const [selectedCampusForBranches, setSelectedCampusForBranches] = useState<Campus | null>(null);
+  const [selectedCampusForBranches, setSelectedCampusForBranches] =
+    useState<Campus | null>(null);
   const [isAddBranchModalOpen, setIsAddBranchModalOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [branchSearch, setBranchSearch] = useState("");
@@ -406,19 +410,24 @@ export default function ManagerDashboard({
   const [leaveFilterType, setLeaveFilterType] = useState("All");
   const [leaveFilterMonth, setLeaveFilterMonth] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [leaveSortBy, setLeaveSortBy] = useState("newest");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.innerWidth > 1024);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(
+    () => window.innerWidth > 1024,
+  );
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [selectedLeavePins, setSelectedLeavePins] = useState<string[]>([]);
   const [selectedEditReqPins, setSelectedEditReqPins] = useState<string[]>([]);
   const [attendanceEditSearch, setAttendanceEditSearch] = useState("");
-  const [attendanceEditStatusFilter, setAttendanceEditStatusFilter] = useState("All");
-  const [attendanceEditMonthFilter, setAttendanceEditMonthFilter] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [attendanceEditStatusFilter, setAttendanceEditStatusFilter] =
+    useState("All");
+  const [attendanceEditMonthFilter, setAttendanceEditMonthFilter] = useState(
+    () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    },
+  );
 
   const startEditRequest = (req: AttendanceEditRequest) => {
     setEditingReqPin(req.pin);
@@ -440,12 +449,12 @@ export default function ManagerDashboard({
     const start = leaveEditForm.startDate;
     const end = leaveEditForm.endDate;
     if (!start || !end || !leaveEditForm.reason?.trim()) {
-      toast.error('Please fill in all fields.');
+      toast.error("Please fill in all fields.");
       return;
     }
 
     if (new Date(start) > new Date(end)) {
-      toast.error('Start Date cannot be after End Date.');
+      toast.error("Start Date cannot be after End Date.");
       return;
     }
 
@@ -457,8 +466,8 @@ export default function ManagerDashboard({
   const [attendanceViewerDate, setAttendanceViewerDate] = useState(() => {
     const d = new Date();
     const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   });
   const [attendanceViewerCampus, setAttendanceViewerCampus] = useState("All");
@@ -497,7 +506,9 @@ export default function ManagerDashboard({
     }
 
     return (
-      <span className={`inline-flex items-center justify-center min-w-[85px] px-4 py-1 rounded-full text-[10px] font-extrabold tracking-wider uppercase border transition-all ${classes}`}>
+      <span
+        className={`inline-flex items-center justify-center min-w-[85px] px-4 py-1 rounded-full text-[10px] font-extrabold tracking-wider uppercase border transition-all ${classes}`}
+      >
         {status}
       </span>
     );
@@ -561,16 +572,20 @@ export default function ManagerDashboard({
 
     reports.forEach((report) => {
       // Look at all past dates, or strictly before today? "Past dates" means before today.
-      if (report.date >= today) return; 
+      if (report.date >= today) return;
 
       if (
         attendanceViewerCampus !== "All" &&
         report.campus !== attendanceViewerCampus
-      ) return;
+      )
+        return;
 
       report.records.forEach((record) => {
         const status = getEffectiveStatus(record);
-        const hours = calculateWorkingHours(record.checkInTime, record.checkOutTime);
+        const hours = calculateWorkingHours(
+          record.checkInTime,
+          record.checkOutTime,
+        );
         let issue = "";
 
         if (status === "Finger Punch Missing") {
@@ -594,7 +609,7 @@ export default function ManagerDashboard({
         }
       });
     });
-    
+
     // Sort by date descending
     return problematic.sort((a, b) => b.date.localeCompare(a.date));
   }, [reports, attendanceViewerCampus]);
@@ -628,12 +643,7 @@ export default function ManagerDashboard({
     campus: "",
     mentorPin: "",
     designation: "",
-    permissions: [
-      "mentor_attendance",
-      "mentor_notices",
-      "mentor_history",
-      
-    ],
+    permissions: ["mentor_attendance", "mentor_notices", "mentor_history"],
     avatarUrl: "",
     role: "mentor" as Role,
   });
@@ -642,8 +652,13 @@ export default function ManagerDashboard({
   const [bulkText, setBulkText] = useState("");
   const [bulkError, setBulkError] = useState("");
   const [importSummary, setImportSummary] = useState<string | null>(null);
-  const [parsedPreviewRows, setParsedPreviewRows] = useState<MemberAttendance[]>([]);
-  const [editingPreviewRow, setEditingPreviewRow] = useState<{ index: number; record: MemberAttendance } | null>(null);
+  const [parsedPreviewRows, setParsedPreviewRows] = useState<
+    MemberAttendance[]
+  >([]);
+  const [editingPreviewRow, setEditingPreviewRow] = useState<{
+    index: number;
+    record: MemberAttendance;
+  } | null>(null);
 
   // --- ATTENDANCE FORM STATE ---
   const [reportDate, setReportDate] = useState<string>(
@@ -823,7 +838,12 @@ export default function ManagerDashboard({
   };
 
   // Helper function to parse biometric raw text, handling multi-line wrapping and location merge
-  const parseAndMergeBulkText = (text: string): { parsedList: MemberAttendance[], unmatchedMembers: { pin: string, name: string }[] } => {
+  const parseAndMergeBulkText = (
+    text: string,
+  ): {
+    parsedList: MemberAttendance[];
+    unmatchedMembers: { pin: string; name: string }[];
+  } => {
     const lines = text
       .split("\n")
       .map((l) => l.trim())
@@ -835,13 +855,12 @@ export default function ManagerDashboard({
     // Detect if first line contains headers
     const firstLineParts = lines[0].split(/\t|,|;/).map((p) => p.trim());
     const isHeaderLine =
-      isNaN(Number(firstLineParts[0])) && (
-        firstLineParts[0].toLowerCase().includes("pin") ||
+      isNaN(Number(firstLineParts[0])) &&
+      (firstLineParts[0].toLowerCase().includes("pin") ||
         firstLineParts[0].toLowerCase().includes("id") ||
         firstLineParts[0].toLowerCase().includes("name") ||
         firstLineParts[0].toLowerCase().includes("in time") ||
-        firstLineParts[0].toLowerCase().includes("check")
-      );
+        firstLineParts[0].toLowerCase().includes("check"));
 
     if (isHeaderLine) {
       startIdx = 1;
@@ -850,12 +869,23 @@ export default function ManagerDashboard({
     const rawRows: any[] = [];
 
     // Helper to extract remarks from a line
-    const getRemarksFromLine = (lineStr: string, partsArr: string[]): string => {
-      const cleanRem = (s: string) => s.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    const getRemarksFromLine = (
+      lineStr: string,
+      partsArr: string[],
+    ): string => {
+      const cleanRem = (s: string) =>
+        s
+          .replace(/\u00a0/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
 
       // 1. Try standard index 9+ (for full rows)
       if (partsArr.length > 9) {
-        let rem = partsArr.slice(9).map(p => p.trim()).filter(Boolean).join(" | ");
+        let rem = partsArr
+          .slice(9)
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .join(" | ");
         rem = cleanRem(rem);
         if (rem && rem !== "-") return rem;
       }
@@ -863,12 +893,17 @@ export default function ManagerDashboard({
       // 2. For continuation lines (no numeric PIN)
       const pin = (partsArr[0] || "").trim();
       const isNumericPin = /^\d+$/.test(pin);
-      
+
       if (!isNumericPin) {
-        const nonEmptyParts = partsArr.map(p => p.trim()).filter(p => p !== "" && p !== "-");
+        const nonEmptyParts = partsArr
+          .map((p) => p.trim())
+          .filter((p) => p !== "" && p !== "-");
         if (nonEmptyParts.length > 0) {
           // If it contains IN: or OUT:, or if it's the only non-empty part
-          if (nonEmptyParts.some(p => /^(IN|OUT):/i.test(p)) || nonEmptyParts.length === 1) {
+          if (
+            nonEmptyParts.some((p) => /^(IN|OUT):/i.test(p)) ||
+            nonEmptyParts.length === 1
+          ) {
             return cleanRem(nonEmptyParts.join(" | "));
           }
         }
@@ -890,7 +925,7 @@ export default function ManagerDashboard({
         parts = line.split(/\s{2,}/).map((p) => p.trim());
       }
 
-      if (parts.length === 0 || parts.every(p => p === "")) continue;
+      if (parts.length === 0 || parts.every((p) => p === "")) continue;
 
       let pin = parts[0] || "";
       let name = parts[1] || "";
@@ -905,7 +940,12 @@ export default function ManagerDashboard({
       }
 
       const lowerPin = pin.toLowerCase().trim();
-      if (lowerPin === "pin" || lowerPin === "id" || lowerPin === "p.in" || lowerPin === "member pin") {
+      if (
+        lowerPin === "pin" ||
+        lowerPin === "id" ||
+        lowerPin === "p.in" ||
+        lowerPin === "member pin"
+      ) {
         continue;
       }
 
@@ -957,7 +997,9 @@ export default function ManagerDashboard({
     for (let i = 0; i < rawRows.length; i++) {
       const row = rawRows[i];
       const rowPinClean = cleanPinVal(row.pin);
-      const currentPinClean = currentRecord ? cleanPinVal(currentRecord.pin) : "";
+      const currentPinClean = currentRecord
+        ? cleanPinVal(currentRecord.pin)
+        : "";
 
       // If it's a new PIN (not the same as current), start a new record
       // If it's not a real PIN, it's a continuation line for the current record
@@ -1009,30 +1051,36 @@ export default function ManagerDashboard({
     const formatCombinedRemarks = (remStr: string): string => {
       if (!remStr) return "";
       // Split by | or lookahead for IN:/OUT:
-      const rParts = remStr.replace(/\u00a0/g, " ").split(/\s*\|\s*|(?=\b(?:IN|OUT):)/i).map(p => p.trim()).filter(Boolean);
+      const rParts = remStr
+        .replace(/\u00a0/g, " ")
+        .split(/\s*\|\s*|(?=\b(?:IN|OUT):)/i)
+        .map((p) => p.trim())
+        .filter(Boolean);
       const uniqueParts = Array.from(new Set(rParts));
-      
+
       uniqueParts.sort((a, b) => {
         const aIn = /^In:/i.test(a);
         const bIn = /^In:/i.test(b);
         const aOut = /^Out:/i.test(a);
         const bOut = /^Out:/i.test(b);
-        
+
         if (aIn && !bIn) return -1;
         if (!aIn && bIn) return 1;
         if (aOut && !bOut) return 1;
         if (!aOut && bOut) return -1;
         return 0;
       });
-      
+
       // Filter out redundant "IN:" or "OUT:" if they are empty
-      const filteredParts = uniqueParts.filter(p => !/^(IN|OUT):\s*$/i.test(p));
-      
+      const filteredParts = uniqueParts.filter(
+        (p) => !/^(IN|OUT):\s*$/i.test(p),
+      );
+
       return filteredParts.join(" | ");
     };
 
     const parsedList: MemberAttendance[] = [];
-    const unmatchedMembers: { pin: string, name: string }[] = [];
+    const unmatchedMembers: { pin: string; name: string }[] = [];
 
     for (const row of mergedRows) {
       const pin = row.pin;
@@ -1041,8 +1089,12 @@ export default function ManagerDashboard({
       const cleanPin = pin.trim().replace(/^0+/, "");
       const matchedMember = [...members, ...mentors].find((m) => {
         const mPinClean = (m.pin || "").trim().replace(/^0+/, "");
-        return mPinClean.toLowerCase() === cleanPin.toLowerCase() ||
-               (!isNaN(Number(mPinClean)) && !isNaN(Number(cleanPin)) && Number(mPinClean) === Number(cleanPin));
+        return (
+          mPinClean.toLowerCase() === cleanPin.toLowerCase() ||
+          (!isNaN(Number(mPinClean)) &&
+            !isNaN(Number(cleanPin)) &&
+            Number(mPinClean) === Number(cleanPin))
+        );
       });
 
       if (!matchedMember) {
@@ -1052,7 +1104,8 @@ export default function ManagerDashboard({
       }
 
       // Keep Name exactly as pasted, default to matched member name if pasted name is missing
-      const finalName = name.trim() || (matchedMember ? matchedMember.name : "Unknown");
+      const finalName =
+        name.trim() || (matchedMember ? matchedMember.name : "Unknown");
       const inTime = row.inTime || "";
       const outTime = row.outTime || "";
       const lateEntry = row.lateEntry || "";
@@ -1063,7 +1116,8 @@ export default function ManagerDashboard({
       const remarks = formatCombinedRemarks(row.remarks || "");
 
       let status: AttendanceStatus = "Present";
-      const isAbsentOrLeave = absentOrLeave && absentOrLeave !== "-" && absentOrLeave !== "";
+      const isAbsentOrLeave =
+        absentOrLeave && absentOrLeave !== "-" && absentOrLeave !== "";
       const hasInTime = inTime && inTime !== "-" && inTime !== "";
       const hasOutTime = outTime && outTime !== "-" && outTime !== "";
 
@@ -1073,7 +1127,9 @@ export default function ManagerDashboard({
         status = "Finger Punch Missing";
       } else {
         let isLate = false;
-        const cleanLate = lateEntry ? lateEntry.trim().replace(/\s/g, "").toLowerCase() : "";
+        const cleanLate = lateEntry
+          ? lateEntry.trim().replace(/\s/g, "").toLowerCase()
+          : "";
         const isLateValue =
           cleanLate &&
           cleanLate !== "-" &&
@@ -1127,9 +1183,7 @@ export default function ManagerDashboard({
     setImportSummary(null);
 
     if (!bulkText.trim()) {
-      setBulkError(
-        "Please enter Report text",
-      );
+      setBulkError("Please enter Report text");
       return;
     }
 
@@ -1144,13 +1198,15 @@ export default function ManagerDashboard({
 
     if (unmatchedMembers.length > 0) {
       setBulkError(
-        `Warning: The following members were not found in the system: ${unmatchedMembers.map(m => `${m.name} (Pin: ${m.pin})`).join(", ")}`
+        `Warning: The following members were not found in the system: ${unmatchedMembers.map((m) => `${m.name} (Pin: ${m.pin})`).join(", ")}`,
       );
     }
 
     setParsedPreviewRows(parsedList);
     if (parsedList.length > 0) {
-        toast.success("Data processed! Please review the column preview in the table below.");
+      toast.success(
+        "Data processed! Please review the column preview in the table below.",
+      );
     }
   };
 
@@ -1161,9 +1217,7 @@ export default function ManagerDashboard({
     setImportSummary(null);
 
     if (!bulkText.trim()) {
-      setBulkError(
-       "Please enter Report text",
-      );
+      setBulkError("Please enter Report text");
       return;
     }
 
@@ -1177,28 +1231,36 @@ export default function ManagerDashboard({
     }
 
     if (unmatchedMembers.length > 0) {
-        setBulkError(
-          `Warning: The following members were not found in the system: ${unmatchedMembers.map(m => `${m.name} (Pin: ${m.pin})`).join(", ")}`
-        );
-        return;
+      setBulkError(
+        `Warning: The following members were not found in the system: ${unmatchedMembers.map((m) => `${m.name} (Pin: ${m.pin})`).join(", ")}`,
+      );
+      return;
     }
 
     // Direct publish logic
     const campusRecords: Record<string, MemberAttendance[]> = {};
     let matchedCount = 0;
-    
+
     parsedList.forEach((record) => {
       const matchedMember = [...members, ...mentors].find((m) => {
         const mPinClean = (m.pin || "").trim().replace(/^0+/, "");
         const recordPinClean = record.memberPin.trim().replace(/^0+/, "");
-        return mPinClean.toLowerCase() === recordPinClean.toLowerCase() ||
-               (!isNaN(Number(mPinClean)) && !isNaN(Number(recordPinClean)) && Number(mPinClean) === Number(recordPinClean));
+        return (
+          mPinClean.toLowerCase() === recordPinClean.toLowerCase() ||
+          (!isNaN(Number(mPinClean)) &&
+            !isNaN(Number(recordPinClean)) &&
+            Number(mPinClean) === Number(recordPinClean))
+        );
       });
 
       if (matchedMember) {
         const campusName = matchedMember.campus || "Unknown Campus";
         if (!campusRecords[campusName]) campusRecords[campusName] = [];
-        if (!campusRecords[campusName].some((r) => r.memberPin === record.memberPin)) {
+        if (
+          !campusRecords[campusName].some(
+            (r) => r.memberPin === record.memberPin,
+          )
+        ) {
           campusRecords[campusName].push(record);
           matchedCount++;
         }
@@ -1268,7 +1330,11 @@ export default function ManagerDashboard({
         if (!campusRecords[campusName]) {
           campusRecords[campusName] = [];
         }
-        if (!campusRecords[campusName].some((r) => r.memberPin === record.memberPin)) {
+        if (
+          !campusRecords[campusName].some(
+            (r) => r.memberPin === record.memberPin,
+          )
+        ) {
           campusRecords[campusName].push(record);
         }
         return;
@@ -1279,7 +1345,9 @@ export default function ManagerDashboard({
         campusRecords[campusName] = [];
       }
 
-      if (!campusRecords[campusName].some((r) => r.memberPin === record.memberPin)) {
+      if (
+        !campusRecords[campusName].some((r) => r.memberPin === record.memberPin)
+      ) {
         campusRecords[campusName].push(record);
         matchedCount++;
       }
@@ -1349,9 +1417,7 @@ export default function ManagerDashboard({
     }
 
     if (!memberData.campus) {
-      toast.error(
-        "Must assign a campus",
-      );
+      toast.error("Must assign a campus");
       return;
     }
 
@@ -1436,7 +1502,11 @@ export default function ManagerDashboard({
       campus: "",
       mentorPin: "",
       designation: "",
-      permissions: ["member_attendance", "member_notices", "member_post_notice"],
+      permissions: [
+        "member_attendance",
+        "member_notices",
+        "member_post_notice",
+      ],
       avatarUrl: "",
       role: "member",
     });
@@ -1467,9 +1537,7 @@ export default function ManagerDashboard({
     };
 
     if (!mentorData.campus) {
-      toast.error(
-        "Must assign a campus",
-      );
+      toast.error("Must assign a campus");
       return;
     }
 
@@ -1544,12 +1612,7 @@ export default function ManagerDashboard({
       campus: "",
       mentorPin: "",
       designation: "",
-      permissions: [
-        "mentor_attendance",
-        "mentor_notices",
-        "mentor_history",
-        
-      ],
+      permissions: ["mentor_attendance", "mentor_notices", "mentor_history"],
       avatarUrl: "",
       role: "mentor",
     });
@@ -1568,7 +1631,9 @@ export default function ManagerDashboard({
   const handleSaveAssignment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMemberPin || !selectedMentorPin || !assignCampus) {
-      toast.error("Please select a member, a campus coordinator, and a campus.");
+      toast.error(
+        "Please select a member, a campus coordinator, and a campus.",
+      );
       return;
     }
 
@@ -1709,7 +1774,7 @@ export default function ManagerDashboard({
 
         if (issue) {
           const notificationId = `${record.memberPin}-${report.date}-${issue}`;
-          if (!dismissedNotifications.includes(notificationId)) {
+          if (!readNotifications.includes(notificationId)) {
             problematic.push({
               date: report.date,
               campus: report.campus,
@@ -1724,7 +1789,7 @@ export default function ManagerDashboard({
       });
     });
     return problematic;
-  }, [reports, dismissedNotifications]);
+  }, [reports, readNotifications]);
 
   const notificationMissingAttendances = React.useMemo(() => {
     const missing: {
@@ -1746,7 +1811,7 @@ export default function ManagerDashboard({
       campusMembers.forEach((member) => {
         if (!campusRecordPins.has(member.pin)) {
           const notificationId = `${member.pin}-${report.date}-absent`;
-          if (!dismissedNotifications.includes(notificationId)) {
+          if (!readNotifications.includes(notificationId)) {
             missing.push({
               date: report.date,
               campus: report.campus,
@@ -1758,22 +1823,26 @@ export default function ManagerDashboard({
       });
     });
     return missing;
-  }, [reports, members, mentors, dismissedNotifications]);
+  }, [reports, members, mentors, readNotifications]);
 
   const unreadProfileReqs = profileRequests.filter(
-    (r) => r.status === "Pending" && !readRequestPins.includes(r.pin),
+    (r) => r.status === "Pending" && !readNotifications.includes(r.pin),
   );
   const unreadEditReqs = attendanceEditRequests.filter(
-    (r) => r.status === "Pending" && !readRequestPins.includes(r.pin),
+    (r) => r.status === "Pending" && !readNotifications.includes(r.pin),
   );
   const unreadLeaveReqs = leaveRequests.filter(
-    (r) => r.status === "Pending" && !readRequestPins.includes(r.pin),
+    (r) => r.status === "Pending" && !readNotifications.includes(r.pin),
   );
 
   const totalUnreadRequestsCount =
     unreadProfileReqs.length + unreadEditReqs.length + unreadLeaveReqs.length;
-  const myEmails = emails.filter(e => e.toEmail === currentUser.email || e.toEmail === `${currentUser.pin}@portal.com`);
-  const unreadEmailCount = myEmails.filter(e => !e.isRead).length;
+  const myEmails = emails.filter(
+    (e) =>
+      e.toEmail === currentUser.email ||
+      e.toEmail === `${currentUser.pin}@portal.com`,
+  );
+  const unreadEmailCount = myEmails.filter((e) => !e.isRead).length;
 
   const totalNotificationBadgeCount =
     missingAttendanceData.currentMonthMissing.length +
@@ -1782,80 +1851,101 @@ export default function ManagerDashboard({
     totalUnreadRequestsCount +
     unreadEmailCount;
 
-
   const filteredAndSortedLeaveRequests = React.useMemo(() => {
     let result = [...leaveRequests];
-    
+
     // 1. Search
     if (leaveSearchPin.trim()) {
       const q = leaveSearchPin.toLowerCase();
-      result = result.filter(r => 
-        r.memberPin.toLowerCase().includes(q) || 
-        r.memberName.toLowerCase().includes(q)
+      result = result.filter(
+        (r) =>
+          r.memberPin.toLowerCase().includes(q) ||
+          r.memberName.toLowerCase().includes(q),
       );
     }
-    
+
     // 2. Status
-    if (leaveFilterStatus !== 'All') {
-      result = result.filter(r => r.status === leaveFilterStatus);
+    if (leaveFilterStatus !== "All") {
+      result = result.filter((r) => r.status === leaveFilterStatus);
     }
-    
+
     // 3. Leave Type
-    if (leaveFilterType !== 'All') {
-      result = result.filter(r => r.leaveType === leaveFilterType);
+    if (leaveFilterType !== "All") {
+      result = result.filter((r) => r.leaveType === leaveFilterType);
     }
-    
+
     // 4. Month
-    if (leaveFilterMonth !== 'All') {
-      result = result.filter(r => r.startDate?.substring(0, 7) === leaveFilterMonth);
+    if (leaveFilterMonth !== "All") {
+      result = result.filter(
+        (r) => r.startDate?.substring(0, 7) === leaveFilterMonth,
+      );
     }
-    
+
     // 5. Sort
     result.sort((a, b) => {
-      if (leaveSortBy === 'newest') {
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      } else if (leaveSortBy === 'oldest') {
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (leaveSortBy === "newest") {
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      } else if (leaveSortBy === "oldest") {
+        return (
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
       } else {
         // duration
         const aStart = new Date(a.startDate).getTime();
         const aEnd = new Date(a.endDate).getTime();
         const aDur = (aEnd - aStart) / (1000 * 60 * 60 * 24);
-        
+
         const bStart = new Date(b.startDate).getTime();
         const bEnd = new Date(b.endDate).getTime();
         const bDur = (bEnd - bStart) / (1000 * 60 * 60 * 24);
-        
-        if (leaveSortBy === 'duration_desc') return bDur - aDur;
-        if (leaveSortBy === 'duration_asc') return aDur - bDur;
+
+        if (leaveSortBy === "duration_desc") return bDur - aDur;
+        if (leaveSortBy === "duration_asc") return aDur - bDur;
         return 0;
       }
     });
-    
+
     return result;
-  }, [leaveRequests, leaveSearchPin, leaveFilterStatus, leaveFilterType, leaveFilterMonth, leaveSortBy]);
+  }, [
+    leaveRequests,
+    leaveSearchPin,
+    leaveFilterStatus,
+    leaveFilterType,
+    leaveFilterMonth,
+    leaveSortBy,
+  ]);
 
   const filteredAttendanceEditRequests = React.useMemo(() => {
     let result = [...attendanceEditRequests];
-    
+
     if (attendanceEditSearch.trim()) {
       const q = attendanceEditSearch.toLowerCase();
-      result = result.filter(r => 
-        r.memberPin.toLowerCase().includes(q) || 
-        r.memberName.toLowerCase().includes(q)
+      result = result.filter(
+        (r) =>
+          r.memberPin.toLowerCase().includes(q) ||
+          r.memberName.toLowerCase().includes(q),
       );
     }
-    
-    if (attendanceEditStatusFilter !== 'All') {
-      result = result.filter(r => r.status === attendanceEditStatusFilter);
+
+    if (attendanceEditStatusFilter !== "All") {
+      result = result.filter((r) => r.status === attendanceEditStatusFilter);
     }
 
-    if (attendanceEditMonthFilter !== 'All') {
-      result = result.filter(r => r.date?.substring(0, 7) === attendanceEditMonthFilter);
+    if (attendanceEditMonthFilter !== "All") {
+      result = result.filter(
+        (r) => r.date?.substring(0, 7) === attendanceEditMonthFilter,
+      );
     }
-    
+
     return result;
-  }, [attendanceEditRequests, attendanceEditSearch, attendanceEditStatusFilter, attendanceEditMonthFilter]);
+  }, [
+    attendanceEditRequests,
+    attendanceEditSearch,
+    attendanceEditStatusFilter,
+    attendanceEditMonthFilter,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -1866,9 +1956,7 @@ export default function ManagerDashboard({
             <LayoutDashboard className="w-4.5 h-4.5 text-indigo-600" />
             Mentor's Dashboard
           </h2>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">
-            
-          </p>
+          <p className="text-xs text-slate-500 font-medium mt-0.5"></p>
           <div className="hidden sm:block">
             {!isSidebarOpen ? (
               <button
@@ -1939,10 +2027,28 @@ export default function ManagerDashboard({
                 {/* Tabs */}
                 <div className="flex border-b border-slate-100 mt-3 px-1 gap-1 shrink-0">
                   {[
-                    { id: "requests", label: "Requests", count: totalUnreadRequestsCount },
-                    { id: "problematic", label: "Issues", count: notificationProblematicAttendances.length },
-                    { id: "missing", label: "Missing", count: notificationMissingAttendances.length + missingAttendanceData.currentMonthMissing.length },
-                    { id: "notices", label: "Notices ", count: unreadEmailCount },
+                    {
+                      id: "requests",
+                      label: "Requests",
+                      count: totalUnreadRequestsCount,
+                    },
+                    {
+                      id: "problematic",
+                      label: "Issues",
+                      count: notificationProblematicAttendances.length,
+                    },
+                    {
+                      id: "missing",
+                      label: "Missing",
+                      count:
+                        notificationMissingAttendances.length +
+                        missingAttendanceData.currentMonthMissing.length,
+                    },
+                    {
+                      id: "notices",
+                      label: "Notices ",
+                      count: unreadEmailCount,
+                    },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -1956,9 +2062,13 @@ export default function ManagerDashboard({
                       <div className="flex items-center justify-center gap-1.5">
                         {tab.label}
                         {tab.count > 0 && (
-                          <span className={`px-1.5 py-0.5 rounded-full text-[8px] leading-none ${
-                            notificationActiveTab === tab.id ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"
-                          }`}>
+                          <span
+                            className={`px-1.5 py-0.5 rounded-full text-[8px] leading-none ${
+                              notificationActiveTab === tab.id
+                                ? "bg-indigo-100 text-indigo-700"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
                             {tab.count}
                           </span>
                         )}
@@ -2005,7 +2115,10 @@ export default function ManagerDashboard({
                               onClick={() => {
                                 setActiveTab("verification");
                                 setIsNotificationsOpen(false);
-                                window.scrollTo({ top: 300, behavior: "smooth" });
+                                window.scrollTo({
+                                  top: 300,
+                                  behavior: "smooth",
+                                });
                               }}
                               className="flex items-start justify-between gap-2.5 p-3 bg-amber-50/30 border border-amber-100/70 hover:bg-amber-50/50 rounded-2xl transition-all cursor-pointer text-left"
                             >
@@ -2016,15 +2129,15 @@ export default function ManagerDashboard({
                                     Profile Correction Request
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium">
-                                    {req.requestedName} (PIN: {req.requestedPin})
-                                    Requested a name/PIN change.
+                                    {req.requestedName} (PIN: {req.requestedPin}
+                                    ) Requested a name/PIN change.
                                   </p>
                                 </div>
                               </div>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setReadRequestPins((prev) => [...prev, req.pin]);
+                                  handleDismissNotification(req.pin, e);
                                   toast.success("Marked as read!");
                                 }}
                                 className="p-1 hover:bg-amber-100/80 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
@@ -2042,7 +2155,10 @@ export default function ManagerDashboard({
                               onClick={() => {
                                 setActiveTab("edit_requests");
                                 setIsNotificationsOpen(false);
-                                window.scrollTo({ top: 300, behavior: "smooth" });
+                                window.scrollTo({
+                                  top: 300,
+                                  behavior: "smooth",
+                                });
                               }}
                               className="flex items-start justify-between gap-2.5 p-3 bg-indigo-50/30 border border-indigo-100/50 hover:bg-indigo-50/50 rounded-2xl transition-all cursor-pointer text-left"
                             >
@@ -2053,14 +2169,15 @@ export default function ManagerDashboard({
                                     Attendance Correction Request
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium">
-                                    Coordinator {req.coordinatorName} requested an attendance change for {req.memberName}.
+                                    Coordinator {req.coordinatorName} requested
+                                    an attendance change for {req.memberName}.
                                   </p>
                                 </div>
                               </div>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setReadRequestPins((prev) => [...prev, req.pin]);
+                                  handleDismissNotification(req.pin, e);
                                   toast.success("Marked as read!");
                                 }}
                                 className="p-1 hover:bg-indigo-100/50 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
@@ -2078,7 +2195,10 @@ export default function ManagerDashboard({
                               onClick={() => {
                                 setActiveTab("leave-requests");
                                 setIsNotificationsOpen(false);
-                                window.scrollTo({ top: 300, behavior: "smooth" });
+                                window.scrollTo({
+                                  top: 300,
+                                  behavior: "smooth",
+                                });
                               }}
                               className="flex items-start justify-between gap-2.5 p-3 bg-rose-50/20 border border-rose-100/40 hover:bg-rose-50/40 rounded-2xl transition-all cursor-pointer text-left"
                             >
@@ -2089,14 +2209,15 @@ export default function ManagerDashboard({
                                     Leave Request
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium">
-                                    {req.memberName} requested {req.leaveType} leave. (Date: {req.startDate})
+                                    {req.memberName} requested {req.leaveType}{" "}
+                                    leave. (Date: {req.startDate})
                                   </p>
                                 </div>
                               </div>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setReadRequestPins((prev) => [...prev, req.pin]);
+                                  handleDismissNotification(req.pin, e);
                                   toast.success("Marked as read!");
                                 }}
                                 className="p-1 hover:bg-rose-100/50 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
@@ -2106,7 +2227,6 @@ export default function ManagerDashboard({
                               </button>
                             </div>
                           ))}
-
                         </div>
                       )}
                     </div>
@@ -2117,51 +2237,58 @@ export default function ManagerDashboard({
                       {unreadEmailCount === 0 ? (
                         <div className="py-12 text-center text-slate-400">
                           <Inbox className="w-12 h-12 mx-auto text-slate-200 mb-2" />
-                          <p className="font-bold text-slate-500">No new notices</p>
+                          <p className="font-bold text-slate-500">
+                            No new notices
+                          </p>
                         </div>
                       ) : (
-                        myEmails.filter(e => !e.isRead).map((msg) => (
-                          <div
-                            key={msg.pin}
-                            className="flex flex-col p-4 bg-slate-50 border border-slate-150 rounded-2xl transition-all hover:bg-white hover:border-indigo-200 group relative text-left"
-                          >
-                            <div 
-                              className="cursor-pointer"
-                              onClick={() => {
-                                onMarkEmailAsRead(msg.pin);
-                                setActiveTab("notices");
-                                setIsNotificationsOpen(false);
-                                window.scrollTo({ top: 300, behavior: "smooth" });
-                              }}
+                        myEmails
+                          .filter((e) => !e.isRead)
+                          .map((msg) => (
+                            <div
+                              key={msg.pin}
+                              className="flex flex-col p-4 bg-slate-50 border border-slate-150 rounded-2xl transition-all hover:bg-white hover:border-indigo-200 group relative text-left"
                             >
-                              <div className="flex justify-between items-start mb-1.5">
-                                <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider font-mono">
-                                  {msg.fromName}
-                                </span>
-                                <span className="text-[9px] text-slate-400 font-bold">
-                                  {new Date(msg.date).toLocaleDateString()}
-                                </span>
+                              <div
+                                className="cursor-pointer"
+                                onClick={() => {
+                                  onMarkEmailAsRead(msg.pin);
+                                  setActiveTab("notices");
+                                  setIsNotificationsOpen(false);
+                                  window.scrollTo({
+                                    top: 300,
+                                    behavior: "smooth",
+                                  });
+                                }}
+                              >
+                                <div className="flex justify-between items-start mb-1.5">
+                                  <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider font-mono">
+                                    {msg.fromName}
+                                  </span>
+                                  <span className="text-[9px] text-slate-400 font-bold">
+                                    {new Date(msg.date).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <h4 className="text-xs font-black text-slate-800 line-clamp-1 mb-1">
+                                  {msg.subject}
+                                </h4>
+                                <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed italic">
+                                  "{msg.body}"
+                                </p>
                               </div>
-                              <h4 className="text-xs font-black text-slate-800 line-clamp-1 mb-1">
-                                {msg.subject}
-                              </h4>
-                              <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed italic">
-                                "{msg.body}"
-                              </p>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onMarkEmailAsRead(msg.pin);
+                                  toast.success("Marked as read!");
+                                }}
+                                className="absolute bottom-3 right-3 p-2 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:border-emerald-200 rounded-xl opacity-0 group-hover:opacity-100 transition-all shadow-sm"
+                                title="Mark as Read"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onMarkEmailAsRead(msg.pin);
-                                toast.success("Marked as read!");
-                              }}
-                              className="absolute bottom-3 right-3 p-2 bg-white border border-slate-200 text-slate-400 hover:text-emerald-600 hover:border-emerald-200 rounded-xl opacity-0 group-hover:opacity-100 transition-all shadow-sm"
-                              title="Mark as Read"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))
+                          ))
                       )}
                     </div>
                   )}
@@ -2171,7 +2298,8 @@ export default function ManagerDashboard({
                     <div className="space-y-4">
                       <h4 className="text-[11px] font-black text-rose-950 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                         <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                        Problematic Attendance ({notificationProblematicAttendances.length})
+                        Problematic Attendance (
+                        {notificationProblematicAttendances.length})
                       </h4>
 
                       {notificationProblematicAttendances.length === 0 ? (
@@ -2188,7 +2316,10 @@ export default function ManagerDashboard({
                                 setAttendanceViewerCampus(m.campus);
                                 setActiveTab("attendance-viewer");
                                 setIsNotificationsOpen(false);
-                                window.scrollTo({ top: 300, behavior: "smooth" });
+                                window.scrollTo({
+                                  top: 300,
+                                  behavior: "smooth",
+                                });
                               }}
                               className="flex items-center justify-between gap-2.5 p-3 bg-rose-50/30 border border-rose-100/50 hover:bg-rose-50/50 rounded-2xl transition-all cursor-pointer text-left"
                             >
@@ -2202,12 +2333,16 @@ export default function ManagerDashboard({
                                   </span>
                                 </div>
                                 <p className="text-[9px] text-slate-500 font-medium flex items-center gap-1 mt-1">
-                                  <Calendar className="w-3 h-3" /> {m.date} |  {m.campus}
+                                  <Calendar className="w-3 h-3" /> {m.date} |{" "}
+                                  {m.campus}
                                 </p>
                               </div>
                               <button
                                 onClick={(e) => {
-                                  handleDismissNotification(`${m.memberPin}-${m.date}-${m.issue}`, e);
+                                  handleDismissNotification(
+                                    `${m.memberPin}-${m.date}-${m.issue}`,
+                                    e,
+                                  );
                                 }}
                                 className="p-1.5 hover:bg-rose-100/80 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
                                 title="Mark as Read"
@@ -2227,7 +2362,8 @@ export default function ManagerDashboard({
                       <div className="space-y-4">
                         <h4 className="text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                           <UserMinus className="w-3.5 h-3.5 text-amber-600" />
-                          Absent Member Records ({notificationMissingAttendances.length})
+                          Absent Member Records (
+                          {notificationMissingAttendances.length})
                         </h4>
 
                         {notificationMissingAttendances.length === 0 ? (
@@ -2244,7 +2380,10 @@ export default function ManagerDashboard({
                                   setAttendanceViewerCampus(m.campus);
                                   setActiveTab("attendance-viewer");
                                   setIsNotificationsOpen(false);
-                                  window.scrollTo({ top: 300, behavior: "smooth" });
+                                  window.scrollTo({
+                                    top: 300,
+                                    behavior: "smooth",
+                                  });
                                 }}
                                 className="flex items-center justify-between gap-2.5 p-3 bg-amber-50/30 border border-amber-100/50 hover:bg-amber-50/50 rounded-2xl transition-all cursor-pointer text-left"
                               >
@@ -2253,12 +2392,16 @@ export default function ManagerDashboard({
                                     {m.memberName} ({m.memberPin})
                                   </p>
                                   <p className="text-[9px] text-slate-500 font-medium flex items-center gap-1 mt-1 font-sans">
-                                    <Calendar className="w-3 h-3" /> {m.date} |  {m.campus}
+                                    <Calendar className="w-3 h-3" /> {m.date} |{" "}
+                                    {m.campus}
                                   </p>
                                 </div>
                                 <button
                                   onClick={(e) => {
-                                    handleDismissNotification(`${m.memberPin}-${m.date}-absent`, e);
+                                    handleDismissNotification(
+                                      `${m.memberPin}-${m.date}-absent`,
+                                      e,
+                                    );
                                   }}
                                   className="p-1.5 hover:bg-amber-100/80 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
                                   title="Mark as Read"
@@ -2274,14 +2417,16 @@ export default function ManagerDashboard({
                       <div className="space-y-4 pt-4 border-t border-slate-100">
                         <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                           <AlertCircle className="w-3.5 h-3.5 text-indigo-600" />
-                          Attendance Alert ({missingAttendanceData.currentMonthMissing.length})
+                          Attendance Alert (
+                          {missingAttendanceData.currentMonthMissing.length})
                         </h4>
                         <p className="text-[9px] text-slate-500 font-medium">
                           Campus attendance reports still pending for this month
                         </p>
 
                         {(() => {
-                          const list = missingAttendanceData.currentMonthMissing;
+                          const list =
+                            missingAttendanceData.currentMonthMissing;
                           if (list.length === 0) {
                             return (
                               <div className="py-2 text-center text-[10px] font-bold text-emerald-600">
@@ -2301,7 +2446,10 @@ export default function ManagerDashboard({
                                     }
                                     setActiveTab("attendance");
                                     setIsNotificationsOpen(false);
-                                    window.scrollTo({ top: 300, behavior: "smooth" });
+                                    window.scrollTo({
+                                      top: 300,
+                                      behavior: "smooth",
+                                    });
                                   }}
                                   className="bg-indigo-50/20 border border-indigo-100/70 rounded-2xl p-3 flex items-center justify-between gap-2 text-left cursor-pointer hover:bg-indigo-50/50 transition-colors group"
                                 >
@@ -2347,15 +2495,15 @@ export default function ManagerDashboard({
           {(isSidebarOpen || isMobileMenuOpen) && (
             <motion.div
               initial={{ width: 0, opacity: 0, x: -20 }}
-              animate={{ 
-                width: isMobileMenuOpen ? "280px" : "260px", 
-                opacity: 1, 
+              animate={{
+                width: isMobileMenuOpen ? "280px" : "260px",
+                opacity: 1,
                 x: 0,
                 position: isMobileMenuOpen ? "fixed" : "sticky",
                 top: isMobileMenuOpen ? "0" : "1.5rem",
                 left: isMobileMenuOpen ? "0" : "auto",
                 height: isMobileMenuOpen ? "100vh" : "fit-content",
-                zIndex: isMobileMenuOpen ? 50 : 10
+                zIndex: isMobileMenuOpen ? 50 : 10,
               }}
               exit={{ width: 0, opacity: 0, x: -20 }}
               className={`bg-white p-4 sm:p-5 rounded-none lg:rounded-3xl border-r lg:border border-slate-200/80 shadow-xs text-left overflow-y-auto shrink-0`}
@@ -2365,7 +2513,7 @@ export default function ManagerDashboard({
                   Mentor's Menu
                 </p>
                 {isMobileMenuOpen && (
-                  <button 
+                  <button
                     onClick={() => setIsMobileMenuOpen(false)}
                     className="p-2 text-slate-400 hover:text-slate-600 lg:hidden"
                   >
@@ -2375,17 +2523,51 @@ export default function ManagerDashboard({
               </div>
               <div className="flex flex-col gap-1">
                 {[
-                  { id: "attendance", icon: FileSpreadsheet, label: "Post Attendance" },
-                  { id: "attendance-viewer", icon: Users, label: "Team Member Attendance" },
+                  {
+                    id: "attendance",
+                    icon: FileSpreadsheet,
+                    label: "Post Attendance",
+                  },
+                  {
+                    id: "attendance-viewer",
+                    icon: Users,
+                    label: "Team Member Attendance",
+                  },
                   { id: "members", icon: Users, label: "Team Members List" },
-                  { id: "edit_requests", icon: Edit3, label: "Attendance Adjustments", count: attendanceEditRequests.filter(r => r.status === "Pending").length, color: "indigo" },
-                  { id: "leave-requests", icon: ClipboardList, label: "Leave Requests", count: leaveRequests.filter(r => r.status === "Pending").length, color: "rose" },
+                  {
+                    id: "edit_requests",
+                    icon: Edit3,
+                    label: "Attendance Adjustments",
+                    count: attendanceEditRequests.filter(
+                      (r) => r.status === "Pending",
+                    ).length,
+                    color: "indigo",
+                  },
+                  {
+                    id: "leave-requests",
+                    icon: ClipboardList,
+                    label: "Leave Requests",
+                    count: leaveRequests.filter((r) => r.status === "Pending")
+                      .length,
+                    color: "rose",
+                  },
                   { id: "roster", icon: Users, label: "Member Management" },
-                  { id: "call-management", icon: Phone, label: "Call Management" },
+                  {
+                    id: "call-management",
+                    icon: Phone,
+                    label: "Call Management",
+                  },
                   { id: "campuses", icon: MapPin, label: "Campus Settings" },
                   { id: "notices", icon: Megaphone, label: "Notice Board" },
-                  { id: "verification", icon: Shield, label: "Profile Verification Requests", count: profileRequests.filter(r => r.status === "Pending").length, color: "rose" },
-                  { id: "profile", icon: User, label: "Profile Settings" }
+                  {
+                    id: "verification",
+                    icon: Shield,
+                    label: "Profile Verification Requests",
+                    count: profileRequests.filter((r) => r.status === "Pending")
+                      .length,
+                    color: "rose",
+                  },
+                  { id: "profile", icon: UserIcon, label: "Profile Settings" },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -2405,7 +2587,9 @@ export default function ManagerDashboard({
                       {tab.label}
                     </span>
                     {tab.count !== undefined && tab.count > 0 && (
-                      <span className={`absolute right-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 ${tab.color === 'rose' ? 'bg-rose-500' : 'bg-indigo-500'} text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white font-mono`}>
+                      <span
+                        className={`absolute right-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 ${tab.color === "rose" ? "bg-rose-500" : "bg-indigo-500"} text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white font-mono`}
+                      >
                         {tab.count}
                       </span>
                     )}
@@ -2421,11 +2605,17 @@ export default function ManagerDashboard({
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="lg:hidden fixed bottom-6 right-6 z-50 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center"
         >
-          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          {isMobileMenuOpen ? (
+            <X className="w-6 h-6" />
+          ) : (
+            <Menu className="w-6 h-6" />
+          )}
         </button>
 
         {/* Content Area */}
-        <div className={`flex-1 min-w-0 space-y-4 sm:space-y-6 relative transition-all duration-300 w-full`}>
+        <div
+          className={`flex-1 min-w-0 space-y-4 sm:space-y-6 relative transition-all duration-300 w-full`}
+        >
           <ConfirmModal
             isOpen={!!confirmDeleteCampusName}
             onClose={() => setConfirmDeleteCampusName(null)}
@@ -2563,39 +2753,65 @@ export default function ManagerDashboard({
                 >
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">PIN</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        PIN
+                      </label>
                       <input
                         type="text"
                         required
                         value={editingPreviewRow.record.memberPin}
                         onChange={(e) => {
-                          const updatedRecord = { ...editingPreviewRow.record, memberPin: e.target.value };
+                          const updatedRecord = {
+                            ...editingPreviewRow.record,
+                            memberPin: e.target.value,
+                          };
                           // Auto resolve member name if exists
-                          const cleanPin = e.target.value.trim().replace(/^0+/, "");
-                          const matchedMember = [...members, ...mentors].find((m) => {
-                            const mPinClean = (m.pin || "").trim().replace(/^0+/, "");
-                            return mPinClean.toLowerCase() === cleanPin.toLowerCase() ||
-                                   (!isNaN(Number(mPinClean)) && !isNaN(Number(cleanPin)) && Number(mPinClean) === Number(cleanPin));
-                          });
+                          const cleanPin = e.target.value
+                            .trim()
+                            .replace(/^0+/, "");
+                          const matchedMember = [...members, ...mentors].find(
+                            (m) => {
+                              const mPinClean = (m.pin || "")
+                                .trim()
+                                .replace(/^0+/, "");
+                              return (
+                                mPinClean.toLowerCase() ===
+                                  cleanPin.toLowerCase() ||
+                                (!isNaN(Number(mPinClean)) &&
+                                  !isNaN(Number(cleanPin)) &&
+                                  Number(mPinClean) === Number(cleanPin))
+                              );
+                            },
+                          );
                           if (matchedMember) {
                             updatedRecord.memberName = matchedMember.name;
                           }
-                          setEditingPreviewRow({ ...editingPreviewRow, record: updatedRecord });
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: updatedRecord,
+                          });
                         }}
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Name</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Name
+                      </label>
                       <input
                         type="text"
                         required
                         value={editingPreviewRow.record.memberName}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, memberName: e.target.value }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              memberName: e.target.value,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
@@ -2603,25 +2819,39 @@ export default function ManagerDashboard({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">In Time</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        In Time
+                      </label>
                       <ClockInput
                         value={editingPreviewRow.record.checkInTime || ""}
-                        onChange={(val) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, checkInTime: val }
-                        })}
+                        onChange={(val) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              checkInTime: val,
+                            },
+                          })
+                        }
                         placeholder="e.g. 09:00 AM"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Out Time</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Out Time
+                      </label>
                       <ClockInput
                         value={editingPreviewRow.record.checkOutTime || ""}
-                        onChange={(val) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, checkOutTime: val }
-                        })}
+                        onChange={(val) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              checkOutTime: val,
+                            },
+                          })
+                        }
                         placeholder="e.g. 05:00 PM"
                       />
                     </div>
@@ -2629,29 +2859,43 @@ export default function ManagerDashboard({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Late Entry</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Late Entry
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. -"
                         value={editingPreviewRow.record.lateEntry || ""}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, lateEntry: e.target.value }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              lateEntry: e.target.value,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Early Leave</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Early Leave
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. 0:13"
                         value={editingPreviewRow.record.earlyLeave || ""}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, earlyLeave: e.target.value }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              earlyLeave: e.target.value,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
@@ -2659,29 +2903,43 @@ export default function ManagerDashboard({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">W. Hour (Working Hour)</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        W. Hour (Working Hour)
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. 10:33"
                         value={editingPreviewRow.record.workingHour || ""}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, workingHour: e.target.value }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              workingHour: e.target.value,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Absent/Leave</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Absent/Leave
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. -"
                         value={editingPreviewRow.record.absentOrLeave || ""}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, absentOrLeave: e.target.value }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              absentOrLeave: e.target.value,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
@@ -2689,34 +2947,50 @@ export default function ManagerDashboard({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Zone</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Zone
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. Concord Tower"
                         value={editingPreviewRow.record.zone || ""}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, zone: e.target.value }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              zone: e.target.value,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Status</label>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Status
+                      </label>
                       <select
                         value={editingPreviewRow.record.status}
-                        onChange={(e) => setEditingPreviewRow({
-                          ...editingPreviewRow,
-                          record: { ...editingPreviewRow.record, status: e.target.value as AttendanceStatus }
-                        })}
+                        onChange={(e) =>
+                          setEditingPreviewRow({
+                            ...editingPreviewRow,
+                            record: {
+                              ...editingPreviewRow.record,
+                              status: e.target.value as AttendanceStatus,
+                            },
+                          })
+                        }
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       >
                         <option value="Present">Present</option>
                         <option value="Late Entry">Late Entry</option>
                         <option value="Absent">Absent</option>
                         <option value="Leave">Leave</option>
-                        <option value="Finger Punch Missing">Finger Punch Missing</option>
+                        <option value="Finger Punch Missing">
+                          Finger Punch Missing
+                        </option>
                         <option value="< 10hrs">&lt; 10hrs</option>
                         <option value="Half Day">Half Day</option>
                       </select>
@@ -2724,14 +2998,21 @@ export default function ManagerDashboard({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Remarks</label>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                      Remarks
+                    </label>
                     <textarea
                       rows={2}
                       value={editingPreviewRow.record.remarks || ""}
-                      onChange={(e) => setEditingPreviewRow({
-                        ...editingPreviewRow,
-                        record: { ...editingPreviewRow.record, remarks: e.target.value }
-                      })}
+                      onChange={(e) =>
+                        setEditingPreviewRow({
+                          ...editingPreviewRow,
+                          record: {
+                            ...editingPreviewRow.record,
+                            remarks: e.target.value,
+                          },
+                        })
+                      }
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     />
                   </div>
@@ -2775,10 +3056,21 @@ export default function ManagerDashboard({
                   Back to Members List
                 </button>
                 <div className="flex items-center gap-3">
-                  <UserAvatar user={members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin)} size="sm" />
+                  <UserAvatar
+                    user={
+                      members.find((m) => m.pin === viewedMemberPin) ||
+                      mentors.find((m) => m.pin === viewedMemberPin)
+                    }
+                    size="sm"
+                  />
                   <div>
                     <h3 className="text-sm font-black text-slate-800">
-                      {(members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin))?.name}
+                      {
+                        (
+                          members.find((m) => m.pin === viewedMemberPin) ||
+                          mentors.find((m) => m.pin === viewedMemberPin)
+                        )?.name
+                      }
                     </h3>
                     <p className="text-[10px] text-slate-400 font-mono font-medium">
                       PIN: {viewedMemberPin}
@@ -2791,9 +3083,17 @@ export default function ManagerDashboard({
               <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs bg-white">
                 {/* Title Header Bar */}
                 <div className="bg-[#022e54] text-white px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-                  <h4 className="text-sm font-bold tracking-wide">My Attendance</h4>
+                  <h4 className="text-sm font-bold tracking-wide">
+                    My Attendance
+                  </h4>
                   <span className="text-xs bg-white/10 px-3 py-1 rounded-full font-mono font-medium border border-white/20">
-                    {(members.find(m => m.pin === viewedMemberPin) || mentors.find(m => m.pin === viewedMemberPin))?.name} (PIN: {viewedMemberPin})
+                    {
+                      (
+                        members.find((m) => m.pin === viewedMemberPin) ||
+                        mentors.find((m) => m.pin === viewedMemberPin)
+                      )?.name
+                    }{" "}
+                    (PIN: {viewedMemberPin})
                   </span>
                 </div>
 
@@ -2835,12 +3135,24 @@ export default function ManagerDashboard({
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500">
                         <th className="p-3 border-r border-slate-150">Date</th>
-                        <th className="p-3 border-r border-slate-150">In Time</th>
-                        <th className="p-3 border-r border-slate-150">Out Time</th>
-                        <th className="p-3 border-r border-slate-150">Late Entry</th>
-                        <th className="p-3 border-r border-slate-150">Early Leave</th>
-                        <th className="p-3 border-r border-slate-150">W. Hour</th>
-                        <th className="p-3 border-r border-slate-150">Absent/Leave</th>
+                        <th className="p-3 border-r border-slate-150">
+                          In Time
+                        </th>
+                        <th className="p-3 border-r border-slate-150">
+                          Out Time
+                        </th>
+                        <th className="p-3 border-r border-slate-150">
+                          Late Entry
+                        </th>
+                        <th className="p-3 border-r border-slate-150">
+                          Early Leave
+                        </th>
+                        <th className="p-3 border-r border-slate-150">
+                          W. Hour
+                        </th>
+                        <th className="p-3 border-r border-slate-150">
+                          Absent/Leave
+                        </th>
                         <th className="p-3">Zone</th>
                       </tr>
                     </thead>
@@ -2849,26 +3161,41 @@ export default function ManagerDashboard({
                         const dateRange = (() => {
                           const dates: string[] = [];
                           const start = (() => {
-                            const parts = attendanceStartDate.split('-');
+                            const parts = attendanceStartDate.split("-");
                             if (parts.length === 3) {
-                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                              return new Date(
+                                parseInt(parts[0], 10),
+                                parseInt(parts[1], 10) - 1,
+                                parseInt(parts[2], 10),
+                              );
                             }
                             return new Date(attendanceStartDate);
                           })();
                           const end = (() => {
-                            const parts = attendanceEndDate.split('-');
+                            const parts = attendanceEndDate.split("-");
                             if (parts.length === 3) {
-                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                              return new Date(
+                                parseInt(parts[0], 10),
+                                parseInt(parts[1], 10) - 1,
+                                parseInt(parts[2], 10),
+                              );
                             }
                             return new Date(attendanceEndDate);
                           })();
-                          if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
-                          
+                          if (isNaN(start.getTime()) || isNaN(end.getTime()))
+                            return [];
+
                           let current = new Date(start);
                           while (current <= end) {
                             const yyyy = current.getFullYear();
-                            const mm = String(current.getMonth() + 1).padStart(2, '0');
-                            const dd = String(current.getDate()).padStart(2, '0');
+                            const mm = String(current.getMonth() + 1).padStart(
+                              2,
+                              "0",
+                            );
+                            const dd = String(current.getDate()).padStart(
+                              2,
+                              "0",
+                            );
                             dates.push(`${yyyy}-${mm}-${dd}`);
                             current.setDate(current.getDate() + 1);
                           }
@@ -2878,7 +3205,10 @@ export default function ManagerDashboard({
                         if (dateRange.length === 0) {
                           return (
                             <tr>
-                              <td colSpan={8} className="p-8 text-center text-slate-400 font-semibold">
+                              <td
+                                colSpan={8}
+                                className="p-8 text-center text-slate-400 font-semibold"
+                              >
                                 No records found for selected range.
                               </td>
                             </tr>
@@ -2886,11 +3216,15 @@ export default function ManagerDashboard({
                         }
 
                         return dateRange.map((dateStr) => {
-                          const dayReports = reports.filter(r => r.date === dateStr);
+                          const dayReports = reports.filter(
+                            (r) => r.date === dateStr,
+                          );
                           let memberRecord: any = null;
                           let zoneName = "-";
                           for (const report of dayReports) {
-                            const found = report.records.find(rec => rec.memberPin === viewedMemberPin);
+                            const found = report.records.find(
+                              (rec) => rec.memberPin === viewedMemberPin,
+                            );
                             if (found) {
                               memberRecord = found;
                               zoneName = report.campus || found.zone || "-";
@@ -2899,9 +3233,13 @@ export default function ManagerDashboard({
                           }
 
                           const parsedDate = (() => {
-                            const parts = dateStr.split('-');
+                            const parts = dateStr.split("-");
                             if (parts.length === 3) {
-                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                              return new Date(
+                                parseInt(parts[0], 10),
+                                parseInt(parts[1], 10) - 1,
+                                parseInt(parts[2], 10),
+                              );
                             }
                             return new Date(dateStr);
                           })();
@@ -2909,55 +3247,126 @@ export default function ManagerDashboard({
 
                           // custom format
                           const displayDate = (() => {
-                            const parts = dateStr.split('-');
+                            const parts = dateStr.split("-");
                             if (parts.length !== 3) return dateStr;
                             const year = parts[0];
                             const monthIdx = parseInt(parts[1], 10) - 1;
                             const day = parseInt(parts[2], 10);
                             const monthNamesShort = [
-                              "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                              "Jan",
+                              "Feb",
+                              "Mar",
+                              "Apr",
+                              "May",
+                              "Jun",
+                              "Jul",
+                              "Aug",
+                              "Sep",
+                              "Oct",
+                              "Nov",
+                              "Dec",
                             ];
                             return `${day} ${monthNamesShort[monthIdx]}, ${year}`;
                           })();
 
                           if (memberRecord) {
-                            const isLateEntry = memberRecord.lateEntry && memberRecord.lateEntry !== '-' && memberRecord.lateEntry !== '0' && memberRecord.lateEntry.trim() !== '';
-                            const isEarlyLeave = memberRecord.earlyLeave && memberRecord.earlyLeave !== '-' && memberRecord.earlyLeave !== '0' && memberRecord.earlyLeave.trim() !== '';
+                            const isLateEntry =
+                              memberRecord.lateEntry &&
+                              memberRecord.lateEntry !== "-" &&
+                              memberRecord.lateEntry !== "0" &&
+                              memberRecord.lateEntry.trim() !== "";
+                            const isEarlyLeave =
+                              memberRecord.earlyLeave &&
+                              memberRecord.earlyLeave !== "-" &&
+                              memberRecord.earlyLeave !== "0" &&
+                              memberRecord.earlyLeave.trim() !== "";
 
                             return (
-                              <tr key={dateStr} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">{displayDate}</td>
-                                <td className="p-3 border-r border-slate-150 font-mono">{memberRecord.checkInTime || "-"}</td>
-                                <td className="p-3 border-r border-slate-150 font-mono">{memberRecord.checkOutTime || "-"}</td>
-                                <td className={`p-3 border-r border-slate-150 font-mono ${isLateEntry ? 'text-amber-600 font-bold' : ''}`}>{memberRecord.lateEntry || "-"}</td>
-                                <td className={`p-3 border-r border-slate-150 font-mono ${isEarlyLeave ? 'text-amber-600 font-bold' : ''}`}>{memberRecord.earlyLeave || "-"}</td>
-                                <td className="p-3 border-r border-slate-150 font-mono font-medium text-slate-800">{memberRecord.workingHour || "-"}</td>
+                              <tr
+                                key={dateStr}
+                                className="hover:bg-slate-50/50 transition-colors"
+                              >
+                                <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">
+                                  {displayDate}
+                                </td>
+                                <td className="p-3 border-r border-slate-150 font-mono">
+                                  {memberRecord.checkInTime || "-"}
+                                </td>
+                                <td className="p-3 border-r border-slate-150 font-mono">
+                                  {memberRecord.checkOutTime || "-"}
+                                </td>
+                                <td
+                                  className={`p-3 border-r border-slate-150 font-mono ${isLateEntry ? "text-amber-600 font-bold" : ""}`}
+                                >
+                                  {memberRecord.lateEntry || "-"}
+                                </td>
+                                <td
+                                  className={`p-3 border-r border-slate-150 font-mono ${isEarlyLeave ? "text-amber-600 font-bold" : ""}`}
+                                >
+                                  {memberRecord.earlyLeave || "-"}
+                                </td>
+                                <td className="p-3 border-r border-slate-150 font-mono font-medium text-slate-800">
+                                  {memberRecord.workingHour || "-"}
+                                </td>
                                 <td className="p-3 border-r border-slate-150">
-                                  {memberRecord.absentOrLeave && memberRecord.absentOrLeave !== '-' ? (
-                                    <span className={`font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full ${
-                                      memberRecord.absentOrLeave.toLowerCase().includes('leave') ? 'bg-blue-50 text-blue-700 border border-blue-100' :
-                                      memberRecord.absentOrLeave.toLowerCase().includes('absent') ? 'bg-rose-50 text-rose-700 border border-rose-100' :
-                                      'bg-slate-50 text-slate-700 border border-slate-100'
-                                    }`}>
+                                  {memberRecord.absentOrLeave &&
+                                  memberRecord.absentOrLeave !== "-" ? (
+                                    <span
+                                      className={`font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full ${
+                                        memberRecord.absentOrLeave
+                                          .toLowerCase()
+                                          .includes("leave")
+                                          ? "bg-blue-50 text-blue-700 border border-blue-100"
+                                          : memberRecord.absentOrLeave
+                                                .toLowerCase()
+                                                .includes("absent")
+                                            ? "bg-rose-50 text-rose-700 border border-rose-100"
+                                            : "bg-slate-50 text-slate-700 border border-slate-100"
+                                      }`}
+                                    >
                                       {memberRecord.absentOrLeave}
                                     </span>
-                                  ) : "-"}
+                                  ) : (
+                                    "-"
+                                  )}
                                 </td>
-                                <td className="p-3 font-semibold text-slate-600">{zoneName}</td>
+                                <td className="p-3 font-semibold text-slate-600">
+                                  {zoneName}
+                                </td>
                               </tr>
                             );
                           } else {
                             return (
-                              <tr key={dateStr} className="bg-white hover:bg-slate-50/50 transition-colors">
-                                <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">{displayDate}</td>
-                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
-                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
-                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
-                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
-                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">-</td>
+                              <tr
+                                key={dateStr}
+                                className="bg-white hover:bg-slate-50/50 transition-colors"
+                              >
+                                <td className="p-3 font-semibold text-slate-700 border-r border-slate-150">
+                                  {displayDate}
+                                </td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">
+                                  -
+                                </td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">
+                                  -
+                                </td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">
+                                  -
+                                </td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">
+                                  -
+                                </td>
+                                <td className="p-3 border-r border-slate-150 text-slate-400 font-mono">
+                                  -
+                                </td>
                                 <td className="p-3 border-r border-slate-150">
-                                  {isFriday ? <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-slate-200">Weekend</span> : "-"}
+                                  {isFriday ? (
+                                    <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border border-slate-200">
+                                      Weekend
+                                    </span>
+                                  ) : (
+                                    "-"
+                                  )}
                                 </td>
                                 <td className="p-3 text-slate-400">-</td>
                               </tr>
@@ -2972,26 +3381,41 @@ export default function ManagerDashboard({
                         const dateRange = (() => {
                           const dates: string[] = [];
                           const start = (() => {
-                            const parts = attendanceStartDate.split('-');
+                            const parts = attendanceStartDate.split("-");
                             if (parts.length === 3) {
-                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                              return new Date(
+                                parseInt(parts[0], 10),
+                                parseInt(parts[1], 10) - 1,
+                                parseInt(parts[2], 10),
+                              );
                             }
                             return new Date(attendanceStartDate);
                           })();
                           const end = (() => {
-                            const parts = attendanceEndDate.split('-');
+                            const parts = attendanceEndDate.split("-");
                             if (parts.length === 3) {
-                              return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                              return new Date(
+                                parseInt(parts[0], 10),
+                                parseInt(parts[1], 10) - 1,
+                                parseInt(parts[2], 10),
+                              );
                             }
                             return new Date(attendanceEndDate);
                           })();
-                          if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
-                          
+                          if (isNaN(start.getTime()) || isNaN(end.getTime()))
+                            return [];
+
                           let current = new Date(start);
                           while (current <= end) {
                             const yyyy = current.getFullYear();
-                            const mm = String(current.getMonth() + 1).padStart(2, '0');
-                            const dd = String(current.getDate()).padStart(2, '0');
+                            const mm = String(current.getMonth() + 1).padStart(
+                              2,
+                              "0",
+                            );
+                            const dd = String(current.getDate()).padStart(
+                              2,
+                              "0",
+                            );
                             dates.push(`${yyyy}-${mm}-${dd}`);
                             current.setDate(current.getDate() + 1);
                           }
@@ -3002,28 +3426,38 @@ export default function ManagerDashboard({
                         let totalWorkingMinutes = 0;
 
                         dateRange.forEach((dateStr) => {
-                          const dayReports = reports.filter(r => r.date === dateStr);
+                          const dayReports = reports.filter(
+                            (r) => r.date === dateStr,
+                          );
                           for (const report of dayReports) {
-                            const found = report.records.find(rec => rec.memberPin === viewedMemberPin);
+                            const found = report.records.find(
+                              (rec) => rec.memberPin === viewedMemberPin,
+                            );
                             if (found) {
                               if (found.lateEntry) {
                                 const clean = found.lateEntry.trim();
                                 const matchHHMM = clean.match(/^(\d+):(\d+)$/);
                                 if (matchHHMM) {
-                                  totalLateMinutes += parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
+                                  totalLateMinutes +=
+                                    parseInt(matchHHMM[1], 10) * 60 +
+                                    parseInt(matchHHMM[2], 10);
                                 } else {
                                   const parsed = parseInt(clean, 10);
-                                  if (!isNaN(parsed)) totalLateMinutes += parsed;
+                                  if (!isNaN(parsed))
+                                    totalLateMinutes += parsed;
                                 }
                               }
                               if (found.workingHour) {
                                 const clean = found.workingHour.trim();
                                 const matchHHMM = clean.match(/^(\d+):(\d+)$/);
                                 if (matchHHMM) {
-                                  totalWorkingMinutes += parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
+                                  totalWorkingMinutes +=
+                                    parseInt(matchHHMM[1], 10) * 60 +
+                                    parseInt(matchHHMM[2], 10);
                                 } else {
                                   const parsed = parseInt(clean, 10);
-                                  if (!isNaN(parsed)) totalWorkingMinutes += parsed;
+                                  if (!isNaN(parsed))
+                                    totalWorkingMinutes += parsed;
                                 }
                               }
                               break;
@@ -3032,20 +3466,26 @@ export default function ManagerDashboard({
                         });
 
                         const formatMins = (totalMinutes: number): string => {
-                          if (totalMinutes <= 0) return '-';
+                          if (totalMinutes <= 0) return "-";
                           const hrs = Math.floor(totalMinutes / 60);
                           const mins = totalMinutes % 60;
-                          return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                          return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
                         };
 
                         return (
                           <tr className="bg-slate-50 font-bold border-t border-slate-200 text-slate-800">
-                            <td className="p-3 border-r border-slate-150">Total</td>
+                            <td className="p-3 border-r border-slate-150">
+                              Total
+                            </td>
                             <td className="p-3 border-r border-slate-150"></td>
                             <td className="p-3 border-r border-slate-150"></td>
-                            <td className="p-3 border-r border-slate-150 font-mono">{formatMins(totalLateMinutes)}</td>
+                            <td className="p-3 border-r border-slate-150 font-mono">
+                              {formatMins(totalLateMinutes)}
+                            </td>
                             <td className="p-3 border-r border-slate-150"></td>
-                            <td className="p-3 border-r border-slate-150 font-mono">{formatMins(totalWorkingMinutes)}</td>
+                            <td className="p-3 border-r border-slate-150 font-mono">
+                              {formatMins(totalWorkingMinutes)}
+                            </td>
                             <td className="p-3 border-r border-slate-150"></td>
                             <td className="p-3 font-mono text-slate-400">-</td>
                           </tr>
@@ -3076,9 +3516,7 @@ export default function ManagerDashboard({
                   <Calendar className="w-5.5 h-5.5 text-indigo-600" />
                   Publish Attendance Reports
                 </h2>
-                <p className="text-xs text-slate-500 font-medium mb-6">
-              
-                </p>
+                <p className="text-xs text-slate-500 font-medium mb-6"></p>
 
                 <form
                   onSubmit={handleDirectPostBulkAttendance}
@@ -3121,7 +3559,7 @@ export default function ManagerDashboard({
                     <div className="p-5 bg-emerald-50/50 border border-emerald-100 rounded-2xl text-emerald-800 text-xs font-medium whitespace-pre-line">
                       <h4 className="font-extrabold text-emerald-900 mb-2 flex items-center gap-1.5 uppercase tracking-wider">
                         <Check className="w-4 h-4 text-emerald-600" />
-                      Import Successfully (Import Summary)
+                        Import Successfully (Import Summary)
                       </h4>
                       {importSummary}
                     </div>
@@ -3133,7 +3571,7 @@ export default function ManagerDashboard({
                       className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-2"
                     >
                       <CheckCircle className="w-4 h-4" />
-                     Publish Attendance Report
+                      Publish Attendance Report
                     </button>
                   </div>
                 </form>
@@ -3449,8 +3887,12 @@ export default function ManagerDashboard({
                           return false;
 
                         const effectiveStatus = getEffectiveStatus(attendee);
-                        const matchesStatus = attendanceViewerStatus === "All" || effectiveStatus === attendanceViewerStatus;
-                        const matchesCampus = attendanceViewerCampus === "All" || attendee.campus === attendanceViewerCampus;
+                        const matchesStatus =
+                          attendanceViewerStatus === "All" ||
+                          effectiveStatus === attendanceViewerStatus;
+                        const matchesCampus =
+                          attendanceViewerCampus === "All" ||
+                          attendee.campus === attendanceViewerCampus;
                         return matchesPin && matchesStatus && matchesCampus;
                       })
                       .sort((a, b) =>
@@ -3482,11 +3924,15 @@ export default function ManagerDashboard({
                               {attendee.memberPin}
                             </td>
                             <td className="p-4 text-xs font-semibold text-slate-800">
-                                <span>
-                                  {(attendee.memberName ||
-                                    member?.name ||
-                                    "Unknown").split('(')[0].trim()}
-                                </span>
+                              <span>
+                                {(
+                                  attendee.memberName ||
+                                  member?.name ||
+                                  "Unknown"
+                                )
+                                  .split("(")[0]
+                                  .trim()}
+                              </span>
                             </td>
                             <td className="p-4 text-xs font-mono text-slate-600">
                               {attendee.checkInTime || "-"}
@@ -3499,7 +3945,8 @@ export default function ManagerDashboard({
                                 <span className="text-amber-700 font-bold">
                                   {attendee.lateEntry}
                                 </span>
-                              ) : (effectiveStatus === "Late" || effectiveStatus === "Late Entry") ? (
+                              ) : effectiveStatus === "Late" ||
+                                effectiveStatus === "Late Entry" ? (
                                 <span className="text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 text-[10px]">
                                   Late Entry
                                 </span>
@@ -3533,42 +3980,62 @@ export default function ManagerDashboard({
                             </td>
                             <td
                               className="p-4 text-xs text-slate-600 max-w-[350px]"
-                              title={`${attendee.remarks || ""} ${attendee.notes || ""}`.trim() || "-"}
+                              title={
+                                `${attendee.remarks || ""} ${attendee.notes || ""}`.trim() ||
+                                "-"
+                              }
                             >
                               <div className="flex flex-wrap gap-1 text-[11px] text-slate-600 w-full">
-                                {Array.from(new Set(
-                                  `${attendee.remarks || ""} ${attendee.notes || ""}`
-                                  .replace(/\u00a0/g, " ")
-                                  .split(/\s*\|\s*|(?=\b(?:IN|OUT):)/i)
-                                  .map(p => p.trim())
-                                  .filter(Boolean)
-                                )).map((trimmed, index) => {
+                                {Array.from(
+                                  new Set(
+                                    `${attendee.remarks || ""} ${attendee.notes || ""}`
+                                      .replace(/\u00a0/g, " ")
+                                      .split(/\s*\|\s*|(?=\b(?:IN|OUT):)/i)
+                                      .map((p) => p.trim())
+                                      .filter(Boolean),
+                                  ),
+                                ).map((trimmed, index) => {
                                   const isIn = /^IN:/i.test(trimmed);
                                   const isOut = /^OUT:/i.test(trimmed);
-                                  const isFingerPunchMissing = /Finger Punch Missing/i.test(trimmed);
-                                  const cleanText = trimmed.replace(/^(IN|OUT):/i, "").trim().replace(/।/g, '');
-                                  
-                                  if (!cleanText && (isIn || isOut)) return null;
+                                  const isFingerPunchMissing =
+                                    /Finger Punch Missing/i.test(trimmed);
+                                  const cleanText = trimmed
+                                    .replace(/^(IN|OUT):/i, "")
+                                    .trim()
+                                    .replace(/।/g, "");
+
+                                  if (!cleanText && (isIn || isOut))
+                                    return null;
 
                                   return (
-                                    <div 
-                                      key={`${cleanText}-${index}`} 
+                                    <div
+                                      key={`${cleanText}-${index}`}
                                       className={`flex items-start gap-1 px-1.5 py-0.5 rounded border ${
-                                        isFingerPunchMissing 
-                                          ? "bg-red-50 text-red-700 border-red-100 font-medium" 
+                                        isFingerPunchMissing
+                                          ? "bg-red-50 text-red-700 border-red-100 font-medium"
                                           : "bg-slate-50/50 text-slate-600 border-slate-100/50"
                                       }`}
                                     >
-                                      {isIn && <span className="font-bold text-blue-600 shrink-0 text-[9px] uppercase">IN:</span>}
-                                      {isOut && <span className="font-bold text-amber-600 shrink-0 text-[9px] uppercase">OUT:</span>}
-                                      <span className="leading-tight">{cleanText}</span>
+                                      {isIn && (
+                                        <span className="font-bold text-blue-600 shrink-0 text-[9px] uppercase">
+                                          IN:
+                                        </span>
+                                      )}
+                                      {isOut && (
+                                        <span className="font-bold text-amber-600 shrink-0 text-[9px] uppercase">
+                                          OUT:
+                                        </span>
+                                      )}
+                                      <span className="leading-tight">
+                                        {cleanText}
+                                      </span>
                                     </div>
                                   );
                                 })}
                               </div>
                             </td>
                             <td className="p-4 text-xs font-bold text-slate-800">
-                                {renderStatusBadge(getEffectiveStatus(attendee))}
+                              {renderStatusBadge(getEffectiveStatus(attendee))}
                             </td>
                             <td className="p-4 text-right">
                               <div className="flex items-center justify-end gap-2.5">
@@ -3853,7 +4320,11 @@ export default function ManagerDashboard({
                         <textarea
                           rows={2}
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          value={editingRecord.record.remarks || editingRecord.record.notes || ""}
+                          value={
+                            editingRecord.record.remarks ||
+                            editingRecord.record.notes ||
+                            ""
+                          }
                           onChange={(e) =>
                             setEditingRecord((prev) =>
                               prev
@@ -4144,7 +4615,11 @@ export default function ManagerDashboard({
                         <textarea
                           rows={2}
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          value={addingRecord.record.remarks || addingRecord.record.notes || ""}
+                          value={
+                            addingRecord.record.remarks ||
+                            addingRecord.record.notes ||
+                            ""
+                          }
                           onChange={(e) =>
                             setAddingRecord((prev) =>
                               prev
@@ -4254,7 +4729,7 @@ export default function ManagerDashboard({
                           (m) => m.pin === member.mentorPin,
                         );
                         return (
-                          <tr 
+                          <tr
                             key={member.pin}
                             onClick={() => {
                               navigate(`/attendance/${member.pin}`);
@@ -4269,14 +4744,18 @@ export default function ManagerDashboard({
                             </td>
                             <td className="p-4 text-xs font-semibold text-slate-800">
                               <div className="flex flex-col">
-                                <span className="font-extrabold text-slate-900">{member.name}</span>
+                                <span className="font-extrabold text-slate-900">
+                                  {member.name}
+                                </span>
                               </div>
                             </td>
                             <td className="p-4 text-xs font-medium text-slate-600">
                               {member.campus}
                             </td>
                             <td className="p-4 text-xs font-medium text-slate-600">
-                              {coordinator ? `${coordinator.name} (${coordinator.pin})` : "Unassigned"}
+                              {coordinator
+                                ? `${coordinator.name} (${coordinator.pin})`
+                                : "Unassigned"}
                             </td>
                           </tr>
                         );
@@ -4407,10 +4886,17 @@ export default function ManagerDashboard({
                                   </span>
                                   <span className="font-bold text-slate-800">
                                     {(() => {
-                                      const m = [...managers, ...mentors, ...members].find(
-                                        (x) => x.pin === campus.headCoordinatorPin,
+                                      const m = [
+                                        ...managers,
+                                        ...mentors,
+                                        ...members,
+                                      ].find(
+                                        (x) =>
+                                          x.pin === campus.headCoordinatorPin,
                                       );
-                                      return m ? `${m.name} (${m.pin})` : campus.headCoordinatorPin;
+                                      return m
+                                        ? `${m.name} (${m.pin})`
+                                        : campus.headCoordinatorPin;
                                     })()}
                                   </span>
                                 </div>
@@ -4423,10 +4909,18 @@ export default function ManagerDashboard({
                                     </span>
                                     <span className="font-bold text-slate-800">
                                       {(() => {
-                                        const m = [...managers, ...mentors, ...members].find(
-                                          (x) => x.pin === campus.coordinatorPins![0],
+                                        const m = [
+                                          ...managers,
+                                          ...mentors,
+                                          ...members,
+                                        ].find(
+                                          (x) =>
+                                            x.pin ===
+                                            campus.coordinatorPins![0],
                                         );
-                                        return m ? `${m.name} (${m.pin})` : campus.coordinatorPins![0];
+                                        return m
+                                          ? `${m.name} (${m.pin})`
+                                          : campus.coordinatorPins![0];
                                       })()}
                                     </span>
                                   </div>
@@ -4446,7 +4940,9 @@ export default function ManagerDashboard({
                                             ...mentors,
                                             ...members,
                                           ].find((m) => m.pin === pin);
-                                          return person ? `${person.name} (${person.pin})` : pin;
+                                          return person
+                                            ? `${person.name} (${person.pin})`
+                                            : pin;
                                         })
                                         .join(", ")}
                                     </div>
@@ -4518,8 +5014,8 @@ export default function ManagerDashboard({
                   Roster Feedback Tickets
                 </h2>
                 <p className="text-xs text-slate-500 font-medium mt-1">
-                  Resolve review requests and provide comments for late or absent
-                  reports sent by campus coordinators and members.
+                  Resolve review requests and provide comments for late or
+                  absent reports sent by campus coordinators and members.
                 </p>
               </div>
 
@@ -4531,7 +5027,8 @@ export default function ManagerDashboard({
                       All clear! No feedbacks posted yet
                     </p>
                     <p className="text-xs text-slate-400 mt-1 font-medium">
-                      No team member or campus coordinator has filed a complaint.
+                      No team member or campus coordinator has filed a
+                      complaint.
                     </p>
                   </div>
                 ) : (
@@ -4562,9 +5059,7 @@ export default function ManagerDashboard({
                                 : "bg-green-50 text-green-700 border border-green-150"
                             }`}
                           >
-                            {fb.status === "Pending"
-                              ? "Pending"
-                              : "Resolved"}
+                            {fb.status === "Pending" ? "Pending" : "Resolved"}
                           </span>
                         </div>
 
@@ -4574,9 +5069,7 @@ export default function ManagerDashboard({
                               Attendance Date:
                             </strong>{" "}
                             {fb.date} •{" "}
-                            <strong className="text-slate-700">
-                              Campus:
-                            </strong>{" "}
+                            <strong className="text-slate-700">Campus:</strong>{" "}
                             {
                               members.find((m) => m.pin === fb.memberPin)
                                 ?.campus
@@ -4610,22 +5103,14 @@ export default function ManagerDashboard({
                                   }
                                   className="w-full px-3 py-2 border border-slate-200 bg-white rounded-lg text-xs font-bold"
                                 >
-                                  <option value="Present">
-                                    Present
-                                  </option>
-                                  <option value="Leave">
-                                    Leave
-                                  </option>
+                                  <option value="Present">Present</option>
+                                  <option value="Leave">Leave</option>
                                   <option value="Finger Punch Missing">
                                     Punch Missing
                                   </option>
                                   <option value="Late Entry">Late Entry</option>
-                                  <option value="Half Day">
-                                    Half Day
-                                  </option>
-                                  <option value="Absent">
-                                    Absent
-                                  </option>
+                                  <option value="Half Day">Half Day</option>
+                                  <option value="Absent">Absent</option>
                                 </select>
                               </div>
                               <div>
@@ -4724,9 +5209,7 @@ export default function ManagerDashboard({
                               ) as any[];
 
                               if (data.length === 0) {
-                                toast.error(
-                                  "No data found in Excel file!",
-                                );
+                                toast.error("No data found in Excel file!");
                                 return;
                               }
 
@@ -4752,7 +5235,9 @@ export default function ManagerDashboard({
                                 const coordinatorName = String(
                                   row.coordinator || row.mentor || "",
                                 ).trim();
-                                const designation = String(row.designation || row.title || "").trim();
+                                const designation = String(
+                                  row.designation || row.title || "",
+                                ).trim();
 
                                 if (pin && name && email && campusName) {
                                   // Find a mentor for this campus
@@ -4790,7 +5275,7 @@ export default function ManagerDashboard({
                                     permissions: [
                                       "member_attendance",
                                       "member_notices",
-                                      "member_post_notice"
+                                      "member_post_notice",
                                     ],
                                     avatarUrl: "",
                                   });
@@ -4803,9 +5288,7 @@ export default function ManagerDashboard({
                               );
                             } catch (err) {
                               console.error(err);
-                              toast.error(
-                                "Error processing Excel file!",
-                              );
+                              toast.error("Error processing Excel file!");
                             }
                           };
                           reader.readAsArrayBuffer(file);
@@ -4846,7 +5329,7 @@ export default function ManagerDashboard({
                             permissions: [
                               "member_attendance",
                               "member_notices",
-                              "member_post_notice"
+                              "member_post_notice",
                             ],
                             avatarUrl: "",
                             role: "member",
@@ -4907,10 +5390,12 @@ export default function ManagerDashboard({
                       </option>
                     ))}
                   </select>
-                  
+
                   {/* Unassigned Only Toggle */}
                   <button
-                    onClick={() => setRosterUnassignedOnly(!rosterUnassignedOnly)}
+                    onClick={() =>
+                      setRosterUnassignedOnly(!rosterUnassignedOnly)
+                    }
                     className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 h-[42px] ${
                       rosterUnassignedOnly
                         ? "bg-rose-50 text-rose-700 border-rose-200 ring-4 ring-rose-500/10"
@@ -4920,7 +5405,7 @@ export default function ManagerDashboard({
                     <Users className="w-3.5 h-3.5" />
                     {rosterUnassignedOnly ? "Unassigned Only" : "Show All"}
                   </button>
-                  
+
                   {/* Bulk Toggle Controls */}
                   <div className="flex items-center gap-2">
                     <input
@@ -4932,12 +5417,19 @@ export default function ManagerDashboard({
                     />
                     <button
                       onClick={() => {
-                        const pins = bulkPinInput.split(',').map(p => p.trim());
-                        pins.forEach(pin => {
-                          const user = members.find(m => m.pin === pin) || mentors.find(m => m.pin === pin);
+                        const pins = bulkPinInput
+                          .split(",")
+                          .map((p) => p.trim());
+                        pins.forEach((pin) => {
+                          const user =
+                            members.find((m) => m.pin === pin) ||
+                            mentors.find((m) => m.pin === pin);
                           if (user) {
-                            const updatedUser = { ...user, isActive: !user.isActive };
-                            if (user.role === 'mentor') {
+                            const updatedUser = {
+                              ...user,
+                              isActive: !user.isActive,
+                            };
+                            if (user.role === "mentor") {
                               onUpdateMentor(pin, updatedUser as Mentor);
                             } else {
                               onUpdateMember(pin, updatedUser as TeamMember);
@@ -5029,7 +5521,9 @@ export default function ManagerDashboard({
                           )
                             return false;
 
-                          return matchesSearch && matchesCampus && matchesUnassigned;
+                          return (
+                            matchesSearch && matchesCampus && matchesUnassigned
+                          );
                         })
                         .sort((a, b) =>
                           a.pin.localeCompare(b.pin, undefined, {
@@ -5071,13 +5565,15 @@ export default function ManagerDashboard({
                                         </span>
                                       )}
                                       {!member.isBoth &&
-                                        member.role === "mentor" && !member.designation && (
+                                        member.role === "mentor" &&
+                                        !member.designation && (
                                           <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-1 py-0.5 rounded uppercase font-black">
                                             Campus Coordinator
                                           </span>
                                         )}
                                       {!member.isBoth &&
-                                        member.role === "member" && !member.designation && (
+                                        member.role === "member" &&
+                                        !member.designation && (
                                           <span className="text-[8px] bg-slate-50 text-slate-500 border border-slate-200 px-1 py-0.5 rounded uppercase font-black">
                                             Team Member
                                           </span>
@@ -5089,7 +5585,7 @@ export default function ManagerDashboard({
                                   </div>
                                 </div>
                               </td>
-                               <td className="p-4 text-xs font-mono font-bold text-slate-700">
+                              <td className="p-4 text-xs font-mono font-bold text-slate-700">
                                 <div className="flex items-center gap-2">
                                   {member.pin}
                                 </div>
@@ -5154,17 +5650,21 @@ export default function ManagerDashboard({
                                           campuses[0]?.name ||
                                           "",
                                         mentorPin: member.mentorPin || "",
-                                        permissions: member.permissions || (member.role === 'mentor' ? [
-                                          "mentor_attendance",
-                                          "mentor_notices",
-                                          "mentor_history",
-                                          "mentor_leave",
-                                          "mentor_post_notice"
-                                        ] : [
-                                          "member_attendance",
-                                          "member_notices",
-                                          "member_post_notice"
-                                        ]),
+                                        permissions:
+                                          member.permissions ||
+                                          (member.role === "mentor"
+                                            ? [
+                                                "mentor_attendance",
+                                                "mentor_notices",
+                                                "mentor_history",
+                                                "mentor_leave",
+                                                "mentor_post_notice",
+                                              ]
+                                            : [
+                                                "member_attendance",
+                                                "member_notices",
+                                                "member_post_notice",
+                                              ]),
                                         avatarUrl: member.avatarUrl || "",
                                         role: member.role || "member",
                                       });
@@ -5177,16 +5677,27 @@ export default function ManagerDashboard({
                                   </button>
                                   <button
                                     onClick={() => {
-                                      const updatedUser = { ...member, isActive: !member.isActive };
-                                      if (member.role === 'mentor') {
-                                        onUpdateMentor(member.pin, updatedUser as Mentor);
+                                      const updatedUser = {
+                                        ...member,
+                                        isActive: !member.isActive,
+                                      };
+                                      if (member.role === "mentor") {
+                                        onUpdateMentor(
+                                          member.pin,
+                                          updatedUser as Mentor,
+                                        );
                                       } else {
-                                        onUpdateMember(member.pin, updatedUser as TeamMember);
+                                        onUpdateMember(
+                                          member.pin,
+                                          updatedUser as TeamMember,
+                                        );
                                       }
                                     }}
-                                    className={`w-8 h-4 rounded-full transition-colors flex items-center p-0.5 ${member.isActive === false ? 'bg-slate-300' : 'bg-indigo-600'}`}
+                                    className={`w-8 h-4 rounded-full transition-colors flex items-center p-0.5 ${member.isActive === false ? "bg-slate-300" : "bg-indigo-600"}`}
                                   >
-                                    <div className={`w-3 h-3 bg-white rounded-full transition-transform ${member.isActive === false ? '' : 'translate-x-4'}`} />
+                                    <div
+                                      className={`w-3 h-3 bg-white rounded-full transition-transform ${member.isActive === false ? "" : "translate-x-4"}`}
+                                    />
                                   </button>
                                   <button
                                     type="button"
@@ -5225,7 +5736,8 @@ export default function ManagerDashboard({
                           Excel Import Guide
                         </h3>
                         <p className="text-xs text-slate-500 font-medium">
-                          Guide on how to add many members or coordinators at once.
+                          Guide on how to add many members or coordinators at
+                          once.
                         </p>
                       </div>
                       <button
@@ -5242,44 +5754,32 @@ export default function ManagerDashboard({
                           1. Excel File Format (Columns):
                         </span>
                         <p className="text-xs text-emerald-800 mb-2">
-                                                 The first line of your Excel sheet must contain the following
-                          headers (exact spelling is required):
+                          The first line of your Excel sheet must contain the
+                          following headers (exact spelling is required):
                         </p>
                         <ul className="list-disc list-inside font-bold text-slate-700 space-y-1 text-xs pl-1">
                           <li>
                             PIN{" "}
-                            <span className="font-normal text-slate-500">
-                           
-                            </span>
+                            <span className="font-normal text-slate-500"></span>
                           </li>
                           <li>
                             Name{" "}
-                            <span className="font-normal text-slate-500">
-                             
-                            </span>
+                            <span className="font-normal text-slate-500"></span>
                           </li>
                           <li>
                             Email{" "}
-                            <span className="font-normal text-slate-500">
-                             
-                            </span>
+                            <span className="font-normal text-slate-500"></span>
                           </li>
                           <li>
                             Campus{" "}
-                            <span className="font-normal text-slate-500">
-                        
-                            </span>
+                            <span className="font-normal text-slate-500"></span>
                           </li>
                           <li>
                             Designation{" "}
-                            <span className="font-normal text-slate-500">
-                          
-                            </span>
+                            <span className="font-normal text-slate-500"></span>
                           </li>
-                         
                         </ul>
                       </div>
-                     
                     </div>
 
                     <div className="mt-6 flex justify-end">
@@ -5479,7 +5979,7 @@ export default function ManagerDashboard({
                                   key={`mgr-option-${m.pin}`}
                                   value={m.pin}
                                 >
-                                  {m.name} 
+                                  {m.name}
                                 </option>
                               ))}
                               {/* coordinators assigned to this campus */}
@@ -5512,7 +6012,7 @@ export default function ManagerDashboard({
                                 if (file) {
                                   if (file.size > 200 * 1024) {
                                     toast.error(
-                                      "Image size cannot exceed 200 KB."
+                                      "Image size cannot exceed 200 KB.",
                                     );
                                     return;
                                   }
@@ -5543,7 +6043,7 @@ export default function ManagerDashboard({
                                   if (file) {
                                     if (file.size > 200 * 1024) {
                                       toast.error(
-                                        "Image size cannot exceed 200 KB."
+                                        "Image size cannot exceed 200 KB.",
                                       );
                                       return;
                                     }
@@ -5609,35 +6109,177 @@ export default function ManagerDashboard({
                             <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">
                               Configure Menu Permissions
                             </label>
-                            
-                            {memberForm.role === 'mentor' ? (
+
+                            {memberForm.role === "mentor" ? (
                               <div className="space-y-3">
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_attendance")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_attendance"] : prev.permissions.filter((p) => p !== "mentor_attendance") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "mentor_attendance",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "mentor_attendance",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) => p !== "mentor_attendance",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   View Team Attendance
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_leave")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_leave"] : prev.permissions.filter((p) => p !== "mentor_leave") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "mentor_leave",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "mentor_leave",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) => p !== "mentor_leave",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   Manage Leave Requests
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_history")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_history"] : prev.permissions.filter((p) => p !== "mentor_history") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "mentor_history",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "mentor_history",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) => p !== "mentor_history",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   Manage Adjustments
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_notices")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_notices"] : prev.permissions.filter((p) => p !== "mentor_notices") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "mentor_notices",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "mentor_notices",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) => p !== "mentor_notices",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   View Notice Board
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("mentor_post_notice")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "mentor_post_notice"] : prev.permissions.filter((p) => p !== "mentor_post_notice") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "mentor_post_notice",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "mentor_post_notice",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) => p !== "mentor_post_notice",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   Post Notices
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("manage_campus_settings")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "manage_campus_settings"] : prev.permissions.filter((p) => p !== "manage_campus_settings") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "manage_campus_settings",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "manage_campus_settings",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) =>
+                                                p !== "manage_campus_settings",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   Manage Campus Settings
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input type="checkbox" checked={memberForm.permissions.includes("can_upload_call_info")} onChange={(e) => { const checked = e.target.checked; setMemberForm((prev) => ({ ...prev, permissions: checked ? [...prev.permissions, "can_upload_call_info"] : prev.permissions.filter((p) => p !== "can_upload_call_info") })); }} className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4" />
+                                  <input
+                                    type="checkbox"
+                                    checked={memberForm.permissions.includes(
+                                      "can_upload_call_info",
+                                    )}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        permissions: checked
+                                          ? [
+                                              ...prev.permissions,
+                                              "can_upload_call_info",
+                                            ]
+                                          : prev.permissions.filter(
+                                              (p) =>
+                                                p !== "can_upload_call_info",
+                                            ),
+                                      }));
+                                    }}
+                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
+                                  />
                                   Allow Student Info Upload
                                 </label>
                               </div>
@@ -5713,7 +6355,7 @@ export default function ManagerDashboard({
                                     }}
                                     className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
                                   />
-                                  Post Notices 
+                                  Post Notices
                                 </label>
                                 <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
                                   <input
@@ -5731,7 +6373,8 @@ export default function ManagerDashboard({
                                               "manage_campus_settings",
                                             ]
                                           : prev.permissions.filter(
-                                              (p) => p !== "manage_campus_settings",
+                                              (p) =>
+                                                p !== "manage_campus_settings",
                                             ),
                                       }));
                                     }}
@@ -5755,7 +6398,8 @@ export default function ManagerDashboard({
                                               "can_upload_call_info",
                                             ]
                                           : prev.permissions.filter(
-                                              (p) => p !== "can_upload_call_info",
+                                              (p) =>
+                                                p !== "can_upload_call_info",
                                             ),
                                       }));
                                     }}
@@ -5824,9 +6468,7 @@ export default function ManagerDashboard({
                   <Shield className="w-5 h-5 text-indigo-600" />
                   Profile Verification Requests
                 </h2>
-                <p className="text-xs text-slate-500 font-medium mt-1">
-               
-                </p>
+                <p className="text-xs text-slate-500 font-medium mt-1"></p>
               </div>
 
               <div className="space-y-4">
@@ -5835,12 +6477,9 @@ export default function ManagerDashboard({
                   <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-slate-400">
                     <CheckCircle className="w-12 h-12 text-emerald-500/80 mx-auto mb-3" />
                     <p className="text-sm font-bold text-slate-600">
-                      No pending verification
-                      requests
+                      No pending verification requests
                     </p>
-                    <p className="text-xs text-slate-400 mt-1 font-medium">
-                      
-                    </p>
+                    <p className="text-xs text-slate-400 mt-1 font-medium"></p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
@@ -5920,9 +6559,7 @@ export default function ManagerDashboard({
                             <button
                               onClick={() => {
                                 onRejectProfileRequest(request.pin);
-                                toast.success(
-                                  "Request has been rejected.",
-                                );
+                                toast.success("Request has been rejected.");
                               }}
                               className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 text-xs font-bold rounded-xl cursor-pointer transition-colors whitespace-nowrap"
                             >
@@ -5948,14 +6585,12 @@ export default function ManagerDashboard({
               {/* History of approved / rejected requests */}
               <div className="border-t border-slate-100 pt-6">
                 <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider mb-4">
-              Request History
+                  Request History
                 </h3>
                 <div className="space-y-3">
                   {profileRequests.filter((r) => r.status !== "Pending")
                     .length === 0 ? (
-                    <p className="text-xs text-slate-400 font-medium italic">
-                   
-                    </p>
+                    <p className="text-xs text-slate-400 font-medium italic"></p>
                   ) : (
                     profileRequests
                       .filter((r) => r.status !== "Pending")
@@ -6015,9 +6650,7 @@ export default function ManagerDashboard({
                     <Edit3 className="w-5.5 h-5.5 text-indigo-600" />
                     Attendance Adjustments
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                  
-                  </p>
+                  <p className="text-xs text-slate-400 mt-1"></p>
                 </div>
 
                 {/* Quick Metrics */}
@@ -6077,7 +6710,9 @@ export default function ManagerDashboard({
                       <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                       <select
                         value={attendanceEditStatusFilter}
-                        onChange={(e) => setAttendanceEditStatusFilter(e.target.value)}
+                        onChange={(e) =>
+                          setAttendanceEditStatusFilter(e.target.value)
+                        }
                         className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer shadow-3xs"
                       >
                         <option value="All">All Status</option>
@@ -6091,22 +6726,37 @@ export default function ManagerDashboard({
                       <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                       <select
                         value={attendanceEditMonthFilter}
-                        onChange={(e) => setAttendanceEditMonthFilter(e.target.value)}
+                        onChange={(e) =>
+                          setAttendanceEditMonthFilter(e.target.value)
+                        }
                         className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer shadow-3xs"
                       >
                         <option value="All">All Months</option>
                         {(() => {
-                          const months = new Set(attendanceEditRequests.filter(r => r.date).map(r => r.date.substring(0, 7)));
-                          const currentMonth = new Date().toISOString().substring(0, 7);
+                          const months = new Set(
+                            attendanceEditRequests
+                              .filter((r) => r.date)
+                              .map((r) => r.date.substring(0, 7)),
+                          );
+                          const currentMonth = new Date()
+                            .toISOString()
+                            .substring(0, 7);
                           months.add(currentMonth);
                           return Array.from(months)
                             .sort((a, b) => b.localeCompare(a))
-                            .map(ym => {
-                              const [year, month] = ym.split('-');
-                              const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                            .map((ym) => {
+                              const [year, month] = ym.split("-");
+                              const date = new Date(
+                                parseInt(year),
+                                parseInt(month) - 1,
+                                1,
+                              );
                               return (
                                 <option key={ym} value={ym}>
-                                  {date.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                                  {date.toLocaleString("en-US", {
+                                    month: "long",
+                                    year: "numeric",
+                                  })}
                                 </option>
                               );
                             });
@@ -6144,21 +6794,34 @@ export default function ManagerDashboard({
                               {selectedEditReqPins.length}
                             </div>
                             <div>
-                              <p className="text-xs font-black text-indigo-950 uppercase tracking-tight">Bulk Actions Selected</p>
-                              <p className="text-[10px] font-bold text-indigo-400">Update {selectedEditReqPins.length} attendance edit requests in bulk</p>
+                              <p className="text-xs font-black text-indigo-950 uppercase tracking-tight">
+                                Bulk Actions Selected
+                              </p>
+                              <p className="text-[10px] font-bold text-indigo-400">
+                                Update {selectedEditReqPins.length} attendance
+                                edit requests in bulk
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => {
                                 selectedEditReqPins.forEach((pin) => {
-                                  const req = attendanceEditRequests.find((r) => r.pin === pin);
+                                  const req = attendanceEditRequests.find(
+                                    (r) => r.pin === pin,
+                                  );
                                   if (req) {
-                                    onResolveAttendanceEditRequest(req.pin, "Approved", req.managerComment || "");
+                                    onResolveAttendanceEditRequest(
+                                      req.pin,
+                                      "Approved",
+                                      req.managerComment || "",
+                                    );
                                   }
                                 });
                                 setSelectedEditReqPins([]);
-                                toast.success(`Successfully approved ${selectedEditReqPins.length} requests!`);
+                                toast.success(
+                                  `Successfully approved ${selectedEditReqPins.length} requests!`,
+                                );
                               }}
                               className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2 shadow-sm"
                             >
@@ -6168,10 +6831,16 @@ export default function ManagerDashboard({
                             <button
                               onClick={() => {
                                 selectedEditReqPins.forEach((pin) => {
-                                  onResolveAttendanceEditRequest(pin, "Pending", "");
+                                  onResolveAttendanceEditRequest(
+                                    pin,
+                                    "Pending",
+                                    "",
+                                  );
                                 });
                                 setSelectedEditReqPins([]);
-                                toast.success(`Successfully set ${selectedEditReqPins.length} requests to Pending!`);
+                                toast.success(
+                                  `Successfully set ${selectedEditReqPins.length} requests to Pending!`,
+                                );
                               }}
                               className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-all flex items-center gap-2 shadow-sm"
                             >
@@ -6181,13 +6850,21 @@ export default function ManagerDashboard({
                             <button
                               onClick={() => {
                                 selectedEditReqPins.forEach((pin) => {
-                                  const req = attendanceEditRequests.find((r) => r.pin === pin);
+                                  const req = attendanceEditRequests.find(
+                                    (r) => r.pin === pin,
+                                  );
                                   if (req) {
-                                    onResolveAttendanceEditRequest(req.pin, "Rejected", req.managerComment || "");
+                                    onResolveAttendanceEditRequest(
+                                      req.pin,
+                                      "Rejected",
+                                      req.managerComment || "",
+                                    );
                                   }
                                 });
                                 setSelectedEditReqPins([]);
-                                toast.success(`Successfully rejected ${selectedEditReqPins.length} requests!`);
+                                toast.success(
+                                  `Successfully rejected ${selectedEditReqPins.length} requests!`,
+                                );
                               }}
                               className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-all flex items-center gap-2 shadow-sm"
                             >
@@ -6214,13 +6891,16 @@ export default function ManagerDashboard({
                                   type="checkbox"
                                   checked={
                                     filteredAttendanceEditRequests.length > 0 &&
-                                    filteredAttendanceEditRequests
-                                      .every(r => selectedEditReqPins.includes(r.pin))
+                                    filteredAttendanceEditRequests.every((r) =>
+                                      selectedEditReqPins.includes(r.pin),
+                                    )
                                   }
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      const allFilteredPins = filteredAttendanceEditRequests
-                                        .map(r => r.pin);
+                                      const allFilteredPins =
+                                        filteredAttendanceEditRequests.map(
+                                          (r) => r.pin,
+                                        );
                                       setSelectedEditReqPins(allFilteredPins);
                                     } else {
                                       setSelectedEditReqPins([]);
@@ -6265,202 +6945,247 @@ export default function ManagerDashboard({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-150 bg-white">
-                            {filteredAttendanceEditRequests.map((req, index) => {
-                              const report = reports.find(
-                                (r) => r.pin === req.reportPin,
-                              );
-                              const record = report?.records.find(
-                                (rec) => rec.memberPin === req.memberPin,
-                              );
-                              const inTime = record?.checkInTime || "--:--";
-                              const outTime = record?.checkOutTime || "--:--";
-                              const memberCampus =
-                                members.find((m) => m.pin === req.memberPin)?.campus || "N/A";
+                            {filteredAttendanceEditRequests.map(
+                              (req, index) => {
+                                const report = reports.find(
+                                  (r) => r.pin === req.reportPin,
+                                );
+                                const record = report?.records.find(
+                                  (rec) => rec.memberPin === req.memberPin,
+                                );
+                                const inTime = record?.checkInTime || "--:--";
+                                const outTime = record?.checkOutTime || "--:--";
+                                const memberCampus =
+                                  members.find((m) => m.pin === req.memberPin)
+                                    ?.campus || "N/A";
 
-                              return (
-                                <tr
-                                  key={req.pin}
-                                  className={`hover:bg-[#f1f3f4]/80 transition-colors ${
-                                    req.status === "Pending"
-                                      ? "bg-amber-50/20"
-                                      : ""
-                                  }`}
-                                >
-                                  <td className="p-2 text-center border border-[#e0e0e0]">
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedEditReqPins.includes(req.pin)}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setSelectedEditReqPins(prev => [...prev, req.pin]);
-                                        } else {
-                                          setSelectedEditReqPins(prev => prev.filter(pin => pin !== req.pin));
-                                        }
-                                      }}
-                                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center text-[11px] font-bold text-slate-400 font-mono border border-[#e0e0e0]">
-                                    {index + 1}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-mono font-bold text-slate-700 border border-[#e0e0e0]">
-                                    {req.memberPin}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-semibold text-slate-800 border border-[#e0e0e0]">
-                                    {req.memberName}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
-                                    {req.date}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-mono border border-[#e0e0e0]">
-                                    <div className="flex flex-col gap-0.5">
-                                      <span className={req.requestedCheckIn ? "line-through text-slate-400 font-medium" : "font-semibold text-slate-600"}>
-                                        {inTime}
-                                      </span>
-                                      {req.requestedCheckIn && (
-                                        <span className="text-indigo-600 font-extrabold text-[10px] bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 rounded max-w-max mt-0.5">
-                                          {req.requestedCheckIn}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="p-2 text-[11px] font-mono border border-[#e0e0e0]">
-                                    <div className="flex flex-col gap-0.5">
-                                      <span className={req.requestedCheckOut ? "line-through text-slate-400 font-medium" : "font-semibold text-slate-600"}>
-                                        {outTime}
-                                      </span>
-                                      {req.requestedCheckOut && (
-                                        <span className="text-indigo-600 font-extrabold text-[10px] bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 rounded max-w-max mt-0.5">
-                                          {req.requestedCheckOut}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="p-2 text-[11px] border border-[#e0e0e0]">
-                                    <div className="space-y-1 max-w-[280px]">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="bg-indigo-50 text-indigo-700 border border-indigo-150 px-1.5 py-0.5 rounded text-[10px] font-black">
-                                          {(!req.requestedCheckOut && !['Leave', 'Absent', 'Holiday', 'Weekend'].includes(req.requestedStatus)) ? 'Finger Punch Missing' : req.requestedStatus}
-                                        </span>
-                                      </div>
-                                      <p className="text-[11px] text-slate-600 font-medium leading-relaxed bg-slate-50/50 p-1.5 rounded-lg border border-slate-100 mt-1">
-                                        {req.reason}
-                                      </p>
-                                    </div>
-                                  </td>
-                                  <td className="p-2 text-[11px] font-medium text-slate-600 border border-[#e0e0e0]">
-                                    <span className="bg-slate-100 text-slate-700 border border-slate-200/50 px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase">
-                                      {memberCampus}
-                                    </span>
-                                  </td>
-                                  <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
-                                    <select
-                                      value={req.status}
-                                      onChange={(e) => {
-                                        const newStatus = e.target.value as
-                                          "Pending" | "Approved" | "Rejected";
-                                        onResolveAttendanceEditRequest(
+                                return (
+                                  <tr
+                                    key={req.pin}
+                                    className={`hover:bg-[#f1f3f4]/80 transition-colors ${
+                                      req.status === "Pending"
+                                        ? "bg-amber-50/20"
+                                        : ""
+                                    }`}
+                                  >
+                                    <td className="p-2 text-center border border-[#e0e0e0]">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedEditReqPins.includes(
                                           req.pin,
-                                          newStatus,
+                                        )}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedEditReqPins((prev) => [
+                                              ...prev,
+                                              req.pin,
+                                            ]);
+                                          } else {
+                                            setSelectedEditReqPins((prev) =>
+                                              prev.filter(
+                                                (pin) => pin !== req.pin,
+                                              ),
+                                            );
+                                          }
+                                        }}
+                                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                      />
+                                    </td>
+                                    <td className="p-2 text-center text-[11px] font-bold text-slate-400 font-mono border border-[#e0e0e0]">
+                                      {index + 1}
+                                    </td>
+                                    <td className="p-2 text-[11px] font-mono font-bold text-slate-700 border border-[#e0e0e0]">
+                                      {req.memberPin}
+                                    </td>
+                                    <td className="p-2 text-[11px] font-semibold text-slate-800 border border-[#e0e0e0]">
+                                      {req.memberName}
+                                    </td>
+                                    <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
+                                      {req.date}
+                                    </td>
+                                    <td className="p-2 text-[11px] font-mono border border-[#e0e0e0]">
+                                      <div className="flex flex-col gap-0.5">
+                                        <span
+                                          className={
+                                            req.requestedCheckIn
+                                              ? "line-through text-slate-400 font-medium"
+                                              : "font-semibold text-slate-600"
+                                          }
+                                        >
+                                          {inTime}
+                                        </span>
+                                        {req.requestedCheckIn && (
+                                          <span className="text-indigo-600 font-extrabold text-[10px] bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 rounded max-w-max mt-0.5">
+                                            {req.requestedCheckIn}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-2 text-[11px] font-mono border border-[#e0e0e0]">
+                                      <div className="flex flex-col gap-0.5">
+                                        <span
+                                          className={
+                                            req.requestedCheckOut
+                                              ? "line-through text-slate-400 font-medium"
+                                              : "font-semibold text-slate-600"
+                                          }
+                                        >
+                                          {outTime}
+                                        </span>
+                                        {req.requestedCheckOut && (
+                                          <span className="text-indigo-600 font-extrabold text-[10px] bg-indigo-50 border border-indigo-150 px-1.5 py-0.5 rounded max-w-max mt-0.5">
+                                            {req.requestedCheckOut}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                      <div className="space-y-1 max-w-[280px]">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="bg-indigo-50 text-indigo-700 border border-indigo-150 px-1.5 py-0.5 rounded text-[10px] font-black">
+                                            {!req.requestedCheckOut &&
+                                            ![
+                                              "Leave",
+                                              "Absent",
+                                              "Holiday",
+                                              "Weekend",
+                                            ].includes(req.requestedStatus)
+                                              ? "Finger Punch Missing"
+                                              : req.requestedStatus}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-600 font-medium leading-relaxed bg-slate-50/50 p-1.5 rounded-lg border border-slate-100 mt-1">
+                                          {req.reason}
+                                        </p>
+                                      </div>
+                                    </td>
+                                    <td className="p-2 text-[11px] font-medium text-slate-600 border border-[#e0e0e0]">
+                                      <span className="bg-slate-100 text-slate-700 border border-slate-200/50 px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase">
+                                        {memberCampus}
+                                      </span>
+                                    </td>
+                                    <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
+                                      <select
+                                        value={req.status}
+                                        onChange={(e) => {
+                                          const newStatus = e.target.value as
+                                            "Pending" | "Approved" | "Rejected";
+                                          onResolveAttendanceEditRequest(
+                                            req.pin,
+                                            newStatus,
+                                            req.managerComment !== undefined
+                                              ? req.managerComment
+                                              : editRemarks[req.pin] || "",
+                                          );
+                                        }}
+                                        className={`px-2 py-1 rounded border border-transparent hover:border-slate-300 focus:border-slate-300 focus:outline-none text-[11px] font-bold cursor-pointer transition-colors w-full uppercase ${
+                                          req.status === "Pending"
+                                            ? "bg-amber-100 text-amber-800 border-amber-200"
+                                            : req.status === "Approved"
+                                              ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                                              : "bg-rose-100 text-rose-800 border-rose-200"
+                                        }`}
+                                      >
+                                        <option value="Pending">PENDING</option>
+                                        <option value="Approved">
+                                          APPROVED
+                                        </option>
+                                        <option value="Rejected">
+                                          REJECTED
+                                        </option>
+                                      </select>
+                                    </td>
+                                    <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                      <input
+                                        type="text"
+                                        placeholder="Remarks..."
+                                        value={
                                           req.managerComment !== undefined
                                             ? req.managerComment
-                                            : editRemarks[req.pin] || "",
-                                        );
-                                      }}
-                                      className={`px-2 py-1 rounded border border-transparent hover:border-slate-300 focus:border-slate-300 focus:outline-none text-[11px] font-bold cursor-pointer transition-colors w-full uppercase ${
-                                        req.status === "Pending"
-                                          ? "bg-amber-100 text-amber-800 border-amber-200"
-                                          : req.status === "Approved"
-                                            ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                                            : "bg-rose-100 text-rose-800 border-rose-200"
-                                      }`}
-                                    >
-                                      <option value="Pending">PENDING</option>
-                                      <option value="Approved">APPROVED</option>
-                                      <option value="Rejected">REJECTED</option>
-                                    </select>
-                                  </td>
-                                  <td className="p-2 text-[11px] border border-[#e0e0e0]">
-                                    <input
-                                      type="text"
-                                      placeholder="Remarks..."
-                                      value={
-                                        req.managerComment !== undefined
-                                          ? req.managerComment
-                                          : editRemarks[req.pin] || ""
-                                      }
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        setEditRemarks((prev) => ({
-                                          ...prev,
-                                          [req.pin]: val,
-                                        }));
-                                      }}
-                                      onBlur={(e) => {
-                                        onResolveAttendanceEditRequest(
-                                          req.pin,
-                                          req.status,
-                                          e.target.value,
-                                        );
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
+                                            : editRemarks[req.pin] || ""
+                                        }
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setEditRemarks((prev) => ({
+                                            ...prev,
+                                            [req.pin]: val,
+                                          }));
+                                        }}
+                                        onBlur={(e) => {
                                           onResolveAttendanceEditRequest(
                                             req.pin,
                                             req.status,
-                                            (e.target as HTMLInputElement).value,
+                                            e.target.value,
                                           );
-                                          (e.target as HTMLInputElement).blur();
-                                          toast.success("Remarks updated!");
-                                        }
-                                      }}
-                                      className="w-full px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded text-[11px] focus:outline-none bg-transparent hover:bg-white focus:bg-white min-w-[130px] font-medium"
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center text-[11px] border border-[#e0e0e0]">
-                                    <div className="flex items-center justify-center gap-1.5">
-                                      {req.status === "Pending" && (
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            onResolveAttendanceEditRequest(
+                                              req.pin,
+                                              req.status,
+                                              (e.target as HTMLInputElement)
+                                                .value,
+                                            );
+                                            (
+                                              e.target as HTMLInputElement
+                                            ).blur();
+                                            toast.success("Remarks updated!");
+                                          }
+                                        }}
+                                        className="w-full px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded text-[11px] focus:outline-none bg-transparent hover:bg-white focus:bg-white min-w-[130px] font-medium"
+                                      />
+                                    </td>
+                                    <td className="p-2 text-center text-[11px] border border-[#e0e0e0]">
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        {req.status === "Pending" && (
+                                          <button
+                                            onClick={() => {
+                                              onResolveAttendanceEditRequest(
+                                                req.pin,
+                                                "Approved",
+                                                req.managerComment || "",
+                                              );
+                                              toast.success(
+                                                "Request successfully approved!",
+                                              );
+                                            }}
+                                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                            title="Approve"
+                                          >
+                                            <Check className="w-4 h-4" />
+                                          </button>
+                                        )}
                                         <button
-                                          onClick={() => {
-                                            onResolveAttendanceEditRequest(req.pin, "Approved", req.managerComment || "");
-                                            toast.success("Request successfully approved!");
-                                          }}
-                                          className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                          title="Approve"
+                                          onClick={() => startEditRequest(req)}
+                                          className="p-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                          title="Edit"
                                         >
-                                          <Check className="w-4 h-4" />
+                                          <Edit className="w-4 h-4" />
                                         </button>
-                                      )}
-                                      <button
-                                        onClick={() => startEditRequest(req)}
-                                        className="p-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                        title="Edit"
-                                      >
-                                        <Edit className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() =>
-                                          setConfirmDeleteEditReqPin(req.pin)
-                                        }
-                                        className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                        title="Delete"
-                                      >
-                                        <Trash className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                        <button
+                                          onClick={() =>
+                                            setConfirmDeleteEditReqPin(req.pin)
+                                          }
+                                          className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                          title="Delete"
+                                        >
+                                          <Trash className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              },
+                            )}
                           </tbody>
                         </table>
                       </div>
                     </div>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
 
           {/* Leave Requests Panel */}
           {activeTab === "leave-requests" && viewedMemberPin === null && (
@@ -6475,14 +7200,14 @@ export default function ManagerDashboard({
                     <ClipboardList className="w-5.5 h-5.5 text-rose-600" />
                     Leave Requests
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                
-                  </p>
+                  <p className="text-xs text-slate-400 mt-1"></p>
                 </div>
 
                 <div className="flex flex-wrap items-end gap-4 mb-6 mt-4">
                   <div className="flex-1 min-w-[200px]">
-                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">Search Member</label>
+                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                      Search Member
+                    </label>
                     <input
                       type="text"
                       placeholder="Search PIN or Name..."
@@ -6492,7 +7217,9 @@ export default function ManagerDashboard({
                     />
                   </div>
                   <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">Filter Status</label>
+                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                      Filter Status
+                    </label>
                     <select
                       value={leaveFilterStatus}
                       onChange={(e) => setLeaveFilterStatus(e.target.value)}
@@ -6505,7 +7232,9 @@ export default function ManagerDashboard({
                     </select>
                   </div>
                   <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">Filter Leave Type</label>
+                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                      Filter Leave Type
+                    </label>
                     <select
                       value={leaveFilterType}
                       onChange={(e) => setLeaveFilterType(e.target.value)}
@@ -6518,13 +7247,19 @@ export default function ManagerDashboard({
                       <option value="Paternity Leave">Paternity Leave</option>
                       <option value="Maternity Leave">Maternity Leave</option>
                       <option value="Earn Leave">Earn Leave</option>
-                      <option value="Weekend Adjustment">Weekend Adjustment</option>
-                      <option value="Holiday Adjustment">Holiday Adjustment</option>
+                      <option value="Weekend Adjustment">
+                        Weekend Adjustment
+                      </option>
+                      <option value="Holiday Adjustment">
+                        Holiday Adjustment
+                      </option>
                       <option value="Other Leave">Other Leave</option>
                     </select>
                   </div>
                   <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">Filter Month</label>
+                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                      Filter Month
+                    </label>
                     <select
                       value={leaveFilterMonth}
                       onChange={(e) => setLeaveFilterMonth(e.target.value)}
@@ -6532,17 +7267,30 @@ export default function ManagerDashboard({
                     >
                       <option value="All">All Months</option>
                       {(() => {
-                        const months = new Set(leaveRequests.filter(r => r.startDate).map(r => r.startDate.substring(0, 7)));
-                        const currentMonth = new Date().toISOString().substring(0, 7);
+                        const months = new Set(
+                          leaveRequests
+                            .filter((r) => r.startDate)
+                            .map((r) => r.startDate.substring(0, 7)),
+                        );
+                        const currentMonth = new Date()
+                          .toISOString()
+                          .substring(0, 7);
                         months.add(currentMonth);
                         return Array.from(months)
                           .sort((a, b) => b.localeCompare(a))
-                          .map(ym => {
-                            const [year, month] = ym.split('-');
-                            const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                          .map((ym) => {
+                            const [year, month] = ym.split("-");
+                            const date = new Date(
+                              parseInt(year),
+                              parseInt(month) - 1,
+                              1,
+                            );
                             return (
                               <option key={ym} value={ym}>
-                                {date.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                                {date.toLocaleString("en-US", {
+                                  month: "long",
+                                  year: "numeric",
+                                })}
                               </option>
                             );
                           });
@@ -6550,7 +7298,9 @@ export default function ManagerDashboard({
                     </select>
                   </div>
                   <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">Sort By</label>
+                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                      Sort By
+                    </label>
                     <select
                       value={leaveSortBy}
                       onChange={(e) => setLeaveSortBy(e.target.value)}
@@ -6558,8 +7308,12 @@ export default function ManagerDashboard({
                     >
                       <option value="newest">Newest First</option>
                       <option value="oldest">Oldest First</option>
-                      <option value="duration_desc">Duration (High to Low)</option>
-                      <option value="duration_asc">Duration (Low to High)</option>
+                      <option value="duration_desc">
+                        Duration (High to Low)
+                      </option>
+                      <option value="duration_asc">
+                        Duration (Low to High)
+                      </option>
                     </select>
                   </div>
                 </div>
@@ -6578,51 +7332,67 @@ export default function ManagerDashboard({
                           {selectedLeavePins.length}
                         </div>
                         <div>
-                          <p className="text-xs font-black text-indigo-950 uppercase tracking-tight">Bulk Actions Selected</p>
-                          <p className="text-[10px] font-bold text-indigo-400">Update leave requests in bulk</p>
+                          <p className="text-xs font-black text-indigo-950 uppercase tracking-tight">
+                            Bulk Actions Selected
+                          </p>
+                          <p className="text-[10px] font-bold text-indigo-400">
+                            Update leave requests in bulk
+                          </p>
                         </div>
                       </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              selectedLeavePins.forEach(pin => onResolveLeaveRequest(pin, "Approved"));
-                              setSelectedLeavePins([]);
-                              toast.success(`Successfully approved ${selectedLeavePins.length} requests!`);
-                            }}
-                            className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2 shadow-sm"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            Approve All
-                          </button>
-                          <button
-                            onClick={() => {
-                              selectedLeavePins.forEach(pin => onResolveLeaveRequest(pin, "Pending"));
-                              setSelectedLeavePins([]);
-                              toast.success(`Successfully set ${selectedLeavePins.length} requests to Pending!`);
-                            }}
-                            className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-all flex items-center gap-2 shadow-sm"
-                          >
-                            <Clock className="w-4 h-4" />
-                            Pending All
-                          </button>
-                          <button
-                            onClick={() => {
-                              selectedLeavePins.forEach(pin => onResolveLeaveRequest(pin, "Rejected"));
-                              setSelectedLeavePins([]);
-                              toast.success(`Successfully rejected ${selectedLeavePins.length} requests!`);
-                            }}
-                            className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-all flex items-center gap-2 shadow-sm"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            Reject All
-                          </button>
-                          <button
-                            onClick={() => setSelectedLeavePins([])}
-                            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all shadow-3xs"
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            selectedLeavePins.forEach((pin) =>
+                              onResolveLeaveRequest(pin, "Approved"),
+                            );
+                            setSelectedLeavePins([]);
+                            toast.success(
+                              `Successfully approved ${selectedLeavePins.length} requests!`,
+                            );
+                          }}
+                          className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-2 shadow-sm"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          Approve All
+                        </button>
+                        <button
+                          onClick={() => {
+                            selectedLeavePins.forEach((pin) =>
+                              onResolveLeaveRequest(pin, "Pending"),
+                            );
+                            setSelectedLeavePins([]);
+                            toast.success(
+                              `Successfully set ${selectedLeavePins.length} requests to Pending!`,
+                            );
+                          }}
+                          className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-all flex items-center gap-2 shadow-sm"
+                        >
+                          <Clock className="w-4 h-4" />
+                          Pending All
+                        </button>
+                        <button
+                          onClick={() => {
+                            selectedLeavePins.forEach((pin) =>
+                              onResolveLeaveRequest(pin, "Rejected"),
+                            );
+                            setSelectedLeavePins([]);
+                            toast.success(
+                              `Successfully rejected ${selectedLeavePins.length} requests!`,
+                            );
+                          }}
+                          className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-all flex items-center gap-2 shadow-sm"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          Reject All
+                        </button>
+                        <button
+                          onClick={() => setSelectedLeavePins([])}
+                          className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all shadow-3xs"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -6685,10 +7455,18 @@ export default function ManagerDashboard({
                               <input
                                 type="checkbox"
                                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                checked={selectedLeavePins.length === filteredAndSortedLeaveRequests.length && filteredAndSortedLeaveRequests.length > 0}
+                                checked={
+                                  selectedLeavePins.length ===
+                                    filteredAndSortedLeaveRequests.length &&
+                                  filteredAndSortedLeaveRequests.length > 0
+                                }
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setSelectedLeavePins(filteredAndSortedLeaveRequests.map(r => r.pin));
+                                    setSelectedLeavePins(
+                                      filteredAndSortedLeaveRequests.map(
+                                        (r) => r.pin,
+                                      ),
+                                    );
                                   } else {
                                     setSelectedLeavePins([]);
                                   }
@@ -6740,378 +7518,447 @@ export default function ManagerDashboard({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-150 bg-white">
-                          {filteredAndSortedLeaveRequests
-                            .map((req, index) => {
-                              const isEditing = editingLeavePin === req.pin;
-                              const start = new Date(
-                                isEditing
-                                  ? leaveEditForm.startDate || req.startDate
-                                  : req.startDate,
-                              );
-                              const end = new Date(
-                                isEditing
-                                  ? leaveEditForm.endDate || req.endDate
-                                  : req.endDate,
-                              );
-                              const diffTime = Math.abs(
-                                end.getTime() - start.getTime(),
-                              );
-                              const diffDays =
-                                Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                              const pinToLookup = isEditing
-                                ? leaveEditForm.memberPin
-                                : req.memberPin;
-                              const memberCampus =
-                                members.find((m) => m.pin === pinToLookup)?.campus ||
-                                mentors.find((m) => m.pin === pinToLookup)?.campus ||
-                                "N/A";
+                          {filteredAndSortedLeaveRequests.map((req, index) => {
+                            const isEditing = editingLeavePin === req.pin;
+                            const start = new Date(
+                              isEditing
+                                ? leaveEditForm.startDate || req.startDate
+                                : req.startDate,
+                            );
+                            const end = new Date(
+                              isEditing
+                                ? leaveEditForm.endDate || req.endDate
+                                : req.endDate,
+                            );
+                            const diffTime = Math.abs(
+                              end.getTime() - start.getTime(),
+                            );
+                            const diffDays =
+                              Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                            const pinToLookup = isEditing
+                              ? leaveEditForm.memberPin
+                              : req.memberPin;
+                            const memberCampus =
+                              members.find((m) => m.pin === pinToLookup)
+                                ?.campus ||
+                              mentors.find((m) => m.pin === pinToLookup)
+                                ?.campus ||
+                              "N/A";
 
-                              const handleCopyDetails = (
-                                r: LeaveRequest,
-                                days: number,
-                              ) => {
-                                const text = `Member: ${r.memberName} (PIN: ${r.memberPin}) | Leave Type: ${r.leaveType} | From: ${r.startDate} To: ${r.endDate} (${days} days) | Reason: ${r.reason} | Responsible: ${r.coordinatorName} (${r.coordinatorPin})`;
-                                navigator.clipboard.writeText(text);
-                                toast.success("Leave details copied!");
-                              };
+                            const handleCopyDetails = (
+                              r: LeaveRequest,
+                              days: number,
+                            ) => {
+                              const text = `Member: ${r.memberName} (PIN: ${r.memberPin}) | Leave Type: ${r.leaveType} | From: ${r.startDate} To: ${r.endDate} (${days} days) | Reason: ${r.reason} | Responsible: ${r.coordinatorName} (${r.coordinatorPin})`;
+                              navigator.clipboard.writeText(text);
+                              toast.success("Leave details copied!");
+                            };
 
-                              return (
-                                <tr
-                                  key={req.pin}
-                                  className={`hover:bg-[#f1f3f4]/80 transition-colors ${
-                                    req.status === "Pending"
-                                      ? "bg-amber-50/20"
-                                      : ""
-                                  } ${selectedLeavePins.includes(req.pin) ? "bg-indigo-50/40" : ""}`}
-                                >
-                                  <td className="p-2 text-center border border-[#e0e0e0]">
-                                    <input
-                                      type="checkbox"
-                                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                      checked={selectedLeavePins.includes(req.pin)}
-                                      onChange={() => {
-                                        setSelectedLeavePins(prev => 
-                                          prev.includes(req.pin) 
-                                            ? prev.filter(p => p !== req.pin)
-                                            : [...prev, req.pin]
-                                        );
-                                      }}
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center text-[11px] font-bold text-slate-400 font-mono border border-[#e0e0e0]">
-                                    {index + 1}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-semibold text-slate-800 border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <input
-                                        type="text"
-                                        value={leaveEditForm.memberName || ""}
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            memberName: e.target.value,
-                                          }))
-                                        }
-                                        className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-semibold"
-                                      />
-                                    ) : (
-                                      req.memberName
+                            return (
+                              <tr
+                                key={req.pin}
+                                className={`hover:bg-[#f1f3f4]/80 transition-colors ${
+                                  req.status === "Pending"
+                                    ? "bg-amber-50/20"
+                                    : ""
+                                } ${selectedLeavePins.includes(req.pin) ? "bg-indigo-50/40" : ""}`}
+                              >
+                                <td className="p-2 text-center border border-[#e0e0e0]">
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    checked={selectedLeavePins.includes(
+                                      req.pin,
                                     )}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-mono font-bold text-slate-700 border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <input
-                                        type="text"
-                                        value={leaveEditForm.memberPin || ""}
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            memberPin: e.target.value,
-                                          }))
-                                        }
-                                        className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono font-bold"
-                                      />
-                                    ) : (
-                                      req.memberPin
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <input
-                                        type="date"
-                                        value={leaveEditForm.startDate || ""}
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            startDate: e.target.value,
-                                          }))
-                                        }
-                                        className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono"
-                                      />
-                                    ) : (
-                                      formatDateLong(req.startDate)
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <input
-                                        type="date"
-                                        value={leaveEditForm.endDate || ""}
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            endDate: e.target.value,
-                                          }))
-                                        }
-                                        className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono"
-                                      />
-                                    ) : (
-                                      formatDateLong(req.endDate)
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-center text-[11px] font-bold text-slate-700 font-mono border border-[#e0e0e0]">
-                                    {diffDays}
-                                  </td>
-                                  <td className="p-2 text-[11px] border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <input
-                                        type="text"
-                                        value={leaveEditForm.reason || ""}
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            reason: e.target.value,
-                                          }))
-                                        }
-                                        className="w-full px-1.5 py-0.5 border border-indigo-300 rounded text-[11px] bg-white italic"
-                                      />
-                                    ) : (
-                                      <p
-                                        className="text-[11px] text-[#3c4043] italic font-medium leading-relaxed max-w-[200px] truncate"
-                                        title={req.reason}
-                                      >
-                                        "{req.reason}"
-                                      </p>
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-semibold text-slate-700 border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <input
-                                        type="text"
-                                        value={
-                                          leaveEditForm.responsiblePersonName || ""
-                                        }
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            responsiblePersonName: e.target.value,
-                                          }))
-                                        }
-                                        className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-semibold"
-                                      />
-                                    ) : (
-                                      req.responsiblePersonName || req.coordinatorName
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-mono font-bold text-slate-500 border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <div className="w-full px-1 py-0.5 border border-slate-200 rounded text-[11px] bg-slate-50 font-mono font-bold text-slate-400 cursor-not-allowed">
-                                        {req.responsiblePersonPin || req.coordinatorPin}
-                                      </div>
-                                    ) : (
-                                      req.responsiblePersonPin || req.coordinatorPin
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
-                                    {isEditing ? (
-                                      <select
-                                        value={
-                                          leaveEditForm.leaveType || "Casual Leave"
-                                        }
-                                        onChange={(e) =>
-                                          setLeaveEditForm((prev) => ({
-                                            ...prev,
-                                            leaveType: e.target.value as any,
-                                          }))
-                                        }
-                                        className="px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white w-full"
-                                      >
-                                        <option value="Casual Leave">Casual Leave</option>
-                                        <option value="Medical Leave">Medical Leave</option>
-                                        <option value="Special Leave">Special Leave</option>
-                                        <option value="Paternity Leave">Paternity Leave</option>
-                                        <option value="Maternity Leave">Maternity Leave</option>
-                                        <option value="Earn Leave">Earn Leave</option>
-                                        <option value="Weekend Adjustment">Weekend Adjustment</option>
-                                        <option value="Holiday Adjustment">Holiday Adjustment</option>
-                                        <option value="Sick Leave">Sick Leave</option>
-                                        <option value="Emergency Leave">Emergency Leave</option>
-                                        <option value="Other Leave">Other Leave</option>
-                                      </select>
-                                    ) : (
-                                      <span
-                                        className={`text-[11px] font-semibold ${
-                                          req.leaveType?.includes("Casual")
-                                            ? "text-blue-700"
-                                            : req.leaveType?.includes("Medical") || req.leaveType?.includes("Sick")
-                                              ? "text-emerald-700"
-                                              : req.leaveType?.includes("Special")
-                                                ? "text-purple-700"
-                                                : req.leaveType?.includes("Paternity")
-                                                  ? "text-cyan-700"
-                                                  : req.leaveType?.includes("Maternity")
-                                                    ? "text-pink-700"
-                                                    : req.leaveType?.includes("Earn")
-                                                      ? "text-indigo-700"
-                                                      : req.leaveType?.includes("Weekend")
-                                                        ? "text-orange-700"
-                                                        : req.leaveType?.includes("Holiday")
-                                                          ? "text-amber-700"
-                                                          : "text-slate-700"
-                                        }`}
-                                      >
-                                        {req.leaveType}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="p-2 text-center text-[11px] font-semibold border border-[#e0e0e0]">
-                                    <span
-                                      className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                                        req.status === "Pending"
-                                          ? "bg-amber-100 text-amber-800 border border-amber-200"
-                                          : req.status === "Approved"
-                                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                                            : "bg-rose-100 text-rose-800 border border-rose-200"
-                                      }`}
-                                    >
-                                      {req.status}
-                                    </span>
-                                  </td>
-                                  <td className="p-2 text-[11px] font-medium text-slate-600 border border-[#e0e0e0]">
-                                    <span className="bg-slate-100 text-slate-700 border border-slate-200/50 px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase">
-                                      {memberCampus}
-                                    </span>
-                                  </td>
-                                  <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                    onChange={() => {
+                                      setSelectedLeavePins((prev) =>
+                                        prev.includes(req.pin)
+                                          ? prev.filter((p) => p !== req.pin)
+                                          : [...prev, req.pin],
+                                      );
+                                    }}
+                                  />
+                                </td>
+                                <td className="p-2 text-center text-[11px] font-bold text-slate-400 font-mono border border-[#e0e0e0]">
+                                  {index + 1}
+                                </td>
+                                <td className="p-2 text-[11px] font-semibold text-slate-800 border border-[#e0e0e0]">
+                                  {isEditing ? (
                                     <input
                                       type="text"
-                                      placeholder="Remarks..."
-                                      value={
-                                        leaveRemarks[req.pin] !== undefined
-                                          ? leaveRemarks[req.pin]
-                                          : req.managerComment || ""
-                                      }
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        setLeaveRemarks((prev) => ({
+                                      value={leaveEditForm.memberName || ""}
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
                                           ...prev,
-                                          [req.pin]: val,
-                                        }));
-                                      }}
-                                      onBlur={(e) => {
+                                          memberName: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-semibold"
+                                    />
+                                  ) : (
+                                    req.memberName
+                                  )}
+                                </td>
+                                <td className="p-2 text-[11px] font-mono font-bold text-slate-700 border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={leaveEditForm.memberPin || ""}
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
+                                          ...prev,
+                                          memberPin: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono font-bold"
+                                    />
+                                  ) : (
+                                    req.memberPin
+                                  )}
+                                </td>
+                                <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <input
+                                      type="date"
+                                      value={leaveEditForm.startDate || ""}
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
+                                          ...prev,
+                                          startDate: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono"
+                                    />
+                                  ) : (
+                                    formatDateLong(req.startDate)
+                                  )}
+                                </td>
+                                <td className="p-2 text-[11px] font-medium text-slate-600 font-mono border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <input
+                                      type="date"
+                                      value={leaveEditForm.endDate || ""}
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
+                                          ...prev,
+                                          endDate: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-mono"
+                                    />
+                                  ) : (
+                                    formatDateLong(req.endDate)
+                                  )}
+                                </td>
+                                <td className="p-2 text-center text-[11px] font-bold text-slate-700 font-mono border border-[#e0e0e0]">
+                                  {diffDays}
+                                </td>
+                                <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={leaveEditForm.reason || ""}
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
+                                          ...prev,
+                                          reason: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full px-1.5 py-0.5 border border-indigo-300 rounded text-[11px] bg-white italic"
+                                    />
+                                  ) : (
+                                    <p
+                                      className="text-[11px] text-[#3c4043] italic font-medium leading-relaxed max-w-[200px] truncate"
+                                      title={req.reason}
+                                    >
+                                      "{req.reason}"
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="p-2 text-[11px] font-semibold text-slate-700 border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      value={
+                                        leaveEditForm.responsiblePersonName ||
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
+                                          ...prev,
+                                          responsiblePersonName: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-semibold"
+                                    />
+                                  ) : (
+                                    req.responsiblePersonName ||
+                                    req.coordinatorName
+                                  )}
+                                </td>
+                                <td className="p-2 text-[11px] font-mono font-bold text-slate-500 border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <div className="w-full px-1 py-0.5 border border-slate-200 rounded text-[11px] bg-slate-50 font-mono font-bold text-slate-400 cursor-not-allowed">
+                                      {req.responsiblePersonPin ||
+                                        req.coordinatorPin}
+                                    </div>
+                                  ) : (
+                                    req.responsiblePersonPin ||
+                                    req.coordinatorPin
+                                  )}
+                                </td>
+                                <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
+                                  {isEditing ? (
+                                    <select
+                                      value={
+                                        leaveEditForm.leaveType ||
+                                        "Casual Leave"
+                                      }
+                                      onChange={(e) =>
+                                        setLeaveEditForm((prev) => ({
+                                          ...prev,
+                                          leaveType: e.target.value as any,
+                                        }))
+                                      }
+                                      className="px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white w-full"
+                                    >
+                                      <option value="Casual Leave">
+                                        Casual Leave
+                                      </option>
+                                      <option value="Medical Leave">
+                                        Medical Leave
+                                      </option>
+                                      <option value="Special Leave">
+                                        Special Leave
+                                      </option>
+                                      <option value="Paternity Leave">
+                                        Paternity Leave
+                                      </option>
+                                      <option value="Maternity Leave">
+                                        Maternity Leave
+                                      </option>
+                                      <option value="Earn Leave">
+                                        Earn Leave
+                                      </option>
+                                      <option value="Weekend Adjustment">
+                                        Weekend Adjustment
+                                      </option>
+                                      <option value="Holiday Adjustment">
+                                        Holiday Adjustment
+                                      </option>
+                                      <option value="Sick Leave">
+                                        Sick Leave
+                                      </option>
+                                      <option value="Emergency Leave">
+                                        Emergency Leave
+                                      </option>
+                                      <option value="Other Leave">
+                                        Other Leave
+                                      </option>
+                                    </select>
+                                  ) : (
+                                    <span
+                                      className={`text-[11px] font-semibold ${
+                                        req.leaveType?.includes("Casual")
+                                          ? "text-blue-700"
+                                          : req.leaveType?.includes(
+                                                "Medical",
+                                              ) ||
+                                              req.leaveType?.includes("Sick")
+                                            ? "text-emerald-700"
+                                            : req.leaveType?.includes("Special")
+                                              ? "text-purple-700"
+                                              : req.leaveType?.includes(
+                                                    "Paternity",
+                                                  )
+                                                ? "text-cyan-700"
+                                                : req.leaveType?.includes(
+                                                      "Maternity",
+                                                    )
+                                                  ? "text-pink-700"
+                                                  : req.leaveType?.includes(
+                                                        "Earn",
+                                                      )
+                                                    ? "text-indigo-700"
+                                                    : req.leaveType?.includes(
+                                                          "Weekend",
+                                                        )
+                                                      ? "text-orange-700"
+                                                      : req.leaveType?.includes(
+                                                            "Holiday",
+                                                          )
+                                                        ? "text-amber-700"
+                                                        : "text-slate-700"
+                                      }`}
+                                    >
+                                      {req.leaveType}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center text-[11px] font-semibold border border-[#e0e0e0]">
+                                  <span
+                                    className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                                      req.status === "Pending"
+                                        ? "bg-amber-100 text-amber-800 border border-amber-200"
+                                        : req.status === "Approved"
+                                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                          : "bg-rose-100 text-rose-800 border border-rose-200"
+                                    }`}
+                                  >
+                                    {req.status}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-[11px] font-medium text-slate-600 border border-[#e0e0e0]">
+                                  <span className="bg-slate-100 text-slate-700 border border-slate-200/50 px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase">
+                                    {memberCampus}
+                                  </span>
+                                </td>
+                                <td className="p-2 text-[11px] border border-[#e0e0e0]">
+                                  <input
+                                    type="text"
+                                    placeholder="Remarks..."
+                                    value={
+                                      leaveRemarks[req.pin] !== undefined
+                                        ? leaveRemarks[req.pin]
+                                        : req.managerComment || ""
+                                    }
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setLeaveRemarks((prev) => ({
+                                        ...prev,
+                                        [req.pin]: val,
+                                      }));
+                                    }}
+                                    onBlur={(e) => {
+                                      onResolveLeaveRequest(
+                                        req.pin,
+                                        req.status,
+                                        e.target.value,
+                                      );
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
                                         onResolveLeaveRequest(
                                           req.pin,
                                           req.status,
-                                          e.target.value,
+                                          (e.target as HTMLInputElement).value,
                                         );
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          onResolveLeaveRequest(
-                                            req.pin,
-                                            req.status,
-                                            (e.target as HTMLInputElement)
-                                              .value,
-                                          );
-                                          (e.target as HTMLInputElement).blur();
-                                          toast.success("Remarks updated!");
-                                        }
-                                      }}
-                                      className="w-full px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded text-[11px] focus:outline-none bg-transparent hover:bg-white focus:bg-white min-w-[130px] font-medium"
-                                    />
-                                  </td>
-                                  <td className="p-2 text-center text-[11px] border border-[#e0e0e0]">
-                                    <div className="flex items-center justify-center gap-1.5">
-                                      {isEditing ? (
-                                        <>
-                                          <button
-                                            onClick={saveEditLeave}
-                                            className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-colors"
-                                            title="Save"
-                                          >
-                                            <CheckCircle className="w-4 h-4" />
-                                          </button>
-                                          <button
-                                            onClick={() =>
-                                              setEditingLeavePin(null)
-                                            }
-                                            className="p-1 bg-slate-500 hover:bg-slate-600 text-white rounded cursor-pointer transition-colors"
-                                            title="Cancel"
-                                          >
-                                            <AlertCircle className="w-4 h-4" />
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <button
-                                            onClick={() => startEditLeave(req)}
-                                            className="p-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                            title="Edit"
-                                          >
-                                            <Edit className="w-3.5 h-3.5" />
-                                          </button>
-                                          {req.status !== "Approved" && (
-                                            <button
-                                              onClick={() => onResolveLeaveRequest(req.pin, "Approved", leaveRemarks[req.pin] !== undefined ? leaveRemarks[req.pin] : req.managerComment)}
-                                              className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                              title="Approve"
-                                            >
-                                              <CheckCircle className="w-3.5 h-3.5" />
-                                            </button>
-                                          )}
-                                          {req.status !== "Rejected" && (
-                                            <button
-                                              onClick={() => onResolveLeaveRequest(req.pin, "Rejected", leaveRemarks[req.pin] !== undefined ? leaveRemarks[req.pin] : req.managerComment)}
-                                              className="p-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                              title="Reject"
-                                            >
-                                              <XCircle className="w-3.5 h-3.5" />
-                                            </button>
-                                          )}
-                                          {req.status !== "Pending" && (
-                                            <button
-                                              onClick={() => onResolveLeaveRequest(req.pin, "Pending", leaveRemarks[req.pin] !== undefined ? leaveRemarks[req.pin] : req.managerComment)}
-                                              className="p-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                              title="Mark as Pending"
-                                            >
-                                              <AlertCircle className="w-3.5 h-3.5" />
-                                            </button>
-                                          )}
+                                        (e.target as HTMLInputElement).blur();
+                                        toast.success("Remarks updated!");
+                                      }
+                                    }}
+                                    className="w-full px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded text-[11px] focus:outline-none bg-transparent hover:bg-white focus:bg-white min-w-[130px] font-medium"
+                                  />
+                                </td>
+                                <td className="p-2 text-center text-[11px] border border-[#e0e0e0]">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    {isEditing ? (
+                                      <>
+                                        <button
+                                          onClick={saveEditLeave}
+                                          className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded cursor-pointer transition-colors"
+                                          title="Save"
+                                        >
+                                          <CheckCircle className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() =>
+                                            setEditingLeavePin(null)
+                                          }
+                                          className="p-1 bg-slate-500 hover:bg-slate-600 text-white rounded cursor-pointer transition-colors"
+                                          title="Cancel"
+                                        >
+                                          <AlertCircle className="w-4 h-4" />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <button
+                                          onClick={() => startEditLeave(req)}
+                                          className="p-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                          title="Edit"
+                                        >
+                                          <Edit className="w-3.5 h-3.5" />
+                                        </button>
+                                        {req.status !== "Approved" && (
                                           <button
                                             onClick={() =>
-                                              setConfirmDeleteLeavePin(req.pin)
+                                              onResolveLeaveRequest(
+                                                req.pin,
+                                                "Approved",
+                                                leaveRemarks[req.pin] !==
+                                                  undefined
+                                                  ? leaveRemarks[req.pin]
+                                                  : req.managerComment,
+                                              )
                                             }
-                                            className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                            title="Delete"
+                                            className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                            title="Approve"
                                           >
-                                            <Trash className="w-4 h-4" />
+                                            <CheckCircle className="w-3.5 h-3.5" />
                                           </button>
+                                        )}
+                                        {req.status !== "Rejected" && (
                                           <button
                                             onClick={() =>
-                                              handleCopyDetails(req, diffDays)
+                                              onResolveLeaveRequest(
+                                                req.pin,
+                                                "Rejected",
+                                                leaveRemarks[req.pin] !==
+                                                  undefined
+                                                  ? leaveRemarks[req.pin]
+                                                  : req.managerComment,
+                                              )
                                             }
-                                            className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
-                                            title="Copy Leave details"
+                                            className="p-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                            title="Reject"
                                           >
-                                            <ClipboardList className="w-4 h-4" />
+                                            <XCircle className="w-3.5 h-3.5" />
                                           </button>
-                                        </>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                        )}
+                                        {req.status !== "Pending" && (
+                                          <button
+                                            onClick={() =>
+                                              onResolveLeaveRequest(
+                                                req.pin,
+                                                "Pending",
+                                                leaveRemarks[req.pin] !==
+                                                  undefined
+                                                  ? leaveRemarks[req.pin]
+                                                  : req.managerComment,
+                                              )
+                                            }
+                                            className="p-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                            title="Mark as Pending"
+                                          >
+                                            <AlertCircle className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={() =>
+                                            setConfirmDeleteLeavePin(req.pin)
+                                          }
+                                          className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                          title="Delete"
+                                        >
+                                          <Trash className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() =>
+                                            handleCopyDetails(req, diffDays)
+                                          }
+                                          className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded cursor-pointer transition-colors flex items-center justify-center shadow-xs"
+                                          title="Copy Leave details"
+                                        >
+                                          <ClipboardList className="w-4 h-4" />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -7145,9 +7992,10 @@ export default function ManagerDashboard({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <CallManagement 
-                currentUser={currentUser} 
-                members={members} 
+              <CallManagement
+                currentUser={currentUser}
+                members={members}
+                mentors={mentors}
                 campuses={campuses}
                 branches={branches}
               />
@@ -7205,8 +8053,13 @@ export default function ManagerDashboard({
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-md font-bold text-slate-800">Edit Leave Request</h3>
-                  <p className="text-xs text-slate-400 font-medium">Update the leave request details for {leaveEditForm.memberName}</p>
+                  <h3 className="text-md font-bold text-slate-800">
+                    Edit Leave Request
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium">
+                    Update the leave request details for{" "}
+                    {leaveEditForm.memberName}
+                  </p>
                 </div>
                 <button
                   onClick={() => setEditingLeavePin(null)}
@@ -7218,47 +8071,77 @@ export default function ManagerDashboard({
 
               <div className="space-y-4 text-left">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">Member Information</label>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">
+                    Member Information
+                  </label>
                   <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 flex gap-4">
-                     <div>
-                       <span className="text-[10px] text-slate-400 block">Name</span>
-                       <input 
-                         type="text" 
-                         value={leaveEditForm.memberName || ''}
-                         onChange={e => setLeaveEditForm(prev => ({...prev, memberName: e.target.value}))}
-                         className="bg-transparent font-bold text-slate-700 outline-none"
-                       />
-                     </div>
-                     <div>
-                       <span className="text-[10px] text-slate-400 block">PIN</span>
-                       <input 
-                         type="text" 
-                         value={leaveEditForm.memberPin || ''}
-                         onChange={e => setLeaveEditForm(prev => ({...prev, memberPin: e.target.value}))}
-                         className="bg-transparent font-bold text-slate-700 outline-none"
-                       />
-                     </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">
+                        Name
+                      </span>
+                      <input
+                        type="text"
+                        value={leaveEditForm.memberName || ""}
+                        onChange={(e) =>
+                          setLeaveEditForm((prev) => ({
+                            ...prev,
+                            memberName: e.target.value,
+                          }))
+                        }
+                        className="bg-transparent font-bold text-slate-700 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">
+                        PIN
+                      </span>
+                      <input
+                        type="text"
+                        value={leaveEditForm.memberPin || ""}
+                        onChange={(e) =>
+                          setLeaveEditForm((prev) => ({
+                            ...prev,
+                            memberPin: e.target.value,
+                          }))
+                        }
+                        className="bg-transparent font-bold text-slate-700 outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">Start Date</label>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">
+                      Start Date
+                    </label>
                     <input
                       type="date"
                       required
-                      value={leaveEditForm.startDate || ''}
-                      onChange={(e) => setLeaveEditForm(prev => ({ ...prev, startDate: e.target.value }))}
+                      value={leaveEditForm.startDate || ""}
+                      onChange={(e) =>
+                        setLeaveEditForm((prev) => ({
+                          ...prev,
+                          startDate: e.target.value,
+                        }))
+                      }
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">End Date</label>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">
+                      End Date
+                    </label>
                     <input
                       type="date"
                       required
-                      value={leaveEditForm.endDate || ''}
-                      onChange={(e) => setLeaveEditForm(prev => ({ ...prev, endDate: e.target.value }))}
+                      value={leaveEditForm.endDate || ""}
+                      onChange={(e) =>
+                        setLeaveEditForm((prev) => ({
+                          ...prev,
+                          endDate: e.target.value,
+                        }))
+                      }
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none"
                     />
                   </div>
@@ -7266,10 +8149,17 @@ export default function ManagerDashboard({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">Leave Type</label>
+                    <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">
+                      Leave Type
+                    </label>
                     <select
-                      value={leaveEditForm.leaveType || 'Casual Leave'}
-                      onChange={(e) => setLeaveEditForm(prev => ({ ...prev, leaveType: e.target.value as any }))}
+                      value={leaveEditForm.leaveType || "Casual Leave"}
+                      onChange={(e) =>
+                        setLeaveEditForm((prev) => ({
+                          ...prev,
+                          leaveType: e.target.value as any,
+                        }))
+                      }
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none font-semibold text-slate-700"
                     >
                       <option value="Casual Leave">Casual Leave</option>
@@ -7278,8 +8168,12 @@ export default function ManagerDashboard({
                       <option value="Paternity Leave">Paternity Leave</option>
                       <option value="Maternity Leave">Maternity Leave</option>
                       <option value="Earn Leave">Earn Leave</option>
-                      <option value="Weekend Adjustment">Weekend Adjustment</option>
-                      <option value="Holiday Adjustment">Holiday Adjustment</option>
+                      <option value="Weekend Adjustment">
+                        Weekend Adjustment
+                      </option>
+                      <option value="Holiday Adjustment">
+                        Holiday Adjustment
+                      </option>
                       <option value="Sick Leave">Sick Leave</option>
                       <option value="Emergency Leave">Emergency Leave</option>
                       <option value="Other Leave">Other Leave</option>
@@ -7290,18 +8184,27 @@ export default function ManagerDashboard({
                       Responsible Person PIN
                     </label>
                     <div className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 font-semibold text-slate-400 cursor-not-allowed">
-                      {leaveEditForm.responsiblePersonPin || leaveEditForm.coordinatorPin || "N/A"}
+                      {leaveEditForm.responsiblePersonPin ||
+                        leaveEditForm.coordinatorPin ||
+                        "N/A"}
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">Reason for Leave</label>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1.5 font-mono">
+                    Reason for Leave
+                  </label>
                   <textarea
                     required
                     rows={3}
-                    value={leaveEditForm.reason || ''}
-                    onChange={(e) => setLeaveEditForm(prev => ({ ...prev, reason: e.target.value }))}
+                    value={leaveEditForm.reason || ""}
+                    onChange={(e) =>
+                      setLeaveEditForm((prev) => ({
+                        ...prev,
+                        reason: e.target.value,
+                      }))
+                    }
                     placeholder="Please specify the reason for the leave..."
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
@@ -7398,8 +8301,14 @@ function BranchManagementModal({
     if (!editingBranch) return;
     const trimmed = editName.trim();
     if (!trimmed) return;
-    if (branches.some(b => b.name.toLowerCase() === trimmed.toLowerCase() && b.id !== editingBranch.id)) {
-      toast.error('A branch with this name already exists.');
+    if (
+      branches.some(
+        (b) =>
+          b.name.toLowerCase() === trimmed.toLowerCase() &&
+          b.id !== editingBranch.id,
+      )
+    ) {
+      toast.error("A branch with this name already exists.");
       return;
     }
     onUpdateBranch(editingBranch.id, { name: trimmed });
@@ -7546,7 +8455,9 @@ function BranchManagementModal({
               {unassignedBranches.length === 0 && (
                 <div className="col-span-full py-10 text-center">
                   <p className="text-xs font-bold text-slate-400 italic">
-                    {search ? "No unassigned branches matching search." : "All branches are already assigned!"}
+                    {search
+                      ? "No unassigned branches matching search."
+                      : "All branches are already assigned!"}
                   </p>
                 </div>
               )}
@@ -7600,8 +8511,8 @@ function BranchManagementModal({
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveEdit();
-                      if (e.key === 'Escape') setEditingBranch(null);
+                      if (e.key === "Enter") handleSaveEdit();
+                      if (e.key === "Escape") setEditingBranch(null);
                     }}
                     placeholder="Enter branch name..."
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold text-slate-800 shadow-sm"
@@ -7645,8 +8556,11 @@ function BranchManagementModal({
                     Delete Branch?
                   </h3>
                   <p className="text-sm text-slate-500 font-bold mt-2">
-                    Are you sure you want to delete <span className="text-rose-600">"{deletingBranch.name}"</span>? 
-                    This action cannot be undone.
+                    Are you sure you want to delete{" "}
+                    <span className="text-rose-600">
+                      "{deletingBranch.name}"
+                    </span>
+                    ? This action cannot be undone.
                   </p>
                 </div>
                 <div className="flex flex-col w-full gap-2 pt-4">
@@ -7818,8 +8732,6 @@ function CampusEditModal({
 
   const selectedHead = eligibleUsers.find((u) => u.pin === headPin);
 
-
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
       <motion.div
@@ -7919,9 +8831,14 @@ function CampusEditModal({
                     <div className="max-h-60 overflow-y-auto p-2 space-y-1">
                       {eligibleUsers
                         .filter((m) => {
-                          const searchMatch = m.name.toLowerCase().includes(headSearch.toLowerCase()) ||
-                                            m.pin.toLowerCase().includes(headSearch.toLowerCase());
-                          
+                          const searchMatch =
+                            m.name
+                              .toLowerCase()
+                              .includes(headSearch.toLowerCase()) ||
+                            m.pin
+                              .toLowerCase()
+                              .includes(headSearch.toLowerCase());
+
                           if (!searchMatch) return false;
 
                           const assignedToOtherCampus = campuses.find(
@@ -7956,7 +8873,9 @@ function CampusEditModal({
                                 </span>
                               </span>
                               {m.designation && (
-                                <span className={`text-[8px] font-bold ${headPin === m.pin ? "text-indigo-100/80" : "text-slate-500"}`}>
+                                <span
+                                  className={`text-[8px] font-bold ${headPin === m.pin ? "text-indigo-100/80" : "text-slate-500"}`}
+                                >
                                   {m.designation}
                                 </span>
                               )}
@@ -8047,9 +8966,14 @@ function CampusEditModal({
                         .filter((m) => {
                           if (m.pin === headPin) return false;
 
-                          const searchMatch = m.name.toLowerCase().includes(deputySearch.toLowerCase()) ||
-                                            m.pin.toLowerCase().includes(deputySearch.toLowerCase());
-                          
+                          const searchMatch =
+                            m.name
+                              .toLowerCase()
+                              .includes(deputySearch.toLowerCase()) ||
+                            m.pin
+                              .toLowerCase()
+                              .includes(deputySearch.toLowerCase());
+
                           if (!searchMatch) return false;
 
                           const assignedToOtherCampus = campuses.find(
@@ -8357,8 +9281,6 @@ function CampusAddModal({
 
   if (!isOpen) return null;
 
-
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
       <motion.div
@@ -8436,28 +9358,31 @@ function AttendanceAdjustmentEditModal({
   const [memberPin, setMemberPin] = useState("");
   const [memberName, setMemberName] = useState("");
   const [date, setDate] = useState("");
-  const [requestedStatus, setRequestedStatus] = useState<AttendanceStatus>("Present");
+  const [requestedStatus, setRequestedStatus] =
+    useState<AttendanceStatus>("Present");
   const [requestedCheckIn, setRequestedCheckIn] = useState("");
   const [requestedCheckOut, setRequestedCheckOut] = useState("");
   const [reason, setReason] = useState("");
   const [managerComment, setManagerComment] = useState("");
-  
+
   const getAttendanceRangeText = (dateStr: string) => {
-    if (!dateStr) return "Time Range(YYYY-MM-DD 06:00 AM To YYYY-MM-DD 05:59 AM)";
-    const parts = dateStr.split('-');
-    if (parts.length !== 3) return `Time Range(${dateStr} 06:00 AM To ... 05:59 AM)`;
-    
+    if (!dateStr)
+      return "Time Range(YYYY-MM-DD 06:00 AM To YYYY-MM-DD 05:59 AM)";
+    const parts = dateStr.split("-");
+    if (parts.length !== 3)
+      return `Time Range(${dateStr} 06:00 AM To ... 05:59 AM)`;
+
     const year = parseInt(parts[0], 10);
     const month = parseInt(parts[1], 10) - 1;
     const day = parseInt(parts[2], 10);
-    
+
     const d = new Date(year, month, day);
     const nextD = new Date(year, month, day + 1);
-    
+
     const formatDate = (date: Date) => {
       const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const dd = String(date.getDate()).padStart(2, '0');
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
       return `${y}-${m}-${dd}`;
     };
 
@@ -8511,13 +9436,13 @@ function AttendanceAdjustmentEditModal({
       }
     }
   } else if (requestedCheckIn || requestedCheckOut) {
-    if (currentStatus === 'Finger Punch Missing') {
+    if (currentStatus === "Finger Punch Missing") {
       workingHoursError = "Out Punch Missing";
     } else {
       workingHoursError = "Both In Time and Out Time must be provided!";
     }
   } else {
-    if (currentStatus === 'Finger Punch Missing') {
+    if (currentStatus === "Finger Punch Missing") {
       workingHoursError = "Out Punch Missing";
     }
   }
@@ -8556,7 +9481,10 @@ function AttendanceAdjustmentEditModal({
               Edit Attendance Adjustment
             </h3>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors">
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"
+          >
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
@@ -8605,7 +9533,9 @@ function AttendanceAdjustmentEditModal({
               </label>
               <select
                 value={requestedStatus}
-                onChange={(e) => setRequestedStatus(e.target.value as AttendanceStatus)}
+                onChange={(e) =>
+                  setRequestedStatus(e.target.value as AttendanceStatus)
+                }
                 className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700"
               >
                 <option value="Present">Present</option>

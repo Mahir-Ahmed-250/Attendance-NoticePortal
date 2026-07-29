@@ -1321,6 +1321,7 @@ export default function App() {
                         <MemberDashboard
                           currentMember={currentMember}
                           mentors={mentors}
+                          members={members}
                           reports={reports}
                           feedbacks={feedbacks}
                           notices={notices}

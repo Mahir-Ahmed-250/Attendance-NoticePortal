@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowLeft, Calendar, Clock, MapPin, User, Sparkles, CheckCircle2, AlertCircle, HelpCircle, Download } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MapPin, User as UserIcon, Sparkles, CheckCircle2, AlertCircle, HelpCircle, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import { AttendanceReport, TeamMember, Mentor } from '../types';

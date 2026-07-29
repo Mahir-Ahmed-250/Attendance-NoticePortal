@@ -1,14 +1,15 @@
-import mongoose, { Model } from 'mongoose';
+import mongoose, { Model } from "mongoose";
 
 const UserSchema = new mongoose.Schema({
   pin: { type: String, required: true, unique: true },
   name: { type: String, required: true },
-  role: { type: String, enum: ['manager', 'mentor', 'member'], required: true },
+  role: { type: String, enum: ["manager", "mentor", "member"], required: true },
   email: { type: String, required: true, lowercase: true },
-  password: { type: String, default: 'password' },
+  password: { type: String, default: "password" },
   avatarUrl: String,
   designation: String,
   permissions: [String],
+  readNotifications: [String],
   campus: String,
   mentorPin: String, // For members and mentors
   isActive: { type: Boolean, default: true },
@@ -31,20 +32,22 @@ const AttendanceReportSchema = new mongoose.Schema({
   campus: { type: String, required: true },
   postedBy: String,
   createdAt: { type: String, default: () => new Date().toISOString() },
-  records: [{
-    memberPin: String,
-    memberName: String,
-    status: String,
-    checkInTime: String,
-    checkOutTime: String,
-    notes: String,
-    lateEntry: String,
-    earlyLeave: String,
-    workingHour: String,
-    absentOrLeave: String,
-    zone: String,
-    remarks: String,
-  }]
+  records: [
+    {
+      memberPin: String,
+      memberName: String,
+      status: String,
+      checkInTime: String,
+      checkOutTime: String,
+      notes: String,
+      lateEntry: String,
+      earlyLeave: String,
+      workingHour: String,
+      absentOrLeave: String,
+      zone: String,
+      remarks: String,
+    },
+  ],
 });
 
 const NoticeSchema = new mongoose.Schema({
@@ -71,7 +74,7 @@ const FeedbackSchema = new mongoose.Schema({
   issueType: String,
   mentorComment: String,
   managerComment: String,
-  status: { type: String, default: 'Pending' },
+  status: { type: String, default: "Pending" },
   createdAt: { type: String, default: () => new Date().toISOString() },
 });
 
@@ -92,7 +95,7 @@ const ProfileRequestSchema = new mongoose.Schema({
   currentPin: String,
   requestedName: String,
   requestedPin: String,
-  status: { type: String, default: 'Pending' },
+  status: { type: String, default: "Pending" },
   createdAt: { type: String, default: () => new Date().toISOString() },
 });
 
@@ -108,7 +111,7 @@ const AttendanceEditRequestSchema = new mongoose.Schema({
   requestedCheckIn: String,
   requestedCheckOut: String,
   reason: String,
-  status: { type: String, default: 'Pending' },
+  status: { type: String, default: "Pending" },
   createdAt: { type: String, default: () => new Date().toISOString() },
   managerComment: String,
 });
@@ -123,7 +126,7 @@ const LeaveRequestSchema = new mongoose.Schema({
   endDate: String,
   leaveType: String,
   reason: String,
-  status: { type: String, default: 'Pending' },
+  status: { type: String, default: "Pending" },
   createdAt: { type: String, default: () => new Date().toISOString() },
   managerComment: String,
   responsiblePersonPin: String,
@@ -156,22 +159,6 @@ const CallTaskSchema = new mongoose.Schema({
   academicGroup: String,
   admissionTarget: String,
   campus: String,
-  courseBatch: String,
-  mbbsBdsStatus: String,
-  examName: String,
-  fullMarks: String,
-  mcqMarks: String,
-  writtenMarks: String,
-  totalObtainedMarks: String,
-  marksDeduction: String,
-  totalMarks: String,
-  highestMarks: String,
-  percentMarks: String,
-  averageMarks: String,
-  branchMerit: String,
-  centralMerit: String,
-  totalParticipant: String,
-  examMode: String,
   mobilePersonal: String,
   mobileFather: String,
   mobileMother: String,
@@ -181,8 +168,8 @@ const CallTaskSchema = new mongoose.Schema({
   assignedToName: String,
   liveAssignedToPin: String,
   liveAssignedToName: String,
-  liveInstructionStatus: { type: String, default: 'Pending' },
-  feedbackStatus: { type: String, default: 'Pending' },
+  liveInstructionStatus: { type: String, default: "Pending" },
+  feedbackStatus: { type: String, default: "Pending" },
   feedbackComment: String,
   liveInstructionComment: String,
   liveInstructorName: String,
@@ -197,16 +184,33 @@ const CallTaskSchema = new mongoose.Schema({
   completedAt: String,
 });
 
-export const Configuration: Model<any> = mongoose.models.Configuration || mongoose.model('Configuration', ConfigurationSchema);
-export const User: Model<any> = mongoose.models.User || mongoose.model('User', UserSchema);
+export const Configuration: Model<any> =
+  mongoose.models.Configuration ||
+  mongoose.model("Configuration", ConfigurationSchema);
+export const User: Model<any> =
+  mongoose.models.User || mongoose.model("User", UserSchema);
 
-export const Email: Model<any> = mongoose.models.Email || mongoose.model('Email', EmailSchema);
-export const AttendanceReport: Model<any> = mongoose.models.AttendanceReport || mongoose.model('AttendanceReport', AttendanceReportSchema);
-export const Notice: Model<any> = mongoose.models.Notice || mongoose.model('Notice', NoticeSchema);
-export const Feedback: Model<any> = mongoose.models.Feedback || mongoose.model('Feedback', FeedbackSchema);
-export const Campus: Model<any> = mongoose.models.Campus || mongoose.model('Campus', CampusSchema);
-export const Branch: Model<any> = mongoose.models.Branch || mongoose.model('Branch', BranchSchema);
-export const ProfileRequest: Model<any> = mongoose.models.ProfileRequest || mongoose.model('ProfileRequest', ProfileRequestSchema);
-export const AttendanceEditRequest: Model<any> = mongoose.models.AttendanceEditRequest || mongoose.model('AttendanceEditRequest', AttendanceEditRequestSchema);
-export const LeaveRequest: Model<any> = mongoose.models.LeaveRequest || mongoose.model('LeaveRequest', LeaveRequestSchema);
-export const CallTask: Model<any> = mongoose.models.CallTask || mongoose.model('CallTask', CallTaskSchema);
+export const Email: Model<any> =
+  mongoose.models.Email || mongoose.model("Email", EmailSchema);
+export const AttendanceReport: Model<any> =
+  mongoose.models.AttendanceReport ||
+  mongoose.model("AttendanceReport", AttendanceReportSchema);
+export const Notice: Model<any> =
+  mongoose.models.Notice || mongoose.model("Notice", NoticeSchema);
+export const Feedback: Model<any> =
+  mongoose.models.Feedback || mongoose.model("Feedback", FeedbackSchema);
+export const Campus: Model<any> =
+  mongoose.models.Campus || mongoose.model("Campus", CampusSchema);
+export const Branch: Model<any> =
+  mongoose.models.Branch || mongoose.model("Branch", BranchSchema);
+export const ProfileRequest: Model<any> =
+  mongoose.models.ProfileRequest ||
+  mongoose.model("ProfileRequest", ProfileRequestSchema);
+export const AttendanceEditRequest: Model<any> =
+  mongoose.models.AttendanceEditRequest ||
+  mongoose.model("AttendanceEditRequest", AttendanceEditRequestSchema);
+export const LeaveRequest: Model<any> =
+  mongoose.models.LeaveRequest ||
+  mongoose.model("LeaveRequest", LeaveRequestSchema);
+export const CallTask: Model<any> =
+  mongoose.models.CallTask || mongoose.model("CallTask", CallTaskSchema);

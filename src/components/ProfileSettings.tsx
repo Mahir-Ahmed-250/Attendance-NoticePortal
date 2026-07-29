@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, ProfileRequest, Role } from '../types';
-import { ShieldCheck, Lock, UserCheck, Image, Save, AlertCircle, Clock, Eye, EyeOff, Upload } from 'lucide-react';
+import { ShieldCheck, Lock, UserCheck, Image as ImageIcon, Save, AlertCircle, Clock, Eye, EyeOff, Upload } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface ProfileSettingsProps {

@@ -1,4 +1,4 @@
-export type Role = 'manager' | 'mentor' | 'member';
+export type Role = "manager" | "mentor" | "member";
 
 export interface User {
   pin: string;
@@ -9,20 +9,21 @@ export interface User {
   password?: string; // Credentials for authentication
   avatarUrl?: string;
   permissions?: string[]; // Custom permission codes
+  readNotifications?: string[]; // Array of read/dismissed notification IDs
   isActive?: boolean;
   campus?: string;
 }
 
 export interface Mentor extends User {
-  role: 'mentor';
+  role: "mentor";
   campus?: string;
   mentorPin?: string; // Assigned coordinator (usually a manager)
 }
 
 export interface TeamMember extends User {
-  role: 'member';
+  role: "member";
   mentorPin?: string; // Assigned mentor
-  campus?: string;   // Assigned campus
+  campus?: string; // Assigned campus
 }
 
 export interface EmailMessage {
@@ -36,7 +37,18 @@ export interface EmailMessage {
   isRead: boolean;
 }
 
-export type AttendanceStatus = 'Present' | 'Absent' | 'Finger Punch Missing' | 'Late' | 'Late Entry' | 'Early Leave' | 'Half Day' | '< 6hr' | '< 10hrs' | 'Leave' | string;
+export type AttendanceStatus =
+  | "Present"
+  | "Absent"
+  | "Finger Punch Missing"
+  | "Late"
+  | "Late Entry"
+  | "Early Leave"
+  | "Half Day"
+  | "< 6hr"
+  | "< 10hrs"
+  | "Leave"
+  | string;
 
 export interface MemberAttendance {
   memberPin: string;
@@ -62,7 +74,8 @@ export interface AttendanceReport {
   createdAt: string;
 }
 
-export type NoticeCategory = 'General' | 'Urgent' | 'Holiday' | 'Attendance' | 'System';
+export type NoticeCategory =
+  "General" | "Urgent" | "Holiday" | "Attendance" | "System";
 
 export interface Notice {
   pin: string;
@@ -78,7 +91,7 @@ export interface Notice {
   campus?: string; // Optional filter
 }
 
-export type FeedbackStatus = 'Pending' | 'Reviewed' | 'Resolved';
+export type FeedbackStatus = "Pending" | "Reviewed" | "Resolved";
 
 export interface AttendanceFeedback {
   pin: string;
@@ -88,7 +101,7 @@ export interface AttendanceFeedback {
   memberName: string;
   mentorPin: string;
   mentorName: string;
-  issueType: 'Finger Punch Missing' | 'Absent' | 'Other';
+  issueType: "Finger Punch Missing" | "Absent" | "Other";
   mentorComment: string;
   managerComment?: string;
   status: FeedbackStatus;
@@ -111,10 +124,10 @@ export interface Branch {
 }
 
 export const DEFAULT_CAMPUSES = [
-  'Main Campus',
-  'Silicon Campus',
-  'City Hub Campus',
-  'East Side Campus'
+  "Main Campus",
+  "Silicon Campus",
+  "City Hub Campus",
+  "East Side Campus",
 ];
 
 export interface ProfileRequest {
@@ -125,7 +138,7 @@ export interface ProfileRequest {
   currentPin: string; // current pin
   requestedName: string;
   requestedPin: string; // requested pin
-  status: 'Pending' | 'Approved' | 'Rejected';
+  status: "Pending" | "Approved" | "Rejected";
   createdAt: string;
 }
 
@@ -141,7 +154,7 @@ export interface AttendanceEditRequest {
   requestedCheckIn?: string;
   requestedCheckOut?: string;
   reason: string;
-  status: 'Pending' | 'Approved' | 'Rejected';
+  status: "Pending" | "Approved" | "Rejected";
   createdAt: string;
   managerComment?: string;
   campus?: string;
@@ -156,9 +169,22 @@ export interface LeaveRequest {
   coordinatorName: string;
   startDate: string;
   endDate: string;
-  leaveType: 'Casual' | 'Medical' | 'Special' | 'Paternity' | 'Maternity' | 'Earn' | 'Weekend Adjustment' | 'Holiday Adjustment' | 'Sick' | 'Emergency' | 'Maternity/Paternity' | 'Other' | string;
+  leaveType:
+    | "Casual"
+    | "Medical"
+    | "Special"
+    | "Paternity"
+    | "Maternity"
+    | "Earn"
+    | "Weekend Adjustment"
+    | "Holiday Adjustment"
+    | "Sick"
+    | "Emergency"
+    | "Maternity/Paternity"
+    | "Other"
+    | string;
   reason: string;
-  status: 'Pending' | 'Approved' | 'Rejected';
+  status: "Pending" | "Approved" | "Rejected";
   createdAt: string;
   managerComment?: string;
   responsiblePersonPin?: string;
@@ -179,8 +205,8 @@ export interface CallTask {
   assignedToName?: string;
   liveAssignedToPin?: string;
   liveAssignedToName?: string;
-  liveInstructionStatus: 'Pending' | 'Completed';
-  feedbackStatus: 'Pending' | 'Completed';
+  liveInstructionStatus: "Pending" | "Completed";
+  feedbackStatus: "Pending" | "Completed";
   feedbackComment?: string;
   liveInstructionComment?: string;
   liveInstructorName?: string;
@@ -190,6 +216,7 @@ export interface CallTask {
   isLiveInstructorTeacher?: boolean;
   liveInstructionSubmitDate?: string;
   feedbackSubmitDate?: string;
+  examScriptImage?: string;
   createdByPin: string;
   createdAt: string;
   completedAt?: string;
@@ -205,22 +232,4 @@ export interface CallTask {
   academicGroup?: string;
   admissionTarget?: string;
   campus?: string;
-  courseBatch?: string;
-  mbbsBdsStatus?: string;
-  examName?: string;
-  fullMarks?: string;
-  mcqMarks?: string;
-  writtenMarks?: string;
-  totalObtainedMarks?: string;
-  marksDeduction?: string;
-  totalMarks?: string;
-  highestMarks?: string;
-  percentMarks?: string;
-  averageMarks?: string;
-  branchMerit?: string;
-  centralMerit?: string;
-  totalParticipant?: string;
-  examMode?: string;
 }
-
-
