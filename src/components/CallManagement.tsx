@@ -2919,8 +2919,8 @@ export default function CallManagement({
                     <th className="p-4">Contact</th>
                     <th className="p-4">Branch/Class</th>
                     <th className="p-4">Live Instruction Status</th>
-                    <th className="p-4">Live Instruction Date</th>
-                    <th className="p-4 text-center">Live Assign Status</th>
+                    <th className="p-4 ">Live Instruction Date</th>
+                    <th className="p-4 text-center">Live Instruction Assign Status</th>
                     <th className="p-4">Live Assigned Member</th>
                     <th className="p-4">Live Instructor Name</th>
                     <th className="p-4">Feedback Status</th>
@@ -3820,7 +3820,7 @@ export default function CallManagement({
                             />
                             <div className="text-xs truncate">
                               <div className="font-bold text-emerald-900">
-                                Khata Script Attached
+                                Scripts Image Attached
                               </div>
                               <button
                                 type="button"
