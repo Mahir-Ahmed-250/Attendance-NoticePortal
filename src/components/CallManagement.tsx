@@ -2896,7 +2896,7 @@ export default function CallManagement({
                   <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     {(activeSubTab === "management" ||
                       activeSubTab === "my-tasks") && (
-                      <th className="p-4 w-10">
+                      <th className="p-4 w-10 ">
                         <input
                           type="checkbox"
                           checked={
@@ -2928,7 +2928,7 @@ export default function CallManagement({
                               });
                             }
                           }}
-                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 "
                         />
                       </th>
                     )}
@@ -2936,18 +2936,18 @@ export default function CallManagement({
                     <th className="p-4">Full Name</th>
                     <th className="p-4">Nick Name</th>
                     <th className="p-4">Contact</th>
-                    <th className="p-4">Branch/Class</th>
-                    <th className="p-4">Live Instruction Status</th>
-                    <th className="p-4">Live Instruction Date</th>
+                    <th className="p-4 text-center">Branch/Class</th>
+                    <th className="p-4 text-center">Live Instruction Status</th>
+                    <th className="p-4 text-center">Live Instruction Date</th>
                     <th className="p-4 text-center">Live Instruction Assign Status</th>
-                    <th className="p-4">Live Instruction Assigned Member</th>
-                    <th className="p-4">Live Instructor Name</th>
-                    <th className="p-4">Feedback Status</th>
-                    <th className="p-4">Feedback Date</th>
+                    <th className="p-4 text-center">Live Instruction Assigned Member</th>
+                    <th className="p-4 text-center">Live Instructor Name</th>
+                    <th className="p-4 text-center">Feedback Status</th>
+                    <th className="p-4 text-center">Feedback Date</th>
                     <th className="p-4 text-center">Feedback Assign Status</th>
-                    <th className="p-4">Feedback Assigned Team Member</th>
-                    <th className="p-4">Assigned to Coordinator</th>
-                    <th className="p-4 text-right">Action</th>
+                    <th className="p-4 text-center">Feedback Assigned Team Member</th>
+                    <th className="p-4 text-center">Assigned to Coordinator</th>
+                    <th className="p-4 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
@@ -3669,8 +3669,8 @@ export default function CallManagement({
                     </div>
 
                     {canUpload && (
-                      <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1">
+                      <div className="sm:col-span-2 ">
+                        <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1 ">
                           Live Instruction Assigned Member
                         </label>
                         <select
