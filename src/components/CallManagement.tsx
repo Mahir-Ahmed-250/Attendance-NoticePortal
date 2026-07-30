@@ -2932,10 +2932,10 @@ export default function CallManagement({
                         />
                       </th>
                     )}
-                    <th className="p-4 w-12">SL</th>
-                    <th className="p-4">Full Name</th>
-                    <th className="p-4">Nick Name</th>
-                    <th className="p-4">Contact</th>
+                    <th className="p-4 w-12 text-center">SL</th>
+                    <th className="p-4 text-center">Full Name</th>
+                    <th className="p-4 text-center">Nick Name</th>
+                    <th className="p-4 text-center">Contact</th>
                     <th className="p-4 text-center">Branch/Class</th>
                     <th className="p-4 text-center">Live Instruction Status</th>
                     <th className="p-4 text-center">Live Instruction Date</th>
