@@ -16,6 +16,7 @@ import {
   EmailMessage,
   Branch,
 } from "../types";
+import PermissionManagementView from "./PermissionManagementView";
 import {
   calculateWorkingHours,
   getEffectiveStatus,
@@ -44,6 +45,8 @@ import {
   Upload,
   Shield,
   ShieldCheck,
+  Key,
+  Lock,
   User as UserIcon,
   ThumbsUp,
   ThumbsDown,
@@ -68,6 +71,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   Inbox,
+  TrendingUp,
+  Award,
+  Activity,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -80,6 +86,21 @@ import toast from "react-hot-toast";
 import { UserAvatar } from "./UserAvatar";
 import * as XLSX from "xlsx";
 import ClockInput from "./ClockInput";
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 
 interface ManagerDashboardProps {
   currentUser: UserType;
@@ -147,18 +168,18 @@ interface ManagerDashboardProps {
   onInstantUpdate: (updatedFields: Partial<UserType>) => void;
 
   // Roster CRUD callbacks
-  onAddMember: (member: TeamMember) => void;
-  onUpdateMember: (oldPin: string, member: TeamMember) => void;
-  onDeleteMember: (memberPin: string) => void;
+  onAddMember: (member: TeamMember) => Promise<void> | void;
+  onUpdateMember: (oldPin: string, member: TeamMember) => Promise<void> | void;
+  onDeleteMember: (memberPin: string) => Promise<void> | void;
   onChangeUserRole: (
     oldPin: string,
     oldRole: Role,
     newRole: Role,
     userData: any,
-  ) => void;
-  onAddMentor: (mentor: Mentor) => void;
-  onUpdateMentor: (oldPin: string, mentor: Mentor) => void;
-  onDeleteMentor: (mentorPin: string) => void;
+  ) => Promise<void> | void;
+  onAddMentor: (mentor: Mentor) => Promise<void> | void;
+  onUpdateMentor: (oldPin: string, mentor: Mentor) => Promise<void> | void;
+  onDeleteMentor: (mentorPin: string) => Promise<void> | void;
 
   // Dynamic Campus Props
   campuses: Campus[];
@@ -248,10 +269,12 @@ export default function ManagerDashboard({
     | "profile"
     | "campuses"
     | "attendance-viewer"
+    | "attendance-trends"
     | "members"
     | "edit_requests"
     | "leave-requests"
     | "call-management"
+    | "permissions"
   >("attendance");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [viewedMemberPin, setViewedMemberPin] = useState<string | null>(null);
@@ -287,9 +310,191 @@ export default function ManagerDashboard({
   const [bulkPinInput, setBulkPinInput] = useState("");
   const [rosterCampusFilter, setRosterCampusFilter] = useState("all");
   const [rosterUnassignedOnly, setRosterUnassignedOnly] = useState(false);
+  const [trendsCampus, setTrendsCampus] = useState("All");
+  const [trendsMonth, setTrendsMonth] = useState(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+  });
   const [notificationActiveTab, setNotificationActiveTab] = useState<
     "requests" | "problematic" | "missing" | "notices"
   >("requests");
+
+  const attendanceTrendsData = React.useMemo(() => {
+    // 1. Calculate Daily Data for the selected month
+    const yearMonth = trendsMonth; // e.g. "2026-07"
+    const [yearStr, monthStr] = yearMonth.split("-");
+    const numDays = new Date(Number(yearStr), Number(monthStr), 0).getDate();
+
+    const dailyMap: Record<string, { present: number; absent: number; leave: number; total: number }> = {};
+    for (let d = 1; d <= numDays; d++) {
+      const dayStr = String(d).padStart(2, "0");
+      dailyMap[`${yearMonth}-${dayStr}`] = { present: 0, absent: 0, leave: 0, total: 0 };
+    }
+
+    // Filter reports for the selected year-month and campus
+    const filteredReports = reports.filter(r => {
+      const isCorrectMonth = r.date.startsWith(yearMonth);
+      const isCorrectCampus = trendsCampus === "All" || r.campus === trendsCampus;
+      return isCorrectMonth && isCorrectCampus;
+    });
+
+    const isPresentStatus = (status: string) => {
+      const s = (status || "").toLowerCase();
+      return s.includes("present") || s.includes("late") || s.includes("half") || s.includes("<") || s === "p";
+    };
+
+    const isAbsentStatus = (status: string) => {
+      const s = (status || "").toLowerCase();
+      return s.includes("absent") || s === "a";
+    };
+
+    const isLeaveStatus = (status: string) => {
+      const s = (status || "").toLowerCase();
+      return s.includes("leave") || s === "cl" || s === "ml" || s === "sl" || s === "l";
+    };
+
+    filteredReports.forEach(report => {
+      const dateKey = report.date;
+      if (dailyMap[dateKey]) {
+        report.records.forEach(rec => {
+          const status = rec.status;
+          if (isPresentStatus(status)) {
+            dailyMap[dateKey].present++;
+          } else if (isAbsentStatus(status)) {
+            dailyMap[dateKey].absent++;
+          } else if (isLeaveStatus(status)) {
+            dailyMap[dateKey].leave++;
+          }
+          dailyMap[dateKey].total++;
+        });
+      }
+    });
+
+    const dailyTrends = Object.entries(dailyMap).map(([date, stats]) => {
+      const day = date.split("-")[2];
+      const activeTotal = stats.present + stats.absent;
+      const rate = activeTotal > 0 ? Math.round((stats.present / activeTotal) * 100) : 0;
+      return {
+        date,
+        day,
+        Present: stats.present,
+        Absent: stats.absent,
+        Leave: stats.leave,
+        "Attendance Rate (%)": rate,
+      };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+
+    // 2. Calculate Monthly Data for the selected year
+    const year = yearStr; // e.g. "2026"
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthlyMap = months.reduce((acc, m, idx) => {
+      const key = `${year}-${String(idx + 1).padStart(2, "0")}`;
+      acc[key] = { name: m, present: 0, absent: 0, leave: 0 };
+      return acc;
+    }, {} as Record<string, { name: string; present: number; absent: number; leave: number }>);
+
+    const yearReports = reports.filter(r => {
+      const isCorrectYear = r.date.startsWith(year);
+      const isCorrectCampus = trendsCampus === "All" || r.campus === trendsCampus;
+      return isCorrectYear && isCorrectCampus;
+    });
+
+    yearReports.forEach(report => {
+      const ymKey = report.date.substring(0, 7); // YYYY-MM
+      if (monthlyMap[ymKey]) {
+        report.records.forEach(rec => {
+          const status = rec.status;
+          if (isPresentStatus(status)) {
+            monthlyMap[ymKey].present++;
+          } else if (isAbsentStatus(status)) {
+            monthlyMap[ymKey].absent++;
+          } else if (isLeaveStatus(status)) {
+            monthlyMap[ymKey].leave++;
+          }
+        });
+      }
+    });
+
+    const monthlyTrends = Object.entries(monthlyMap).map(([ym, stats]) => {
+      const activeTotal = stats.present + stats.absent;
+      const rate = activeTotal > 0 ? Math.round((stats.present / activeTotal) * 100) : 0;
+      return {
+        monthKey: ym,
+        Month: stats.name,
+        Present: stats.present,
+        Absent: stats.absent,
+        Leave: stats.leave,
+        "Attendance Rate (%)": rate,
+      };
+    }).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+
+    // 3. Compute Summary Metrics for the selected month
+    let totalPresent = 0;
+    let totalAbsent = 0;
+    let totalLeave = 0;
+    filteredReports.forEach(report => {
+      report.records.forEach(rec => {
+        const status = rec.status;
+        if (isPresentStatus(status)) {
+          totalPresent++;
+        } else if (isAbsentStatus(status)) {
+          totalAbsent++;
+        } else if (isLeaveStatus(status)) {
+          totalLeave++;
+        }
+      });
+    });
+
+    const totalActive = totalPresent + totalAbsent;
+    const overallRate = totalActive > 0 ? Math.round((totalPresent / totalActive) * 100) : 0;
+
+    // 4. Compute Campus Comparison for the selected month
+    const campusComparisonMap: Record<string, { present: number; absent: number; leave: number }> = {};
+    const selectedMonthReports = reports.filter(r => r.date.startsWith(yearMonth));
+
+    selectedMonthReports.forEach(report => {
+      const cName = report.campus;
+      if (!campusComparisonMap[cName]) {
+        campusComparisonMap[cName] = { present: 0, absent: 0, leave: 0 };
+      }
+      report.records.forEach(rec => {
+        const status = rec.status;
+        if (isPresentStatus(status)) {
+          campusComparisonMap[cName].present++;
+        } else if (isAbsentStatus(status)) {
+          campusComparisonMap[cName].absent++;
+        } else if (isLeaveStatus(status)) {
+          campusComparisonMap[cName].leave++;
+        }
+      });
+    });
+
+    const campusComparison = Object.entries(campusComparisonMap).map(([name, stats]) => {
+      const active = stats.present + stats.absent;
+      const rate = active > 0 ? Math.round((stats.present / active) * 100) : 0;
+      return {
+        name,
+        Present: stats.present,
+        Absent: stats.absent,
+        Leave: stats.leave,
+        rate,
+      };
+    }).sort((a, b) => b.rate - a.rate);
+
+    return {
+      dailyTrends,
+      monthlyTrends,
+      summary: {
+        totalPresent,
+        totalAbsent,
+        totalLeave,
+        overallRate,
+      },
+      campusComparison,
+    };
+  }, [reports, trendsCampus, trendsMonth]);
 
   // --- NOTIFICATION & REQUEST READ STATES ---
   const [readNotifications, setReadNotifications] = useState<string[]>(
@@ -621,6 +826,12 @@ export default function ManagerDashboard({
   const [selectedCrudRole, setSelectedCrudRole] = useState<Role | null>(null);
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
   const [isExcelGuideOpen, setIsExcelGuideOpen] = useState(false);
+
+  // Dedicated Menu Permissions Modal State
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [permissionTargetPin, setPermissionTargetPin] = useState<string>("");
+  const [permissionSearchQuery, setPermissionSearchQuery] = useState("");
+  const [memberPermissions, setMemberPermissions] = useState<string[]>([]);
 
   const [memberForm, setMemberForm] = useState(() => ({
     pin: "",
@@ -1384,7 +1595,7 @@ export default function ManagerDashboard({
   };
 
   // Handle Member CRUD submit
-  const handleSaveMemberRoster = (e: React.FormEvent) => {
+  const handleSaveMemberRoster = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!memberForm.pin || !memberForm.name || !memberForm.email) {
       toast.error("Please fill out Name, Email, and PIN.");
@@ -1401,10 +1612,11 @@ export default function ManagerDashboard({
       designation: memberForm.designation.trim(),
       campus: memberForm.campus,
       mentorPin:
-        memberForm.mentorPin ||
-        (memberForm.role === "member"
-          ? headCoordinatorPin
-          : managers[0]?.pin || currentUser.pin),
+        crudMode === "create"
+          ? (memberForm.role === "member"
+              ? (headCoordinatorPin || "")
+              : (managers[0]?.pin || currentUser.pin || ""))
+          : memberForm.mentorPin,
       role: memberForm.role,
       permissions: memberForm.permissions,
       avatarUrl: memberForm.avatarUrl || undefined,
@@ -1421,45 +1633,14 @@ export default function ManagerDashboard({
       return;
     }
 
-    if (crudMode === "create") {
-      if (
-        members.some(
-          (m) =>
-            (m.pin?.toLowerCase() || "") ===
-            (memberForm.pin?.toLowerCase() || ""),
-        ) ||
-        mentors.some(
-          (m) =>
-            (m.pin?.toLowerCase() || "") ===
-            (memberForm.pin?.toLowerCase() || ""),
-        ) ||
-        managers.some(
-          (m) =>
-            (m.pin?.toLowerCase() || "") ===
-            (memberForm.pin?.toLowerCase() || ""),
-        )
-      ) {
-        toast.error("An account with this User PIN already exists.");
-        return;
-      }
-
-      if (memberData.role === "mentor") {
-        onAddMentor(memberData);
-        toast.success(
-          `Campus Coordinator "${memberData.name}" created successfully!`,
-        );
-      } else {
-        onAddMember(memberData);
-        toast.success(`Team Member "${memberData.name}" created successfully!`);
-      }
-    } else {
-      if (
-        selectedCrudPin !== memberForm.pin &&
-        (members.some(
-          (m) =>
-            (m.pin?.toLowerCase() || "") ===
-            (memberForm.pin?.toLowerCase() || ""),
-        ) ||
+    try {
+      if (crudMode === "create") {
+        if (
+          members.some(
+            (m) =>
+              (m.pin?.toLowerCase() || "") ===
+              (memberForm.pin?.toLowerCase() || ""),
+          ) ||
           mentors.some(
             (m) =>
               (m.pin?.toLowerCase() || "") ===
@@ -1469,50 +1650,78 @@ export default function ManagerDashboard({
             (m) =>
               (m.pin?.toLowerCase() || "") ===
               (memberForm.pin?.toLowerCase() || ""),
-          ))
-      ) {
-        toast.error("An account with this User PIN already exists.");
-        return;
-      }
-      if (memberForm.role !== selectedCrudRole) {
-        onChangeUserRole(
-          selectedCrudPin || "",
-          selectedCrudRole || "member",
-          memberForm.role,
-          memberData,
-        );
-      } else {
-        if (memberForm.role === "mentor") {
-          onUpdateMentor(selectedCrudPin || "", memberData);
-        } else {
-          onUpdateMember(selectedCrudPin || "", memberData);
+          )
+        ) {
+          toast.error("An account with this User PIN already exists.");
+          return;
         }
-        toast.success(
-          `${memberData.role === "mentor" ? "Coordinator" : "Team Member"} "${memberData.name}" updated successfully!`,
-        );
-      }
-    }
 
-    // Reset Form & Close Modal
-    setMemberForm({
-      pin: "",
-      name: "",
-      email: "",
-      password: "password",
-      campus: "",
-      mentorPin: "",
-      designation: "",
-      permissions: [
-        "member_attendance",
-        "member_notices",
-        "member_post_notice",
-      ],
-      avatarUrl: "",
-      role: "member",
-    });
-    setCrudMode("create");
-    setSelectedCrudPin(null);
-    setIsRosterModalOpen(false);
+        if (memberData.role === "mentor") {
+          await onAddMentor(memberData);
+        } else {
+          await onAddMember(memberData);
+        }
+      } else {
+        if (
+          selectedCrudPin !== memberForm.pin &&
+          (members.some(
+            (m) =>
+              (m.pin?.toLowerCase() || "") ===
+              (memberForm.pin?.toLowerCase() || ""),
+          ) ||
+            mentors.some(
+              (m) =>
+                (m.pin?.toLowerCase() || "") ===
+                (memberForm.pin?.toLowerCase() || ""),
+            ) ||
+            managers.some(
+              (m) =>
+                (m.pin?.toLowerCase() || "") ===
+                (memberForm.pin?.toLowerCase() || ""),
+            ))
+        ) {
+          toast.error("An account with this User PIN already exists.");
+          return;
+        }
+        if (memberForm.role !== selectedCrudRole) {
+          await onChangeUserRole(
+            selectedCrudPin || "",
+            selectedCrudRole || "member",
+            memberForm.role,
+            memberData,
+          );
+        } else {
+          if (memberForm.role === "mentor") {
+            await onUpdateMentor(selectedCrudPin || "", memberData);
+          } else {
+            await onUpdateMember(selectedCrudPin || "", memberData);
+          }
+        }
+      }
+
+      // Reset Form & Close Modal
+      setMemberForm({
+        pin: "",
+        name: "",
+        email: "",
+        password: "password",
+        campus: "",
+        mentorPin: "",
+        designation: "",
+        permissions: [
+          "member_attendance",
+          "member_notices",
+          "member_post_notice",
+        ],
+        avatarUrl: "",
+        role: "member",
+      });
+      setCrudMode("create");
+      setSelectedCrudPin(null);
+      setIsRosterModalOpen(false);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save member");
+    }
   };
 
   // Handle Mentor CRUD submit
@@ -1563,9 +1772,6 @@ export default function ManagerDashboard({
         return;
       }
       onAddMentor(mentorData);
-      toast.success(
-        `Campus Coordinator "${mentorData.name}" created successfully!`,
-      );
     } else {
       if (
         selectedCrudPin !== mentorForm.pin &&
@@ -1597,9 +1803,6 @@ export default function ManagerDashboard({
         );
       } else {
         onUpdateMentor(selectedCrudPin || "", mentorData);
-        toast.success(
-          `Campus Coordinator "${mentorData.name}" updated successfully!`,
-        );
       }
     }
 
@@ -1947,32 +2150,37 @@ export default function ManagerDashboard({
     attendanceEditMonthFilter,
   ]);
 
+  // --- SCROLL TO TOP ON TAB CHANGE ---
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeTab]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Welcome & Notification Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="text-left">
           <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <LayoutDashboard className="w-4.5 h-4.5 text-indigo-600" />
-            Mentor's Dashboard
+            <LayoutDashboard className="w-4 h-4 text-indigo-600" />
+            Manager's Dashboard
           </h2>
-          <p className="text-xs text-slate-500 font-medium mt-0.5"></p>
+          <p className="text-[10px] text-slate-500 font-medium mt-0.5">Control Center</p>
           <div className="hidden sm:block">
             {!isSidebarOpen ? (
               <button
                 onClick={() => setIsSidebarOpen(true)}
-                className="mt-4 flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
+                className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
               >
-                <LayoutDashboard className="w-3.5 h-3.5" />
+                <LayoutDashboard className="w-3 h-3" />
                 <span>Open Dashboard Menu</span>
-                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                <ChevronRight className="w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform" />
               </button>
             ) : (
               <button
                 onClick={() => setIsSidebarOpen(false)}
-                className="mt-4 flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
+                className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
               >
-                <ChevronLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                <ChevronLeft className="w-3 h-3 group-hover:-translate-x-0.5 transition-transform" />
                 <span>Close Dashboard Menu</span>
               </button>
             )}
@@ -2533,6 +2741,11 @@ export default function ManagerDashboard({
                     icon: Users,
                     label: "Team Member Attendance",
                   },
+                  {
+                    id: "attendance-trends",
+                    icon: LayoutDashboard,
+                    label: "Attendance Trends",
+                  },
                   { id: "members", icon: Users, label: "Team Members List" },
                   {
                     id: "edit_requests",
@@ -2558,6 +2771,7 @@ export default function ManagerDashboard({
                     label: "Call Management",
                   },
                   { id: "campuses", icon: MapPin, label: "Campus Settings" },
+                  { id: "permissions", icon: Key, label: "Permission Management" },
                   { id: "notices", icon: Megaphone, label: "Notice Board" },
                   {
                     id: "verification",
@@ -2758,7 +2972,7 @@ export default function ManagerDashboard({
                       </label>
                       <input
                         type="text"
-                        required
+                        
                         value={editingPreviewRow.record.memberPin}
                         onChange={(e) => {
                           const updatedRecord = {
@@ -2801,7 +3015,7 @@ export default function ManagerDashboard({
                       </label>
                       <input
                         type="text"
-                        required
+                        
                         value={editingPreviewRow.record.memberName}
                         onChange={(e) =>
                           setEditingPreviewRow({
@@ -3528,7 +3742,7 @@ export default function ManagerDashboard({
                     </label>
                     <input
                       type="date"
-                      required
+                      
                       value={reportDate}
                       max={new Date().toISOString().split("T")[0]}
                       onChange={(e) => setReportDate(e.target.value)}
@@ -4667,6 +4881,383 @@ export default function ManagerDashboard({
             </motion.div>
           )}
 
+          {/* Tab: ATTENDANCE TRENDS */}
+          {activeTab === "attendance-trends" && viewedMemberPin === null && (
+            <motion.div
+              key="tab-attendance-trends"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              {/* Header section with modern background and actions */}
+              <div className="bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-sm text-left flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div>
+                  <h2 className="text-xl font-extrabold tracking-tight text-slate-800 flex items-center gap-2.5">
+                    <TrendingUp className="w-6 h-6 text-indigo-600 animate-pulse" />
+                    Attendance Performance & Trends
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium mt-1">
+                    Analyze monthly and daily member performance, active rates, and trends across campuses.
+                  </p>
+                </div>
+
+                {/* Filter Controls */}
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                  <div className="flex flex-col min-w-[140px] flex-1 sm:flex-initial">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Campus
+                    </label>
+                    <select
+                      value={trendsCampus}
+                      onChange={(e) => setTrendsCampus(e.target.value)}
+                      className="px-3 py-2 border border-slate-200 bg-slate-50/50 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/10 cursor-pointer"
+                    >
+                      <option value="All">All Campuses</option>
+                      {campuses.map((c) => (
+                        <option key={c.id} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col min-w-[140px] flex-1 sm:flex-initial">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Select Month
+                    </label>
+                    <input
+                      type="month"
+                      value={trendsMonth}
+                      onChange={(e) => setTrendsMonth(e.target.value)}
+                      className="px-3 py-2 border border-slate-200 bg-slate-50/50 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/10 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Stat Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Overall Attendance Rate */}
+                <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs text-left relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+                    <Activity className="w-20 h-20 text-indigo-600" />
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Monthly Attendance Rate
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-black text-indigo-600 font-mono">
+                      {attendanceTrendsData.summary.overallRate}%
+                    </span>
+                  </div>
+                  <div className="mt-4 w-full bg-slate-100 rounded-full h-2">
+                    <div
+                      className="bg-indigo-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${attendanceTrendsData.summary.overallRate}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-semibold mt-2.5">
+                    Target: 95% Active Rate
+                  </p>
+                </div>
+
+                {/* 2. Total Present */}
+                <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs text-left relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+                    <CheckCircle className="w-20 h-20 text-emerald-600" />
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Total Present Records
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-black text-emerald-600 font-mono">
+                      {attendanceTrendsData.summary.totalPresent}
+                    </span>
+                    <span className="text-xs text-slate-400 font-bold">punches</span>
+                  </div>
+                  <div className="mt-4 flex items-center gap-1 text-[10px] text-emerald-600 font-bold">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Active on campus
+                  </div>
+                </div>
+
+                {/* 3. Total Absent */}
+                <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs text-left relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+                    <XCircle className="w-20 h-20 text-rose-600" />
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Total Absent Records
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-black text-rose-600 font-mono">
+                      {attendanceTrendsData.summary.totalAbsent}
+                    </span>
+                    <span className="text-xs text-slate-400 font-bold">misses</span>
+                  </div>
+                  <div className="mt-4 flex items-center gap-1 text-[10px] text-rose-600 font-bold">
+                    <XCircle className="w-3.5 h-3.5" />
+                    Action required
+                  </div>
+                </div>
+
+                {/* 4. Total Leave */}
+                <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs text-left relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+                    <Calendar className="w-20 h-20 text-amber-600" />
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Total Approved Leaves
+                  </p>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-3xl font-black text-amber-600 font-mono">
+                      {attendanceTrendsData.summary.totalLeave}
+                    </span>
+                    <span className="text-xs text-slate-400 font-bold">days</span>
+                  </div>
+                  <div className="mt-4 flex items-center gap-1 text-[10px] text-amber-600 font-bold">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Excused absence
+                  </div>
+                </div>
+              </div>
+
+              {/* Visual Charts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Daily Area Chart */}
+                <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs text-left">
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                        Daily Attendance Volatility
+                      </h3>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        Present vs Absent counts for {trendsMonth}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="h-80 w-full">
+                    {attendanceTrendsData.dailyTrends.length === 0 || 
+                     attendanceTrendsData.dailyTrends.every(d => d.Present === 0 && d.Absent === 0) ? (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2">
+                        <Activity className="w-8 h-8 text-slate-300 stroke-[1.5]" />
+                        <span className="text-xs font-semibold">No data available for this month</span>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={attendanceTrendsData.dailyTrends}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="colorPresent" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id="colorAbsent" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis
+                            dataKey="day"
+                            stroke="#94a3b8"
+                            fontSize={10}
+                            fontWeight="bold"
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            stroke="#94a3b8"
+                            fontSize={10}
+                            fontWeight="bold"
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: "#ffffff",
+                              border: "1px solid #e2e8f0",
+                              borderRadius: "16px",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+                            }}
+                          />
+                          <Legend
+                            verticalAlign="top"
+                            height={36}
+                            iconType="circle"
+                            iconSize={8}
+                            wrapperStyle={{ fontSize: "10px", fontWeight: "bold" }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="Present"
+                            stroke="#4f46e5"
+                            strokeWidth={2}
+                            fillOpacity={1}
+                            fill="url(#colorPresent)"
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="Absent"
+                            stroke="#f43f5e"
+                            strokeWidth={2}
+                            fillOpacity={1}
+                            fill="url(#colorAbsent)"
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                {/* Monthly Bar Chart */}
+                <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs text-left">
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                        Annual Attendance Summary
+                      </h3>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        Present vs Absent count across year {trendsMonth.split("-")[0]}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="h-80 w-full">
+                    {attendanceTrendsData.monthlyTrends.length === 0 ||
+                     attendanceTrendsData.monthlyTrends.every(m => m.Present === 0 && m.Absent === 0) ? (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2">
+                        <Activity className="w-8 h-8 text-slate-300 stroke-[1.5]" />
+                        <span className="text-xs font-semibold">No data available for this year</span>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={attendanceTrendsData.monthlyTrends}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis
+                            dataKey="Month"
+                            stroke="#94a3b8"
+                            fontSize={10}
+                            fontWeight="bold"
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <YAxis
+                            stroke="#94a3b8"
+                            fontSize={10}
+                            fontWeight="bold"
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: "#ffffff",
+                              border: "1px solid #e2e8f0",
+                              borderRadius: "16px",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+                            }}
+                          />
+                          <Legend
+                            verticalAlign="top"
+                            height={36}
+                            iconType="circle"
+                            iconSize={8}
+                            wrapperStyle={{ fontSize: "10px", fontWeight: "bold" }}
+                          />
+                          <Bar dataKey="Present" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="Absent" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Campus Comparison Section */}
+              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs text-left">
+                <div className="mb-6 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-indigo-600" />
+                      Campus Efficiency Rankings
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      Performance standings of all active campuses for {trendsMonth}
+                    </p>
+                  </div>
+                </div>
+
+                {attendanceTrendsData.campusComparison.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 font-semibold text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    No campus data available for the selected month
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {attendanceTrendsData.campusComparison.map((campus, idx) => (
+                      <div
+                        key={campus.name}
+                        className="p-5 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-slate-50 transition-all flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex justify-between items-start mb-3">
+                            <span className="text-xs font-black text-slate-700 tracking-tight flex items-center gap-1.5">
+                              <span className="w-5 h-5 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center font-mono text-[10px] font-bold">
+                                {idx + 1}
+                              </span>
+                              {campus.name}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black font-mono ${
+                              campus.rate >= 95 ? "bg-emerald-50 text-emerald-600" :
+                              campus.rate >= 80 ? "bg-indigo-50 text-indigo-600" : "bg-rose-50 text-rose-600"
+                            }`}>
+                              {campus.rate}%
+                            </span>
+                          </div>
+
+                          {/* Progress bar */}
+                          <div className="w-full bg-slate-200/80 h-1.5 rounded-full">
+                            <div
+                              className={`h-1.5 rounded-full ${
+                                campus.rate >= 95 ? "bg-emerald-500" :
+                                campus.rate >= 80 ? "bg-indigo-500" : "bg-rose-500"
+                              }`}
+                              style={{ width: `${campus.rate}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100/60 text-center">
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">Present</p>
+                            <p className="text-xs font-black text-emerald-600 mt-0.5">{campus.Present}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">Absent</p>
+                            <p className="text-xs font-black text-rose-600 mt-0.5">{campus.Absent}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">Leave</p>
+                            <p className="text-xs font-black text-amber-600 mt-0.5">{campus.Leave}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
           {/* Tab 3: TEAM MEMBERS LIST */}
           {activeTab === "members" && viewedMemberPin === null && (
             <motion.div
@@ -5115,7 +5706,7 @@ export default function ManagerDashboard({
                               </div>
                               <div>
                                 <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1.5 font-mono">
-                                  Manager Reply Comment
+                                  Mentors Reply Comment
                                 </label>
                                 <input
                                   type="text"
@@ -5154,7 +5745,7 @@ export default function ManagerDashboard({
                         ) : (
                           <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-left">
                             <p className="text-[10px] font-black uppercase text-slate-400 font-mono">
-                              Manager Comment:
+                             Mentors Comment:
                             </p>
                             <p className="text-slate-600 italic">
                               "{fb.managerComment || "No comment left."}"
@@ -5549,7 +6140,7 @@ export default function ManagerDashboard({
                               </td>
                               <td className="p-4">
                                 <div className="flex items-center gap-3">
-                                  <UserAvatar user={member} size="sm" />
+                                  <UserAvatar user={{...member, avatarUrl: undefined}} size="sm" />
                                   <div className="min-w-0">
                                     <h4 className="font-bold text-slate-800 text-xs truncate flex items-center gap-1.5">
                                       {member.name}
@@ -5675,6 +6266,22 @@ export default function ManagerDashboard({
                                   >
                                     <Edit className="w-3.5 h-3.5" />
                                   </button>
+                                  {(currentUser.role === "manager" ||
+                                    currentUser.permissions?.includes(
+                                      "configure_menu_permissions",
+                                    )) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPermissionTargetPin(member.pin);
+                                        setActiveTab("permissions");
+                                      }}
+                                      className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Configure Menu Permissions"
+                                    >
+                                      <Shield className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => {
                                       const updatedUser = {
@@ -5755,7 +6362,7 @@ export default function ManagerDashboard({
                         </span>
                         <p className="text-xs text-emerald-800 mb-2">
                           The first line of your Excel sheet must contain the
-                          following headers (exact spelling is required):
+                          following headers (exact spelling is ):
                         </p>
                         <ul className="list-disc list-inside font-bold text-slate-700 space-y-1 text-xs pl-1">
                           <li>
@@ -5828,12 +6435,12 @@ export default function ManagerDashboard({
                           {/* PIN */}
                           <div>
                             <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                              User PIN / Student PIN
+                              User PIN
                             </label>
                             <input
-                              type="text"
-                              required
-                              placeholder="e.g. 101"
+                              type="number"
+                              
+                              placeholder="Team Member PIN"
                               value={memberForm.pin}
                               onChange={(e) =>
                                 setMemberForm((prev) => ({
@@ -5852,8 +6459,8 @@ export default function ManagerDashboard({
                             </label>
                             <input
                               type="text"
-                              required
-                              placeholder="e.g. John Doe"
+                              
+                              placeholder="Team Member Full Name"
                               value={memberForm.name}
                               onChange={(e) =>
                                 setMemberForm((prev) => ({
@@ -5871,9 +6478,9 @@ export default function ManagerDashboard({
                               Email Address
                             </label>
                             <input
-                              type="email"
-                              required
-                              placeholder="e.g. john@portal.com"
+                              type="text"
+                              
+                              placeholder="name.pin@udvash.net"
                               value={memberForm.email}
                               onChange={(e) =>
                                 setMemberForm((prev) => ({
@@ -5892,7 +6499,7 @@ export default function ManagerDashboard({
                             </label>
                             <input
                               type="text"
-                              placeholder="e.g. Executive Member"
+                              placeholder="Scrutineer"
                               value={memberForm.designation}
                               onChange={(e) =>
                                 setMemberForm((prev) => ({
@@ -5905,24 +6512,26 @@ export default function ManagerDashboard({
                           </div>
 
                           {/* Password */}
-                          <div>
-                            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                              Portal Password
-                            </label>
-                            <input
-                              type="text"
-                              required={crudMode === "create"}
-                              placeholder="Password"
-                              value={memberForm.password}
-                              onChange={(e) =>
-                                setMemberForm((prev) => ({
-                                  ...prev,
-                                  password: e.target.value,
-                                }))
-                              }
-                              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
-                            />
-                          </div>
+                          {crudMode === "create" && (
+                            <div>
+                              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                                Portal Password
+                              </label>
+                              <input
+                                type="text"
+                                
+                                placeholder="Set Initial Password"
+                                value={memberForm.password}
+                                onChange={(e) =>
+                                  setMemberForm((prev) => ({
+                                    ...prev,
+                                    password: e.target.value,
+                                  }))
+                                }
+                                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
+                              />
+                            </div>
+                          )}
 
                           {/* Role edit disabled */}
 
@@ -5956,461 +6565,46 @@ export default function ManagerDashboard({
                           </div>
 
                           {/* Campus Coordinator */}
-                          <div>
-                            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                              Campus Coordinator
-                            </label>
-                            <select
-                              value={memberForm.mentorPin}
-                              onChange={(e) =>
-                                setMemberForm((prev) => ({
-                                  ...prev,
-                                  mentorPin: e.target.value,
-                                }))
-                              }
-                              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
-                            >
-                              <option value="">
-                                No Campus Coordinator (Unassigned)
-                              </option>
-                              {/* Managers */}
-                              {managers.map((m) => (
-                                <option
-                                  key={`mgr-option-${m.pin}`}
-                                  value={m.pin}
-                                >
-                                  {m.name}
-                                </option>
-                              ))}
-                              {/* coordinators assigned to this campus */}
-                              {mentors
-                                .filter((m) => m.campus === memberForm.campus)
-                                .map((m) => (
+                          {crudMode !== "create" && (
+                            <div>
+                              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                                Campus Coordinator
+                              </label>
+                              <select
+                                value={memberForm.mentorPin}
+                                onChange={(e) =>
+                                  setMemberForm((prev) => ({
+                                    ...prev,
+                                    mentorPin: e.target.value,
+                                  }))
+                                }
+                                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
+                              >
+                                {/* Managers */}
+                                {managers.map((m) => (
                                   <option
-                                    key={`coord-option-${m.pin}`}
+                                    key={`mgr-option-${m.pin}`}
                                     value={m.pin}
                                   >
-                                    {m.name} (Coordinator)
+                                    {m.name}
                                   </option>
                                 ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
-                          {/* Base64 Avatar Uploader */}
-                          <div>
-                            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
-                              Profile Picture (Base64 Profile Picture)
-                            </label>
-                            <div
-                              className="border-2 border-dashed border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/10 rounded-2xl p-4 text-center cursor-pointer transition-all relative group mb-2"
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const file = e.dataTransfer.files?.[0];
-                                if (file) {
-                                  if (file.size > 200 * 1024) {
-                                    toast.error(
-                                      "Image size cannot exceed 200 KB.",
-                                    );
-                                    return;
-                                  }
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    if (typeof reader.result === "string") {
-                                      setMemberForm((p) => ({
-                                        ...p,
-                                        avatarUrl: reader.result as string,
-                                      }));
-                                    }
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }}
-                              onClick={() =>
-                                document
-                                  .getElementById("modal-avatar-upload")
-                                  ?.click()
-                              }
-                            >
-                              <input
-                                id="modal-avatar-upload"
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    if (file.size > 200 * 1024) {
-                                      toast.error(
-                                        "Image size cannot exceed 200 KB.",
-                                      );
-                                      return;
-                                    }
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      if (typeof reader.result === "string") {
-                                        setMemberForm((p) => ({
-                                          ...p,
-                                          avatarUrl: reader.result as string,
-                                        }));
-                                      }
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                                className="hidden"
-                              />
-                              <div className="flex flex-col items-center justify-center gap-1">
-                                {memberForm.avatarUrl ? (
-                                  <img
-                                    src={memberForm.avatarUrl}
-                                    alt="Preview"
-                                    className="w-14 h-14 rounded-full border-2 border-indigo-100 object-cover"
-                                    onError={(e) => {
-                                      (e.target as HTMLImageElement).src =
-                                        "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100";
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-colors">
-                                    <Upload className="w-4 h-4" />
-                                  </div>
-                                )}
-                                <span className="text-[10px] font-extrabold text-slate-600 mt-0.5">
-                                  Drag or click to upload photo
-                                </span>
-                                <span className="text-[9px] text-slate-400">
-                                  Converted to Base64 instantly
-                                </span>
-                              </div>
+                                {/* coordinators assigned to this campus */}
+                                {mentors
+                                  .filter((m) => m.campus === memberForm.campus)
+                                  .map((m) => (
+                                    <option
+                                      key={`coord-option-${m.pin}`}
+                                      value={m.pin}
+                                    >
+                                      {m.name} (Coordinator)
+                                    </option>
+                                  ))}
+                              </select>
                             </div>
-                            <input
-                              type="url"
-                              placeholder="Or provide a direct image link..."
-                              value={
-                                memberForm.avatarUrl &&
-                                memberForm.avatarUrl.startsWith("data:")
-                                  ? ""
-                                  : memberForm.avatarUrl
-                              }
-                              onChange={(e) =>
-                                setMemberForm((prev) => ({
-                                  ...prev,
-                                  avatarUrl: e.target.value,
-                                }))
-                              }
-                              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                            />
-                          </div>
+                          )}
 
-                          {/* Permissions */}
-                          <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">
-                              Configure Menu Permissions
-                            </label>
-
-                            {memberForm.role === "mentor" ? (
-                              <div className="space-y-3">
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "mentor_attendance",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "mentor_attendance",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "mentor_attendance",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  View Team Attendance
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "mentor_leave",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "mentor_leave",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "mentor_leave",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  Manage Leave Requests
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "mentor_history",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "mentor_history",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "mentor_history",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  Manage Adjustments
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "mentor_notices",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "mentor_notices",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "mentor_notices",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  View Notice Board
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "mentor_post_notice",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "mentor_post_notice",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "mentor_post_notice",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  Post Notices
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "manage_campus_settings",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "manage_campus_settings",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) =>
-                                                p !== "manage_campus_settings",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  Manage Campus Settings
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "can_upload_call_info",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "can_upload_call_info",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) =>
-                                                p !== "can_upload_call_info",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
-                                  />
-                                  Allow Student Info Upload
-                                </label>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "member_attendance",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "member_attendance",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "member_attendance",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
-                                  />
-                                  Attendance Form
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "member_notices",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "member_notices",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "member_notices",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
-                                  />
-                                  Bulletins / Notice Board
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "member_post_notice",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "member_post_notice",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) => p !== "member_post_notice",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
-                                  />
-                                  Post Notices
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "manage_campus_settings",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "manage_campus_settings",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) =>
-                                                p !== "manage_campus_settings",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
-                                  />
-                                  Manage Campus Settings
-                                </label>
-                                <label className="flex items-center gap-2.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={memberForm.permissions.includes(
-                                      "can_upload_call_info",
-                                    )}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      setMemberForm((prev) => ({
-                                        ...prev,
-                                        permissions: checked
-                                          ? [
-                                              ...prev.permissions,
-                                              "can_upload_call_info",
-                                            ]
-                                          : prev.permissions.filter(
-                                              (p) =>
-                                                p !== "can_upload_call_info",
-                                            ),
-                                      }));
-                                    }}
-                                    className="rounded-sm border-slate-300 text-indigo-600 focus:ring-indigo-550 cursor-pointer w-4 h-4"
-                                  />
-                                  Allow Student Info Upload
-                                </label>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                            </div>
                         <div className="flex gap-2.5 pt-6 border-t border-slate-150 bg-white sticky bottom-0 z-10">
                           <button
                             type="submit"
@@ -8001,6 +8195,23 @@ export default function ManagerDashboard({
               />
             </motion.div>
           )}
+
+          {/* Tab: PERMISSION MANAGEMENT */}
+          {activeTab === "permissions" && viewedMemberPin === null && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <PermissionManagementView
+                members={members}
+                mentors={mentors}
+                onUpdateMember={onUpdateMember}
+                onUpdateMentor={onUpdateMentor}
+                initialSelectedPin={permissionTargetPin}
+                isManager={true}
+              />
+            </motion.div>
+          )}
         </div>
         {/* Close lg:col-span-10 */}
       </div>
@@ -8117,7 +8328,7 @@ export default function ManagerDashboard({
                     </label>
                     <input
                       type="date"
-                      required
+                      
                       value={leaveEditForm.startDate || ""}
                       onChange={(e) =>
                         setLeaveEditForm((prev) => ({
@@ -8134,7 +8345,7 @@ export default function ManagerDashboard({
                     </label>
                     <input
                       type="date"
-                      required
+                      
                       value={leaveEditForm.endDate || ""}
                       onChange={(e) =>
                         setLeaveEditForm((prev) => ({
@@ -8196,7 +8407,7 @@ export default function ManagerDashboard({
                     Reason for Leave
                   </label>
                   <textarea
-                    required
+                    
                     rows={3}
                     value={leaveEditForm.reason || ""}
                     onChange={(e) =>
@@ -8256,6 +8467,401 @@ export default function ManagerDashboard({
         onAdd={onAddBranch}
         branches={branches}
       />
+
+      {/* Dedicated Configure Menu Permissions Modal */}
+      {isPermissionModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 text-left"
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-100 text-amber-600 rounded-2xl">
+                  <Shield className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight">
+                    Configure Menu Permissions
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                    Manage module and menu access for team members
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPermissionModalOpen(false)}
+                className="p-2 hover:bg-slate-200 rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Select Member / Coordinator */}
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Select Member / Coordinator
+                </label>
+                <div className="relative mb-2">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, PIN, or campus..."
+                    value={permissionSearchQuery}
+                    onChange={(e) => setPermissionSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                  {permissionSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPermissionSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={permissionTargetPin}
+                  onChange={(e) => {
+                    const selectedPin = e.target.value;
+                    setPermissionTargetPin(selectedPin);
+                    const target = [...members, ...mentors].find(
+                      (u) => u.pin === selectedPin,
+                    );
+                    setMemberPermissions(target?.permissions || []);
+                  }}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 cursor-pointer"
+                >
+                  <option value="">-- Choose Member or Coordinator --</option>
+                  {(() => {
+                    const allUsers = [...members, ...mentors];
+                    const filtered = allUsers.filter((u) => {
+                      if (!permissionSearchQuery.trim()) return true;
+                      const q = permissionSearchQuery.toLowerCase().trim();
+                      return (
+                        u.name?.toLowerCase().includes(q) ||
+                        u.pin?.toLowerCase().includes(q) ||
+                        (u.campus && u.campus.toLowerCase().includes(q))
+                      );
+                    });
+                    return filtered.map((u) => (
+                      <option key={u.pin} value={u.pin}>
+                        {u.name} ({u.role === "mentor" ? "Coordinator" : "Member"} - Campus: {u.campus} - PIN: {u.pin})
+                      </option>
+                    ));
+                  })()}
+                </select>
+              </div>
+
+              {/* Selected User Info & Permissions Toggles */}
+              {(() => {
+                const targetUser = [...members, ...mentors].find(
+                  (u) => u.pin === permissionTargetPin,
+                );
+                if (!permissionTargetPin || !targetUser) {
+                  return (
+                    <div className="p-8 text-center bg-slate-50/50 rounded-2xl border border-slate-100">
+                      <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-500">
+                        Please select a team member or coordinator above to configure their permissions.
+                      </p>
+                    </div>
+                  );
+                }
+
+                const isMentor = targetUser.role === "mentor";
+
+                const togglePermission = (permKey: string) => {
+                  setMemberPermissions((prev) =>
+                    prev.includes(permKey)
+                      ? prev.filter((p) => p !== permKey)
+                      : [...prev, permKey],
+                  );
+                };
+
+                return (
+                  <div className="space-y-6">
+                    {/* User Card */}
+                    <div className="p-4 bg-amber-50/40 border border-amber-200/60 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 font-black flex items-center justify-center text-sm">
+                          {targetUser.name?.[0]?.toUpperCase() || "U"}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-slate-800">
+                            {targetUser.name}
+                          </h4>
+                          <p className="text-[11px] font-bold text-slate-500">
+                            PIN:{" "}
+                            <span className="font-mono text-slate-700">
+                              {targetUser.pin}
+                            </span>{" "}
+                            • {targetUser.campus}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          isMentor
+                            ? "bg-purple-100 text-purple-700"
+                            : "bg-indigo-100 text-indigo-700"
+                        }`}
+                      >
+                        {isMentor ? "Coordinator" : "Member"}
+                      </span>
+                    </div>
+
+                    {/* Permissions Checkbox Grid */}
+                    <div className="bg-slate-50/80 p-5 rounded-2xl border border-slate-200/80 space-y-4">
+                      <h5 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <Key className="w-3.5 h-3.5 text-amber-600" />
+                        Menu & Feature Access
+                      </h5>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {isMentor ? (
+                          <>
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "mentor_attendance",
+                                )}
+                                onChange={() =>
+                                  togglePermission("mentor_attendance")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                View Team Attendance
+                              </span>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "mentor_leave",
+                                )}
+                                onChange={() =>
+                                  togglePermission("mentor_leave")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                Manage Leave Requests
+                              </span>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "mentor_history",
+                                )}
+                                onChange={() =>
+                                  togglePermission("mentor_history")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                Manage Adjustments
+                              </span>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "mentor_notices",
+                                )}
+                                onChange={() =>
+                                  togglePermission("mentor_notices")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                View Notice Board
+                              </span>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "mentor_post_notice",
+                                )}
+                                onChange={() =>
+                                  togglePermission("mentor_post_notice")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                Post Notices
+                              </span>
+                            </label>
+                          </>
+                        ) : (
+                          <>
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "member_attendance",
+                                )}
+                                onChange={() =>
+                                  togglePermission("member_attendance")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                Attendance Form
+                              </span>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "member_notices",
+                                )}
+                                onChange={() =>
+                                  togglePermission("member_notices")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                Notice Board
+                              </span>
+                            </label>
+
+                            <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={memberPermissions.includes(
+                                  "member_post_notice",
+                                )}
+                                onChange={() =>
+                                  togglePermission("member_post_notice")
+                                }
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700">
+                                Post Notices
+                              </span>
+                            </label>
+                          </>
+                        )}
+
+                        {/* Shared Special Menu Permissions */}
+                        <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={memberPermissions.includes(
+                              "manage_campus_settings",
+                            )}
+                            onChange={() =>
+                              togglePermission("manage_campus_settings")
+                            }
+                            className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-700">
+                            Manage Campus Settings
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={memberPermissions.includes(
+                              "can_upload_call_info",
+                            )}
+                            onChange={() =>
+                              togglePermission("can_upload_call_info")
+                            }
+                            className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-700">
+                            Allow Student Info Upload
+                          </span>
+                        </label>
+
+                        {/* Configure Menu Permissions privilege toggle */}
+                        <label className="flex items-center gap-3 p-2.5 bg-amber-50/80 rounded-xl border border-amber-300/80 cursor-pointer hover:bg-amber-100/80 transition-colors sm:col-span-2">
+                          <input
+                            type="checkbox"
+                            checked={memberPermissions.includes(
+                              "configure_menu_permissions",
+                            )}
+                            onChange={() =>
+                              togglePermission("configure_menu_permissions")
+                            }
+                            className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                          />
+                          <div>
+                            <span className="text-xs font-black text-amber-900 block">
+                              Configure Menu Permissions
+                            </span>
+                            <span className="text-[10px] font-semibold text-amber-700">
+                              Allows this user to access the menu permissions configuration menu & grant permissions to others
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-slate-100 flex gap-3 bg-slate-50/50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsPermissionModalOpen(false)}
+                className="flex-1 py-2.5 border border-slate-200 hover:bg-slate-100 text-slate-600 font-bold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!permissionTargetPin}
+                onClick={() => {
+                  const targetUser = [...members, ...mentors].find(
+                    (u) => u.pin === permissionTargetPin,
+                  );
+                  if (!targetUser) return;
+
+                  if (targetUser.role === "mentor") {
+                    onUpdateMentor(targetUser.pin, {
+                      ...targetUser,
+                      permissions: memberPermissions,
+                    } as Mentor);
+                  } else {
+                    onUpdateMember(targetUser.pin, {
+                      ...targetUser,
+                      permissions: memberPermissions,
+                    } as TeamMember);
+                  }
+
+                  setIsPermissionModalOpen(false);
+                  toast.success(`Updated permissions for ${targetUser.name}`);
+                }}
+                className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-amber-100 cursor-pointer"
+              >
+                Save Permissions
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
@@ -8326,7 +8932,7 @@ function BranchManagementModal({
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden border border-slate-200"
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[90vh] max-h-[92vh] flex flex-col overflow-hidden border border-slate-200"
       >
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <div>
@@ -9607,14 +10213,14 @@ function AttendanceAdjustmentEditModal({
 
           <div>
             <label className="block text-[9px] font-black text-indigo-500 uppercase tracking-wider mb-1">
-              Manager Remarks
+              Mentors Remarks
             </label>
             <input
               type="text"
               value={managerComment}
               onChange={(e) => setManagerComment(e.target.value)}
               className="w-full px-3 py-2 bg-white border border-indigo-150 rounded-lg text-xs font-semibold text-slate-700 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-              placeholder="Enter manager comment..."
+              placeholder="Enter Mentors comment..."
             />
           </div>
         </div>

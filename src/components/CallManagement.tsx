@@ -189,6 +189,8 @@ export default function CallManagement({
     "feedback" | "live" | "both"
   >("feedback");
   const [assignTargetMember, setAssignTargetMember] = useState("");
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [isMemberDropdownOpen, setIsMemberDropdownOpen] = useState(false);
 
   const [selectedClassForUpload, setSelectedClassForUpload] = useState("");
   const [deleteAllTargetClass, setDeleteAllTargetClass] =
@@ -1326,12 +1328,22 @@ export default function CallManagement({
       const matchesBranch =
         selectedBranches.length === 0 || selectedBranches.includes(task.branch);
 
-      // Visibility Logic for Coordinators: In Management tab, hide tasks assigned to Mentors
-      if (activeSubTab === "management" && isCoordinator && !canUpload) {
-        const isAssignedToMentor =
-          (task.assignedToPin && mentorPins.has(task.assignedToPin)) ||
-          (task.liveAssignedToPin && mentorPins.has(task.liveAssignedToPin));
-        if (isAssignedToMentor) return false;
+      // Visibility Logic for Coordinators: In Management tab, hide tasks assigned to Mentors/Coordinators or Self
+      if (
+        activeSubTab === "management" &&
+        (currentUser.role === "mentor" || (isCoordinator && !canUpload))
+      ) {
+        const isAssignedToMentorOrSelf =
+          (task.assignedToPin &&
+            (mentorPins.has(task.assignedToPin) ||
+              task.assignedToPin === currentUser.pin)) ||
+          (task.liveAssignedToPin &&
+            (mentorPins.has(task.liveAssignedToPin) ||
+              task.liveAssignedToPin === currentUser.pin)) ||
+          (task.liveInstructorPin &&
+            (mentorPins.has(task.liveInstructorPin) ||
+              task.liveInstructorPin === currentUser.pin));
+        if (isAssignedToMentorOrSelf) return false;
       }
 
       return (
@@ -1441,9 +1453,9 @@ export default function CallManagement({
       return allAssignable;
     }
 
-    // For others (Coordinators), they can only see members of their OWN campus
-    const myCampusMembers = allAssignable.filter(
-      (m) => m.campus === currentUser.campus,
+    // For others (Coordinators), they can only see team members under them
+    const myCampusMembers = members.filter(
+      (m) => m.campus === currentUser.campus || m.mentorPin === currentUser.pin,
     );
 
     if (taskSubset.length === 0) return myCampusMembers;
@@ -1640,18 +1652,25 @@ export default function CallManagement({
 
   const filteredDashboardTasks = useMemo(() => {
     let baseTasks = tasks;
-    if (isCoordinator && !canUpload) {
+    if (currentUser.role === "mentor" || (isCoordinator && !canUpload)) {
       baseTasks = tasks.filter((task) => {
-        const isAssignedToMentor =
-          (task.assignedToPin && mentorPins.has(task.assignedToPin)) ||
-          (task.liveAssignedToPin && mentorPins.has(task.liveAssignedToPin));
-        return !isAssignedToMentor;
+        const isAssignedToMentorOrSelf =
+          (task.assignedToPin &&
+            (mentorPins.has(task.assignedToPin) ||
+              task.assignedToPin === currentUser.pin)) ||
+          (task.liveAssignedToPin &&
+            (mentorPins.has(task.liveAssignedToPin) ||
+              task.liveAssignedToPin === currentUser.pin)) ||
+          (task.liveInstructorPin &&
+            (mentorPins.has(task.liveInstructorPin) ||
+              task.liveInstructorPin === currentUser.pin));
+        return !isAssignedToMentorOrSelf;
       });
     }
     return dashboardClassFilter === "all"
       ? baseTasks
       : baseTasks.filter((t) => t.className === dashboardClassFilter);
-  }, [tasks, isCoordinator, canUpload, mentorPins, dashboardClassFilter]);
+  }, [tasks, isCoordinator, canUpload, mentorPins, dashboardClassFilter, currentUser.role, currentUser.pin]);
 
   const totalTasks = filteredDashboardTasks.length;
   const liveCompleted = filteredDashboardTasks.filter(
@@ -2919,8 +2938,8 @@ export default function CallManagement({
                     <th className="p-4">Contact</th>
                     <th className="p-4">Branch/Class</th>
                     <th className="p-4">Live Instruction Status</th>
-                    <th className="p-4 ">Live Instruction Date</th>
-                    <th className="p-4 text-center">Live Instruction Assign Status</th>
+                    <th className="p-4">Live Instruction Date</th>
+                    <th className="p-4 text-center">Live Assign Status</th>
                     <th className="p-4">Live Assigned Member</th>
                     <th className="p-4">Live Instructor Name</th>
                     <th className="p-4">Feedback Status</th>
@@ -3155,10 +3174,7 @@ export default function CallManagement({
                         </td>
                         <td className="p-4">
                           <div className="font-medium text-slate-700 text-[10px]">
-                            {task.assignedToPin &&
-                            mentorPins.has(task.assignedToPin)
-                              ? "-"
-                              : task.assignedToName || "-"}
+                            {task.assignedToName || "-"}
                           </div>
                           {task.assignedToPin &&
                             !mentorPins.has(task.assignedToPin) && (
@@ -3181,32 +3197,46 @@ export default function CallManagement({
                         <td className="p-4 text-right">
                           <div className="flex justify-end gap-1">
                             {showManagementTabs &&
-                              !(
-                                task.assignedToPin &&
-                                !mentorPins.has(task.assignedToPin) &&
-                                task.liveAssignedToPin &&
-                                !mentorPins.has(task.liveAssignedToPin)
-                              ) && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAssignTarget(task);
-                                    if (
-                                      !task.assignedToPin &&
-                                      !task.liveAssignedToPin
-                                    )
-                                      setAssignChoice("both");
-                                    else if (!task.assignedToPin)
-                                      setAssignChoice("feedback");
-                                    else setAssignChoice("live");
-                                    setIsAssignModalOpen(true);
-                                  }}
-                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                                  title="Assign Task"
-                                >
-                                  <UserPlus className="w-4 h-4" />
-                                </button>
-                              )}
+                              (() => {
+                                const isFeedbackAssignedToMember =
+                                  task.assignedToPin &&
+                                  !mentorPins.has(task.assignedToPin) &&
+                                  task.assignedToPin !== currentUser.pin;
+
+                                const isLiveAssignedToMember =
+                                  task.liveAssignedToPin &&
+                                  !mentorPins.has(task.liveAssignedToPin) &&
+                                  task.liveAssignedToPin !== currentUser.pin;
+
+                                // If both Feedback Call & Live Instruction are assigned to team members, hide Assign button
+                                if (isFeedbackAssignedToMember && isLiveAssignedToMember) {
+                                  return null;
+                                }
+
+                                const canAssignFeedback = !isFeedbackAssignedToMember;
+                                const canAssignLive = !isLiveAssignedToMember;
+
+                                return (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAssignTarget(task);
+                                      if (canAssignFeedback && canAssignLive) {
+                                        setAssignChoice("both");
+                                      } else if (canAssignFeedback) {
+                                        setAssignChoice("feedback");
+                                      } else {
+                                        setAssignChoice("live");
+                                      }
+                                      setIsAssignModalOpen(true);
+                                    }}
+                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                    title="Assign Task"
+                                  >
+                                    <UserPlus className="w-4 h-4" />
+                                  </button>
+                                );
+                              })()}
                             {(task.assignedToPin ||
                               task.liveAssignedToPin ||
                               task.liveInstructorPin) &&
@@ -3820,7 +3850,7 @@ export default function CallManagement({
                             />
                             <div className="text-xs truncate">
                               <div className="font-bold text-emerald-900">
-                                Scripts Image Attached
+                                Khata Script Attached
                               </div>
                               <button
                                 type="button"
@@ -4539,6 +4569,8 @@ export default function CallManagement({
                     setIsAssignModalOpen(false);
                     setAssignTarget(null);
                     setAssignTargetMember("");
+                    setMemberSearchQuery("");
+                    setIsMemberDropdownOpen(false);
                   }}
                   className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
                 >
@@ -4551,42 +4583,173 @@ export default function CallManagement({
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
                     Assignment Type
                   </label>
-                  <select
-                    value={assignChoice}
-                    onChange={(e) => setAssignChoice(e.target.value as any)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  >
-                    {!assignTarget?.assignedToPin && (
-                      <option value="feedback">Feedback Assign Only</option>
-                    )}
-                    {!assignTarget?.liveAssignedToPin && (
-                      <option value="live">Live Instruction Assign Only</option>
-                    )}
-                    {!assignTarget?.assignedToPin &&
-                      !assignTarget?.liveAssignedToPin && (
-                        <option value="both">
-                          Both (Feedback & Live Instruction)
-                        </option>
-                      )}
-                  </select>
+                  {(() => {
+                    const canAssignFeedback =
+                      !assignTarget?.assignedToPin ||
+                      mentorPins.has(assignTarget.assignedToPin) ||
+                      assignTarget.assignedToPin === currentUser.pin;
+
+                    const canAssignLive =
+                      !assignTarget?.liveAssignedToPin ||
+                      mentorPins.has(assignTarget.liveAssignedToPin) ||
+                      assignTarget.liveAssignedToPin === currentUser.pin;
+
+                    return (
+                      <select
+                        value={assignChoice}
+                        onChange={(e) => setAssignChoice(e.target.value as any)}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      >
+                        {canAssignFeedback && (
+                          <option value="feedback">Feedback Assign Only</option>
+                        )}
+                        {canAssignLive && (
+                          <option value="live">Live Instruction Assign Only</option>
+                        )}
+                        {canAssignFeedback && canAssignLive && (
+                          <option value="both">
+                            Both (Feedback & Live Instruction)
+                          </option>
+                        )}
+                      </select>
+                    );
+                  })()}
                 </div>
 
-                <div>
+                <div className="relative">
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
                     Assign To Member
                   </label>
-                  <select
-                    value={assignTargetMember}
-                    onChange={(e) => setAssignTargetMember(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
-                  >
-                    <option value="">Select Member...</option>
-                    {getValidMembers([assignTarget]).map((m) => (
-                      <option key={m.pin} value={m.pin}>
-                        {m.name} ({m.campus})
-                      </option>
-                    ))}
-                  </select>
+
+                  {/* Custom Searchable Dropdown */}
+                  {(() => {
+                    const validMembers = getValidMembers([assignTarget]);
+                    const selectedMember = validMembers.find(
+                      (m) => m.pin === assignTargetMember
+                    );
+
+                    return (
+                      <div className="relative">
+                        {/* Selector Trigger Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsMemberDropdownOpen(!isMemberDropdownOpen)}
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-indigo-500/20 hover:bg-slate-100/80 transition-colors"
+                        >
+                          <span className={selectedMember ? "text-slate-800 font-bold" : "text-slate-400 font-normal"}>
+                            {selectedMember
+                              ? `${selectedMember.name} (${selectedMember.campus || "Main"} - PIN: ${selectedMember.pin})`
+                              : "Select Member..."}
+                          </span>
+                          <ChevronDown
+                            className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                              isMemberDropdownOpen ? "rotate-180 text-indigo-600" : ""
+                            }`}
+                          />
+                        </button>
+
+                        {/* Dropdown Menu Overlay */}
+                        {isMemberDropdownOpen && (
+                          <div className="absolute z-50 left-0 right-0 bottom-full mb-1.5 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden p-2 space-y-2">
+                            {/* Search Input inside Dropdown */}
+                            <div className="relative">
+                              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                              <input
+                                type="text"
+                                autoFocus
+                                placeholder="Search member by name, PIN, campus..."
+                                value={memberSearchQuery}
+                                onChange={(e) => setMemberSearchQuery(e.target.value)}
+                                className="w-full pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                              />
+                              {memberSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => setMemberSearchQuery("")}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Options List */}
+                            <div className="max-h-52 overflow-y-auto space-y-1 pr-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAssignTargetMember("");
+                                  setIsMemberDropdownOpen(false);
+                                  setMemberSearchQuery("");
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                                  !assignTargetMember
+                                    ? "bg-slate-100 font-bold text-slate-800"
+                                    : "hover:bg-slate-50 text-slate-500"
+                                }`}
+                              >
+                                <span>Select Member...</span>
+                                {!assignTargetMember && <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />}
+                              </button>
+
+                              {(() => {
+                                const filtered = validMembers.filter((m) => {
+                                  if (!memberSearchQuery.trim()) return true;
+                                  const q = memberSearchQuery.toLowerCase().trim();
+                                  return (
+                                    m.name.toLowerCase().includes(q) ||
+                                    (m.campus && m.campus.toLowerCase().includes(q)) ||
+                                    (m.pin && m.pin.toLowerCase().includes(q))
+                                  );
+                                });
+
+                                if (filtered.length === 0) {
+                                  return (
+                                    <p className="text-[11px] text-slate-400 p-3 text-center">
+                                      No member found matching "{memberSearchQuery}"
+                                    </p>
+                                  );
+                                }
+
+                                return filtered.map((m) => (
+                                  <button
+                                    key={m.pin}
+                                    type="button"
+                                    onClick={() => {
+                                      setAssignTargetMember(m.pin);
+                                      setIsMemberDropdownOpen(false);
+                                      setMemberSearchQuery("");
+                                    }}
+                                    className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                                      assignTargetMember === m.pin
+                                        ? "bg-indigo-600 text-white font-bold"
+                                        : "hover:bg-indigo-50 text-slate-700"
+                                    }`}
+                                  >
+                                    <div>
+                                      <span className="font-semibold">{m.name}</span>
+                                      <span
+                                        className={`text-[10px] ml-2 ${
+                                          assignTargetMember === m.pin
+                                            ? "text-indigo-200"
+                                            : "text-slate-400"
+                                        }`}
+                                      >
+                                        {m.campus} • PIN: {m.pin}
+                                      </span>
+                                    </div>
+                                    {assignTargetMember === m.pin && (
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                    )}
+                                  </button>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -4596,6 +4759,8 @@ export default function CallManagement({
                     setIsAssignModalOpen(false);
                     setAssignTarget(null);
                     setAssignTargetMember("");
+                    setMemberSearchQuery("");
+                    setIsMemberDropdownOpen(false);
                   }}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
                 >
@@ -4629,6 +4794,8 @@ export default function CallManagement({
                     setIsAssignModalOpen(false);
                     setAssignTarget(null);
                     setAssignTargetMember("");
+                    setMemberSearchQuery("");
+                    setIsMemberDropdownOpen(false);
                   }}
                   className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100"
                 >

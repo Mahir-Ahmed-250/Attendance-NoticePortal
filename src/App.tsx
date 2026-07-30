@@ -712,28 +712,30 @@ export default function App() {
   const handleAddMember = async (newMember: TeamMember) => {
     if (!newMember.campus) {
       toast.error('Campus selection is mandatory for adding a team member!');
-      return;
+      throw new Error('Campus selection is mandatory');
     }
     try {
       const saved = await api.users.create({ ...newMember, role: 'member' });
       setMembers(prev => [...(prev || []), saved]);
       toast.success('Team member added successfully!');
-    } catch (err) {
-      toast.error('Failed to add member.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add member.');
+      throw err;
     }
   };
 
   const handleUpdateMember = async (oldPin: string, updatedMember: TeamMember) => {
     if (!updatedMember.campus) {
       toast.error('Campus selection is mandatory for updating a team member!');
-      return;
+      throw new Error('Campus selection is mandatory');
     }
     try {
       const saved = await api.users.update(oldPin, updatedMember);
       setMembers(prev => (prev || []).map(m => m.pin === oldPin ? saved : m));
       toast.success('Team member updated successfully!');
-    } catch (err) {
-      toast.error('Failed to update member.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update member.');
+      throw err;
     }
   };
 
@@ -742,8 +744,9 @@ export default function App() {
       await api.users.delete(memberPin);
       setMembers(prev => (prev || []).filter(m => m.pin !== memberPin));
       toast.success('Team member deleted successfully!');
-    } catch (err) {
-      toast.error('Failed to delete member.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete member.');
+      throw err;
     }
   };
 
@@ -763,8 +766,9 @@ export default function App() {
       const saved = await api.users.create(finalMentor);
       setMentors(prev => [...(prev || []), saved]);
       toast.success('Campus Coordinator added successfully!');
-    } catch (err) {
-      toast.error('Failed to add mentor.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add mentor.');
+      throw err;
     }
   };
 
@@ -784,8 +788,9 @@ export default function App() {
       const saved = await api.users.update(oldPin, finalMentor);
       setMentors(prev => (prev || []).map(m => m.pin === oldPin ? saved : m));
       toast.success('Coordinator updated successfully!');
-    } catch (err) {
-      toast.error('Failed to update mentor.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update mentor.');
+      throw err;
     }
   };
 
@@ -794,8 +799,9 @@ export default function App() {
       await api.users.delete(mentorPin);
       setMentors(prev => (prev || []).filter(m => m.pin !== mentorPin));
       toast.success('Campus Coordinator deleted successfully!');
-    } catch (err) {
-      toast.error('Failed to delete mentor.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete mentor.');
+      throw err;
     }
   };
 
@@ -838,8 +844,9 @@ export default function App() {
         setMembers(prev => [...(prev || []).filter(m => m.pin !== oldPin), saved]);
         toast.success('Campus Coordinator successfully changed to Member!');
       }
-    } catch (err) {
-      toast.error('Failed to change role.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to change role.');
+      throw err;
     }
   };
 
@@ -1065,22 +1072,38 @@ export default function App() {
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans">
-        <div className="w-full max-w-[240px] space-y-4">
-          <div className="flex justify-center mb-6">
-            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex flex-col items-center justify-center p-4 font-sans">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="bg-white rounded-3xl border border-slate-200/80 shadow-xl p-8 w-full max-w-sm flex flex-col items-center space-y-6"
+        >
+          <div className="relative flex items-center justify-center">
+            <div className="absolute inset-0 bg-indigo-500/10 rounded-full blur-xl animate-pulse"></div>
+            <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center border border-indigo-100 shadow-inner relative z-10">
+              <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+            </div>
           </div>
-          <div className="text-center space-y-2">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Loading Data</p>
-            <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
+
+          <div className="text-center space-y-2 w-full">
+            <h3 className="text-sm font-black text-slate-900 tracking-tight">Loading Database Records</h3>
+            <p className="text-[11px] text-slate-500 font-medium">Fetching users, reports, and system settings...</p>
+          </div>
+
+          <div className="w-full space-y-2 pt-2">
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden p-0.5 border border-slate-200/50">
               <div 
-                className="bg-indigo-600 h-1 rounded-full transition-all duration-150 ease-out" 
+                className="bg-indigo-600 h-full rounded-full transition-all duration-200 ease-out shadow-sm" 
                 style={{ width: `${Math.min(100, Math.max(0, loadingProgress))}%` }}
               />
             </div>
-            <p className="text-[9px] text-slate-400 font-mono text-right">{Math.round(loadingProgress)}%</p>
+            <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 font-bold px-0.5">
+              <span>Syncing with Cloud DB</span>
+              <span>{Math.round(loadingProgress)}%</span>
+            </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
@@ -1187,7 +1210,7 @@ export default function App() {
             !loggedInUser ? (
               <Navigate to="/login" replace />
             ) : (
-              <main className="flex-1 max-w-[1600px] w-full mx-auto px-3 py-4 sm:px-6 lg:px-8 sm:py-8">
+              <main className="flex-1 max-w-[1600px] w-full mx-auto px-2 py-3 sm:px-4 lg:px-6 sm:py-4">
                 <TeamMemberAttendanceViewer
                   reports={reports}
                   members={members}
@@ -1203,7 +1226,7 @@ export default function App() {
               <>
 
 
-                <main className="flex-1 max-w-[1600px] w-full mx-auto px-3 py-4 sm:px-6 lg:px-8 sm:py-8 space-y-4 sm:space-y-6">
+                <main className="flex-1 max-w-[1600px] w-full mx-auto px-2 py-3 sm:px-4 lg:px-6 sm:py-4 space-y-3 sm:space-y-4">
                   <AnimatePresence mode="wait">
                     {activeRole === 'manager' && (
                       <motion.div
@@ -1307,6 +1330,12 @@ export default function App() {
                           onDeleteBranch={handleDeleteBranch}
                           onAssignBranchesToCampus={handleAssignBranchesToCampus}
                           onUnassignBranch={handleUnassignBranch}
+                          onUpdateMember={handleUpdateMember}
+                          onUpdateMentor={handleUpdateMentor}
+                          onAddMember={handleAddMember}
+                          onDeleteMember={handleDeleteMember}
+                          onAddMentor={handleAddMentor}
+                          onDeleteMentor={handleDeleteMentor}
                         />
                       </motion.div>
                     )}
@@ -1344,6 +1373,8 @@ export default function App() {
                           onDeleteBranch={handleDeleteBranch}
                           onAssignBranchesToCampus={handleAssignBranchesToCampus}
                           onUnassignBranch={handleUnassignBranch}
+                          onUpdateMember={handleUpdateMember}
+                          onUpdateMentor={handleUpdateMentor}
                         />
                       </motion.div>
                     )}

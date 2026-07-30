@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import {
   TeamMember,
@@ -15,6 +15,8 @@ import {
   Campus,
   Branch,
 } from "../types";
+import PermissionManagementView from "./PermissionManagementView";
+import MemberManagementView from "./MemberManagementView";
 import { getEffectiveStatus, parseTimeToMinutes } from "../utils";
 import {
   Calendar,
@@ -78,6 +80,12 @@ interface MemberDashboardProps {
   onDeleteBranch: (id: string) => void;
   onAssignBranchesToCampus: (campusId: string, branchIds: string[]) => void;
   onUnassignBranch: (branchId: string) => void;
+  onUpdateMember?: (pin: string, updatedMember: TeamMember) => void;
+  onUpdateMentor?: (pin: string, updatedMentor: Mentor) => void;
+  onAddMember?: (member: TeamMember) => void;
+  onDeleteMember?: (pin: string) => void;
+  onAddMentor?: (mentor: Mentor) => void;
+  onDeleteMentor?: (pin: string) => void;
 }
 
 export default function MemberDashboard({
@@ -106,6 +114,12 @@ export default function MemberDashboard({
   onDeleteBranch,
   onAssignBranchesToCampus,
   onUnassignBranch,
+  onUpdateMember,
+  onUpdateMentor,
+  onAddMember,
+  onDeleteMember,
+  onAddMentor,
+  onDeleteMentor,
 }: MemberDashboardProps) {
   const allowedPerms =
     currentMember.permissions && currentMember.permissions.length > 0
@@ -120,14 +134,22 @@ export default function MemberDashboard({
     | "emails"
     | "campus_settings"
     | "call-management"
+    | "permissions"
+    | "members"
   >(() => {
     if (allowedPerms.includes("member_attendance")) return "attendance";
     if (allowedPerms.includes("member_notices")) return "notices";
     if (allowedPerms.includes("member_emails")) return "emails";
+    if (
+      allowedPerms.includes("manage_members") ||
+      allowedPerms.includes("mentor_members")
+    )
+      return "members";
     if (allowedPerms.includes("manage_campus_settings"))
       return "campus_settings";
     return "call-management"; // Allow members to see their calls
   });
+  const [memberSearch, setMemberSearch] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(
     () => window.innerWidth > 1024,
   );
@@ -424,44 +446,67 @@ export default function MemberDashboard({
       hasUnread: unreadEmailCount > 0,
     },
     {
+      id: "members" as const,
+      label: "Member Management",
+      permission: "manage_members",
+      icon: <User className="w-4 h-4" />,
+      hasUnread: false,
+    },
+    {
       id: "campus_settings" as const,
       label: "Campus Settings",
       permission: "manage_campus_settings",
       icon: <Settings className="w-4 h-4" />,
       hasUnread: false,
     },
+    {
+      id: "permissions" as const,
+      label: "Permission Management",
+      permission: "configure_menu_permissions",
+      icon: <ShieldCheck className="w-4 h-4" />,
+      hasUnread: false,
+    },
   ];
 
-  const visibleTabs = tabsList.filter((t) =>
-    allowedPerms.includes(t.permission),
+  const visibleTabs = tabsList.filter(
+    (t) =>
+      allowedPerms.includes(t.permission) ||
+      (t.id === "members" &&
+        (allowedPerms.includes("manage_members") ||
+          allowedPerms.includes("mentor_members"))),
   );
 
+  // --- SCROLL TO TOP ON TAB CHANGE ---
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeTab]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Welcome & Notification Bar - Styled like Coordinator/Mentor Dashboard */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs relative group">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs relative group">
         <div className="text-left relative z-10">
           <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <LayoutDashboard className="w-4.5 h-4.5 text-indigo-600" />
+            <LayoutDashboard className="w-4 h-4 text-indigo-600" />
             Member's Workspace
           </h2>
-          <p className="text-xs text-slate-500 font-medium mt-0.5"></p>
-          <div className="hidden sm:block mt-4">
+          <p className="text-[10px] text-slate-500 font-medium mt-0.5">Control Center</p>
+          <div className="hidden sm:block mt-3">
             {!isSidebarOpen ? (
               <button
                 onClick={() => setIsSidebarOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
+                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
               >
-                <LayoutDashboard className="w-3.5 h-3.5" />
+                <LayoutDashboard className="w-3 h-3" />
                 <span>Open Dashboard Menu</span>
-                <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                <ChevronRight className="w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform" />
               </button>
             ) : (
               <button
                 onClick={() => setIsSidebarOpen(false)}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
               >
-                <ChevronLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                <ChevronLeft className="w-3 h-3 group-hover:-translate-x-0.5 transition-transform" />
                 <span>Close Dashboard Menu</span>
               </button>
             )}
@@ -884,7 +929,7 @@ export default function MemberDashboard({
                         No attendance reports generated yet
                       </p>
                       <p className="text-xs text-slate-400 mt-1">
-                        Once the manager posts attendance reports for your
+                        Once the mentors posts attendance reports for your
                         campus, your logs will populate here.
                       </p>
                     </div>
@@ -1263,6 +1308,42 @@ export default function MemberDashboard({
             </motion.div>
           )}
 
+          {/* Tab: MEMBER MANAGEMENT */}
+          {activeTab === "members" &&
+            (allowedPerms.includes("manage_members") ||
+              allowedPerms.includes("mentor_members")) && (
+              <MemberManagementView
+                members={members}
+                mentors={mentors}
+                managers={[]}
+                campuses={campuses || []}
+                currentUser={{ pin: currentMember.pin, role: "member", permissions: currentMember.permissions }}
+                onAddMember={onAddMember || (() => {})}
+                onUpdateMember={onUpdateMember || (() => {})}
+                onDeleteMember={onDeleteMember || (() => {})}
+                onAddMentor={onAddMentor}
+                onUpdateMentor={onUpdateMentor}
+                onDeleteMentor={onDeleteMentor}
+              />
+            )}
+
+          {/* Tab: PERMISSION MANAGEMENT */}
+          {activeTab === "permissions" &&
+            allowedPerms.includes("configure_menu_permissions") && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <PermissionManagementView
+                  members={members}
+                  mentors={mentors}
+                  onUpdateMember={onUpdateMember}
+                  onUpdateMentor={onUpdateMentor}
+                  isManager={false}
+                />
+              </motion.div>
+            )}
+
           {/* Tab: CAMPUS SETTINGS (BRANCH MANAGEMENT) */}
           {activeTab === "campus_settings" &&
             allowedPerms.includes("manage_campus_settings") && (
@@ -1408,7 +1489,7 @@ function BranchManagementModal({
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden border border-slate-200"
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[90vh] max-h-[92vh] flex flex-col overflow-hidden border border-slate-200"
       >
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
           <div>

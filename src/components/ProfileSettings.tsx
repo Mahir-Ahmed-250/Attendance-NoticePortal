@@ -110,7 +110,7 @@ export default function ProfileSettings({
 
     setMessage({
       type: 'success',
-      text: 'The request to change your name and PIN has been successfully sent. It will be updated once the manager verifies and submits it.'
+      text: 'The request to change your name and PIN has been successfully sent. It will be updated once the mentors verifies and submits it.'
     });
   };
 
@@ -183,7 +183,7 @@ export default function ProfileSettings({
                     type="text"
                     value={designation}
                     onChange={(e) => setDesignation(e.target.value)}
-                    placeholder="e.g. Chief Executive Officer"
+                    placeholder="Enter your designation"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
                   />
                 </div>
