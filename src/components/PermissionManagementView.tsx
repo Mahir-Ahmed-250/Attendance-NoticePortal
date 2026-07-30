@@ -200,7 +200,7 @@ export default function PermissionManagementView({
           <div className="w-full md:w-40 space-y-1">
             <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5 ml-1">
               <Users className="w-2.5 h-2.5" />
-              Role (রোল)
+              Role 
             </label>
             <select
               value={selectedRoleFilter}
