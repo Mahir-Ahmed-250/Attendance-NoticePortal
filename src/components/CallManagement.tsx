@@ -2939,8 +2939,8 @@ export default function CallManagement({
                     <th className="p-4">Branch/Class</th>
                     <th className="p-4">Live Instruction Status</th>
                     <th className="p-4">Live Instruction Date</th>
-                    <th className="p-4 text-center">Live Assign Status</th>
-                    <th className="p-4">Live Assigned Member</th>
+                    <th className="p-4 text-center">Live Instruction Assign Status</th>
+                    <th className="p-4">Live Instruction Assigned Member</th>
                     <th className="p-4">Live Instructor Name</th>
                     <th className="p-4">Feedback Status</th>
                     <th className="p-4">Feedback Date</th>
@@ -4026,13 +4026,13 @@ export default function CallManagement({
                   <div className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
                     <UserIcon className="w-4 h-4 text-slate-600" />
                     <span>
-                      Student Basic Information (শিক্ষার্থীর বিস্তারিত তথ্য)
+                      Student Basic Information 
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Full Name (পূর্ণ নাম)
+                        Full Name 
                       </label>
                       <input
                         type="text"
@@ -4049,7 +4049,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Nick Name (ডাক নাম)
+                        Nick Name 
                       </label>
                       <input
                         type="text"
@@ -4066,7 +4066,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Registration No (রেজিঃ নম্বর)
+                        Registration No 
                       </label>
                       <input
                         type="text"
@@ -4083,7 +4083,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Personal Mobile (ব্যক্তিগত মোবাইল)
+                        Personal Mobile
                       </label>
                       <input
                         type="text"

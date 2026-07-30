@@ -491,25 +491,50 @@ export default function MemberDashboard({
             Member's Workspace
           </h2>
           <p className="text-[10px] text-slate-500 font-medium mt-0.5">Control Center</p>
-          <div className="hidden sm:block mt-3">
-            {!isSidebarOpen ? (
-              <button
-                onClick={() => setIsSidebarOpen(true)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
-              >
-                <LayoutDashboard className="w-3 h-3" />
-                <span>Open Dashboard Menu</span>
-                <ChevronRight className="w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform" />
-              </button>
-            ) : (
-              <button
-                onClick={() => setIsSidebarOpen(false)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
-              >
-                <ChevronLeft className="w-3 h-3 group-hover:-translate-x-0.5 transition-transform" />
-                <span>Close Dashboard Menu</span>
-              </button>
-            )}
+          <div className="flex gap-2">
+            {/* Desktop Toggle Button */}
+            <div className="hidden lg:block">
+              {!isSidebarOpen ? (
+                <button
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
+                >
+                  <LayoutDashboard className="w-3 h-3" />
+                  <span>Open Dashboard Menu</span>
+                  <ChevronRight className="w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
+                >
+                  <ChevronLeft className="w-3 h-3 group-hover:-translate-x-0.5 transition-transform" />
+                  <span>Close Dashboard Menu</span>
+                </button>
+              )}
+            </div>
+
+            {/* Mobile Toggle Button */}
+            <div className="block lg:hidden">
+              {!isMobileMenuOpen ? (
+                <button
+                  onClick={() => setIsMobileMenuOpen(true)}
+                  className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-indigo-100 transition-all shadow-3xs group"
+                >
+                  <LayoutDashboard className="w-3 h-3" />
+                  <span>Open Dashboard Menu</span>
+                  <ChevronRight className="w-2.5 h-2.5 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-100 text-slate-500 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-100 transition-all shadow-3xs group"
+                >
+                  <ChevronLeft className="w-3 h-3 group-hover:-translate-x-0.5 transition-transform" />
+                  <span>Close Dashboard Menu</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -678,36 +703,24 @@ export default function MemberDashboard({
             />
           )}
         </AnimatePresence>
-        {/* Sidebar */}
+
+        {/* Desktop Sidebar */}
         <AnimatePresence mode="wait">
-          {(isSidebarOpen || isMobileMenuOpen) && (
+          {isSidebarOpen && (
             <motion.div
               initial={{ width: 0, opacity: 0, x: -20 }}
               animate={{
-                width: isMobileMenuOpen ? "280px" : "260px",
+                width: "260px",
                 opacity: 1,
                 x: 0,
-                position: isMobileMenuOpen ? "fixed" : "sticky",
-                top: isMobileMenuOpen ? "0" : "1.5rem",
-                left: isMobileMenuOpen ? "0" : "auto",
-                height: isMobileMenuOpen ? "100vh" : "fit-content",
-                zIndex: isMobileMenuOpen ? 50 : 10,
               }}
               exit={{ width: 0, opacity: 0, x: -20 }}
-              className={`bg-white p-4 sm:p-5 rounded-none lg:rounded-3xl border-r lg:border border-slate-200/80 shadow-xs text-left overflow-y-auto shrink-0`}
+              className="hidden lg:block bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs text-left sticky top-6 h-fit shrink-0 overflow-y-auto"
             >
-              <div className="flex items-center justify-between px-2 mb-6 lg:mb-2">
+              <div className="flex items-center justify-between px-2 mb-2">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
                   Sidebar Menu
                 </p>
-                {isMobileMenuOpen && (
-                  <button
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="p-2 text-slate-400 hover:text-slate-600 lg:hidden"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
               </div>
               <div className="flex flex-col gap-1">
                 {visibleTabs.map((t) => (
@@ -715,7 +728,6 @@ export default function MemberDashboard({
                     key={t.id}
                     onClick={() => {
                       setActiveTab(t.id as any);
-                      if (isMobileMenuOpen) setIsMobileMenuOpen(false);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                       activeTab === t.id
@@ -733,7 +745,6 @@ export default function MemberDashboard({
                 <button
                   onClick={() => {
                     setActiveTab("profile");
-                    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                     activeTab === "profile"
@@ -748,7 +759,6 @@ export default function MemberDashboard({
                 <button
                   onClick={() => {
                     setActiveTab("call-management");
-                    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                     activeTab === "call-management"
@@ -767,17 +777,89 @@ export default function MemberDashboard({
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Floating Mobile Toggle */}
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="lg:hidden fixed bottom-6 right-6 z-50 bg-indigo-600 text-white p-4 rounded-full shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 flex items-center justify-center"
-        >
-          {isMobileMenuOpen ? (
-            <X className="w-6 h-6" />
-          ) : (
-            <Menu className="w-6 h-6" />
+
+        {/* Mobile Sidebar */}
+        <AnimatePresence mode="wait">
+          {isMobileMenuOpen && (
+            <motion.div
+              initial={{ x: "-100%", opacity: 0 }}
+              animate={{
+                x: 0,
+                opacity: 1,
+              }}
+              exit={{ x: "-100%", opacity: 0 }}
+              transition={{ type: "tween", duration: 0.25 }}
+              className="lg:hidden fixed inset-y-0 left-0 w-[280px] bg-white p-4 sm:p-5 border-r border-slate-200/80 shadow-2xl text-left overflow-y-auto z-50 flex flex-col"
+            >
+              <div className="flex items-center justify-between px-2 mb-6">
+                <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                  Sidebar Menu
+                </p>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-1 overflow-y-auto">
+                {visibleTabs.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      setActiveTab(t.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                      activeTab === t.id
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    {t.icon}
+                    <span className="whitespace-normal text-left leading-tight break-words pr-5">
+                      {t.label}
+                    </span>
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => {
+                    setActiveTab("profile");
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                    activeTab === "profile"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                  }`}
+                >
+                  <User className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">Profile Settings</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab("call-management");
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                    activeTab === "call-management"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                  }`}
+                >
+                  <Phone className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">
+                    {currentMember.permissions?.includes("can_upload_call_info")
+                      ? "Call Management"
+                      : "Assigned Calls"}
+                  </span>
+                </button>
+              </div>
+            </motion.div>
           )}
-        </button>
+        </AnimatePresence>
         {/* Content Area */}
         <div className="flex-1 w-full min-w-0 space-y-4 sm:space-y-6 relative">
           {/* Tab 1: OWN ATTENDANCE LOG */}
