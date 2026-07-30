@@ -9026,7 +9026,7 @@ function BranchManagementModal({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto p-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[600px] overflow-y-auto p-1">
               {unassignedBranches.map((branch) => (
                 <div
                   key={branch.id}
