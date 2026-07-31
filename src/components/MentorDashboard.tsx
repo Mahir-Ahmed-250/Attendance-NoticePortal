@@ -91,10 +91,11 @@ interface MentorDashboardProps {
   onDeleteNotice?: (pin: string) => void;
   campuses?: Campus[];
   profileRequests: ProfileRequest[];
-  onSubmitProfileRequest: (requestedName: string, requestedPin: string) => void;
+  onSubmitProfileRequest: (requestedName: string, requestedPin: string, requestedEmail?: string) => void;
   onInstantUpdate: (updatedFields: Partial<UserType>) => void;
   emails: EmailMessage[];
   onMarkEmailAsRead: (emailPin: string) => void;
+  onMarkAllEmailsAsRead?: (userPin: string) => void;
   branches: Branch[];
   onAddBranch: (name: string) => void;
   onUpdateBranch: (id: string, data: Partial<Branch>) => void;
@@ -107,6 +108,7 @@ interface MentorDashboardProps {
   onDeleteMember?: (pin: string) => void;
   onAddMentor?: (mentor: Mentor) => void;
   onDeleteMentor?: (pin: string) => void;
+  onRefreshEmails?: () => void;
 }
 
 export default function MentorDashboard({
@@ -135,6 +137,7 @@ export default function MentorDashboard({
   onInstantUpdate,
   emails,
   onMarkEmailAsRead,
+  onMarkAllEmailsAsRead,
   branches,
   onAddBranch,
   onUpdateBranch,
@@ -147,6 +150,7 @@ export default function MentorDashboard({
   onDeleteMember,
   onAddMentor,
   onDeleteMentor,
+  onRefreshEmails,
 }: MentorDashboardProps) {
   const navigate = useNavigate();
   const allowedPerms =
@@ -435,16 +439,31 @@ export default function MentorDashboard({
     "problematic" | "notices"
   >("problematic");
 
-  const myEmails = emails.filter(
-    (e) =>
-      e.toEmail === currentMentor.email ||
-      e.toEmail === `${currentMentor.pin}@portal.com`,
-  );
+  const mentorPinLower = (currentMentor.pin || "").trim().toLowerCase();
+  const mentorEmailLower = (currentMentor.email || "").trim().toLowerCase();
+
+  const myEmails = emails.filter((e) => {
+    const rPin = (e.recipientPin || "").trim().toLowerCase();
+    const toEm = (e.toEmail || "").trim().toLowerCase();
+
+    return (
+      (rPin && rPin === mentorPinLower) ||
+      (toEm && mentorEmailLower && toEm === mentorEmailLower) ||
+      (toEm && toEm === `${mentorPinLower}@portal.com`) ||
+      (toEm && toEm === mentorPinLower)
+    );
+  });
   const unreadEmailCount = myEmails.filter((e) => !e.isRead).length;
 
   const [dismissedNotifications, setDismissedNotifications] = useState<
     string[]
   >(currentMentor.readNotifications || []);
+
+  useEffect(() => {
+    if (currentMentor.readNotifications) {
+      setDismissedNotifications(currentMentor.readNotifications);
+    }
+  }, [currentMentor.readNotifications]);
 
   const handleMarkAsRead = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -999,12 +1018,32 @@ export default function MentorDashboard({
                           Notices and Team Issues
                         </p>
                       </div>
-                      <button
-                        onClick={() => setIsNotificationsOpen(false)}
-                        className="p-1.5 hover:bg-slate-200 rounded-xl text-slate-400 transition-all"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {totalNotificationBadgeCount > 0 && (
+                          <button
+                            onClick={async () => {
+                              if (onMarkAllEmailsAsRead) {
+                                await onMarkAllEmailsAsRead(currentMentor.pin);
+                              }
+                              const allNoticePins = notices.map(n => n.pin);
+                              const allProblematicIds = notificationProblematicAttendances.map(m => `${m.memberPin}-${m.date}-${m.issue}`);
+                              const newDismissed = Array.from(new Set([...dismissedNotifications, ...allNoticePins, ...allProblematicIds]));
+                              setDismissedNotifications(newDismissed);
+                              onInstantUpdate({ readNotifications: newDismissed });
+                              toast.success("All notifications marked as read!");
+                            }}
+                            className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-wider bg-indigo-50 px-2 py-1 rounded-lg cursor-pointer"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setIsNotificationsOpen(false)}
+                          className="p-1.5 hover:bg-slate-200 rounded-xl text-slate-400 transition-all cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex border-b border-slate-100 px-3 py-1 gap-4 bg-slate-50/30">
@@ -3964,6 +4003,7 @@ export default function MentorDashboard({
                     mentors={mentors}
                     campuses={campuses || []}
                     branches={branches}
+                    onRefreshEmails={onRefreshEmails}
                   />
                 </motion.div>
               )}

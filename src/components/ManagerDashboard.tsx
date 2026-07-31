@@ -205,6 +205,8 @@ interface ManagerDashboardProps {
   onUnassignBranch: (branchId: string) => void;
   emails: EmailMessage[];
   onMarkEmailAsRead: (emailPin: string) => void;
+  onMarkAllEmailsAsRead?: (userPin: string) => void;
+  onRefreshEmails?: () => void;
 }
 
 export default function ManagerDashboard({
@@ -258,6 +260,8 @@ export default function ManagerDashboard({
   onUnassignBranch,
   emails,
   onMarkEmailAsRead,
+  onMarkAllEmailsAsRead,
+  onRefreshEmails,
 }: ManagerDashboardProps) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<
@@ -501,6 +505,12 @@ export default function ManagerDashboard({
     currentUser.readNotifications || [],
   );
 
+  useEffect(() => {
+    if (currentUser.readNotifications) {
+      setReadNotifications(currentUser.readNotifications);
+    }
+  }, [currentUser.readNotifications]);
+
   const handleDismissNotification = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (readNotifications.includes(id)) return;
@@ -520,6 +530,9 @@ export default function ManagerDashboard({
   };
 
   const markAllRequestsAsRead = async () => {
+    if (onMarkAllEmailsAsRead) {
+      await onMarkAllEmailsAsRead(currentUser.pin);
+    }
     const allPendingPins = [
       ...profileRequests
         .filter((r) => r.status === "Pending")
@@ -528,6 +541,16 @@ export default function ManagerDashboard({
         .filter((r) => r.status === "Pending")
         .map((r) => r.pin),
       ...leaveRequests.filter((r) => r.status === "Pending").map((r) => r.pin),
+      ...notices.map((n) => n.pin),
+      ...notificationProblematicAttendances.map(
+        (m) => `${m.memberPin}-${m.date}-${m.issue}`
+      ),
+      ...notificationMissingAttendances.map(
+        (m) => `${m.memberPin}-${m.date}-absent`
+      ),
+      ...missingAttendanceData.currentMonthMissing.map(
+        (item) => `missing-report-${item.date}`
+      ),
     ];
     const unique = Array.from(
       new Set([...readNotifications, ...allPendingPins]),
@@ -539,7 +562,7 @@ export default function ManagerDashboard({
         readNotifications: unique,
       });
       onInstantUpdate({ readNotifications: unique });
-      toast.success("All new requests marked as read!");
+      toast.success("All notifications marked as read!");
     } catch (err) {
       console.error(err);
     }
@@ -2040,15 +2063,28 @@ export default function ManagerDashboard({
 
   const totalUnreadRequestsCount =
     unreadProfileReqs.length + unreadEditReqs.length + unreadLeaveReqs.length;
-  const myEmails = emails.filter(
-    (e) =>
-      e.toEmail === currentUser.email ||
-      e.toEmail === `${currentUser.pin}@portal.com`,
-  );
+  const managerPinLower = (currentUser.pin || "").trim().toLowerCase();
+  const managerEmailLower = (currentUser.email || "").trim().toLowerCase();
+
+  const myEmails = emails.filter((e) => {
+    const rPin = (e.recipientPin || "").trim().toLowerCase();
+    const toEm = (e.toEmail || "").trim().toLowerCase();
+
+    return (
+      (rPin && rPin === managerPinLower) ||
+      (toEm && managerEmailLower && toEm === managerEmailLower) ||
+      (toEm && toEm === `${managerPinLower}@portal.com`) ||
+      (toEm && toEm === managerPinLower)
+    );
+  });
   const unreadEmailCount = myEmails.filter((e) => !e.isRead).length;
 
+  const unreadCurrentMonthMissing = missingAttendanceData.currentMonthMissing.filter(
+    (item) => !readNotifications.includes(`missing-report-${item.date}`)
+  );
+
   const totalNotificationBadgeCount =
-    missingAttendanceData.currentMonthMissing.length +
+    unreadCurrentMonthMissing.length +
     notificationProblematicAttendances.length +
     notificationMissingAttendances.length +
     totalUnreadRequestsCount +
@@ -2162,7 +2198,7 @@ export default function ManagerDashboard({
         <div className="text-left">
           <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <LayoutDashboard className="w-4 h-4 text-indigo-600" />
-            Manager's Dashboard
+            Mentor's Dashboard
           </h2>
           <p className="text-[10px] text-slate-500 font-medium mt-0.5">Control Center</p>
           <div className="flex gap-2">
@@ -2275,7 +2311,7 @@ export default function ManagerDashboard({
                       label: "Missing",
                       count:
                         notificationMissingAttendances.length +
-                        missingAttendanceData.currentMonthMissing.length,
+                        unreadCurrentMonthMissing.length,
                     },
                     {
                       id: "notices",
@@ -2651,15 +2687,14 @@ export default function ManagerDashboard({
                         <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5 font-mono">
                           <AlertCircle className="w-3.5 h-3.5 text-indigo-600" />
                           Attendance Alert (
-                          {missingAttendanceData.currentMonthMissing.length})
+                          {unreadCurrentMonthMissing.length})
                         </h4>
                         <p className="text-[9px] text-slate-500 font-medium">
                           Campus attendance reports still pending for this month
                         </p>
 
                         {(() => {
-                          const list =
-                            missingAttendanceData.currentMonthMissing;
+                          const list = unreadCurrentMonthMissing;
                           if (list.length === 0) {
                             return (
                               <div className="py-2 text-center text-[10px] font-bold text-emerald-600">
@@ -6830,6 +6865,11 @@ export default function ManagerDashboard({
                                 <p className="text-xs font-mono text-slate-600 mt-0.5">
                                   PIN: {request.currentPin}
                                 </p>
+                                {request.currentEmail && (
+                                  <p className="text-[11px] text-slate-600 mt-0.5 truncate">
+                                    Email: {request.currentEmail}
+                                  </p>
+                                )}
                               </div>
                               <div className="border-l border-slate-200 pl-4">
                                 <p className="text-[9px] font-bold uppercase text-indigo-500">
@@ -6841,6 +6881,11 @@ export default function ManagerDashboard({
                                 <p className="text-xs font-mono font-black text-indigo-700 mt-0.5">
                                   PIN: {request.requestedPin}
                                 </p>
+                                {request.requestedEmail && (
+                                  <p className="text-[11px] font-semibold text-indigo-700 mt-0.5 truncate">
+                                    Email: {request.requestedEmail}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -6903,7 +6948,7 @@ export default function ManagerDashboard({
                         >
                           <div className="text-left space-y-0.5">
                             <p className="font-bold text-slate-700">
-                              {req.requestedName} (PIN: {req.requestedPin})
+                              {req.requestedName} (PIN: {req.requestedPin}){req.requestedEmail ? ` • Email: ${req.requestedEmail}` : ''}
                             </p>
                             <p className="text-[10px] text-slate-400 font-medium">
                               Requester PIN: {req.userPin} • {req.userRole}
@@ -8281,9 +8326,7 @@ export default function ManagerDashboard({
                 userRole="manager"
                 profileRequests={[]} // Empty for manager
                 onSubmitProfileRequest={() => {}} // No-op for manager
-                onInstantUpdate={(updatedFields) => {
-                  onInstantUpdate(updatedFields);
-                }}
+                onInstantUpdate={onInstantUpdate}
               />
             </motion.div>
           )}
@@ -8300,6 +8343,7 @@ export default function ManagerDashboard({
                 mentors={mentors}
                 campuses={campuses}
                 branches={branches}
+                onRefreshEmails={onRefreshEmails}
               />
             </motion.div>
           )}

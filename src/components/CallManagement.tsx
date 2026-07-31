@@ -55,6 +55,7 @@ import {
   Building2,
   ChevronDown,
   Clipboard as ClipboardIcon,
+  Copy,
 } from "lucide-react";
 import {
   CallTask,
@@ -72,6 +73,7 @@ interface CallManagementProps {
   mentors: Mentor[];
   campuses: Campus[];
   branches: Branch[];
+  onRefreshEmails?: () => void;
 }
 
 const getTodayLocalDate = () => {
@@ -88,6 +90,7 @@ export default function CallManagement({
   mentors,
   campuses,
   branches,
+  onRefreshEmails,
 }: CallManagementProps) {
   const [activeSubTab, setActiveSubTab] = useState<
     "dashboard" | "management" | "my-tasks" | "live-instruction"
@@ -140,10 +143,25 @@ export default function CallManagement({
   >("feedback");
 
   // Script / Khata Image & Link
-  const [liveInstructionImage, setLiveInstructionImage] = useState<string>("");
+  const [liveInstructionImages, setLiveInstructionImages] = useState<string[]>([]);
   const [liveInstructionLink, setLiveInstructionLink] = useState<string>("");
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [viewingImageUrl, setViewingImageUrl] = useState("");
+  const [isSearchingLive, setIsSearchingLive] = useState(false);
+
+  const parseMultipleImages = (val: string | null | undefined): string[] => {
+    if (!val) return [];
+    const trimmed = val.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        // fallback
+      }
+    }
+    return [trimmed];
+  };
 
   const handleImagePaste = (
     e: React.ClipboardEvent,
@@ -234,10 +252,17 @@ export default function CallManagement({
   const [scrollLeft, setScrollLeft] = useState(0);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Skip table drag scroll if clicking interactive controls or text selection elements
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("input, button, select, textarea, a, svg, [data-selectable='true']") ||
+      target.closest(".select-text") ||
+      target.classList.contains("select-text")
+    ) {
+      return;
+    }
     if (!tableContainerRef.current) return;
     setIsDragging(true);
-    tableContainerRef.current.style.cursor = "grabbing";
-    tableContainerRef.current.style.userSelect = "none";
     setStartX(e.pageX - tableContainerRef.current.offsetLeft);
     setScrollLeft(tableContainerRef.current.scrollLeft);
   };
@@ -258,9 +283,12 @@ export default function CallManagement({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging || !tableContainerRef.current) return;
-    e.preventDefault();
     const x = e.pageX - tableContainerRef.current.offsetLeft;
     const walk = (x - startX) * 1.5; // Scroll speed multiplier
+    if (Math.abs(x - startX) > 5) {
+      tableContainerRef.current.style.userSelect = "none";
+      tableContainerRef.current.style.cursor = "grabbing";
+    }
     tableContainerRef.current.scrollLeft = scrollLeft - walk;
   };
 
@@ -269,26 +297,35 @@ export default function CallManagement({
       toast.error("Please enter a registration number");
       return;
     }
-    const found = tasks.find(
-      (t) => t.registrationNo === liveSearchRegNo.trim(),
-    );
-    if (found) {
-      setLiveFoundTask(found);
-      setLiveStatus(found.liveInstructionStatus);
-      setLiveComment(found.liveInstructionComment || "");
-      setLiveInstructorName(found.liveInstructorName || currentUser.name);
-      setLiveInstructorPin(found.liveInstructorPin || currentUser.pin);
-      setIsLiveInstructorTeacher(found.isLiveInstructorTeacher || false);
-      setLiveInstructionImage(found.liveInstructionImage || "");
-      setLiveInstructionLink(found.liveInstructionLink || "");
-    } else {
-      toast.error("Student not found in your campus data");
-      setLiveFoundTask(null);
-    }
+    setIsSearchingLive(true);
+    setLiveFoundTask(null);
+    setTimeout(() => {
+      const found = tasks.find(
+        (t) => t.registrationNo === liveSearchRegNo.trim(),
+      );
+      setIsSearchingLive(false);
+      if (found) {
+        setLiveFoundTask(found);
+        setLiveStatus(found.liveInstructionStatus);
+        setLiveComment(found.liveInstructionComment || "");
+        setLiveInstructorName(found.liveInstructorName || currentUser.name);
+        setLiveInstructorPin(found.liveInstructorPin || currentUser.pin);
+        setIsLiveInstructorTeacher(found.isLiveInstructorTeacher || false);
+        setLiveInstructionImages(parseMultipleImages(found.liveInstructionImage));
+        setLiveInstructionLink(found.liveInstructionLink || "");
+      } else {
+        toast.error("Student not found in your campus data");
+        setLiveFoundTask(null);
+      }
+    }, 600);
   };
 
   const handleUpdateLiveInstruction = async () => {
     if (!liveFoundTask) return;
+    if (liveStatus === "Pending") {
+      toast.error("Cannot save while status is Pending. Please change status to 'Completed'.");
+      return;
+    }
     setIsUpdatingLive(true);
     const today = getTodayLocalDate();
     const isNewCompletion =
@@ -301,6 +338,7 @@ export default function CallManagement({
           ? today
           : liveFoundTask.liveInstructionSubmitDate || today
         : undefined;
+    const imagesJson = JSON.stringify(liveInstructionImages);
     try {
       await handleUpdateTask(liveFoundTask.id, {
         liveInstructionStatus: liveStatus,
@@ -308,7 +346,7 @@ export default function CallManagement({
         liveInstructorName,
         liveInstructorPin,
         isLiveInstructorTeacher,
-        liveInstructionImage,
+        liveInstructionImage: imagesJson,
         liveInstructionLink,
         liveInstructionSubmitDate: submitDate,
       });
@@ -321,7 +359,7 @@ export default function CallManagement({
               liveInstructorName,
               liveInstructorPin,
               isLiveInstructorTeacher,
-              liveInstructionImage,
+              liveInstructionImage: imagesJson,
               liveInstructionLink,
               liveInstructionSubmitDate: submitDate,
             }
@@ -347,12 +385,12 @@ export default function CallManagement({
       if (activeSubTab === "my-tasks") {
         params.append("assignedToPin", currentUser.pin);
       } else if (activeSubTab === "live-instruction") {
-        if (currentUser.campus && currentUser.campus !== "All") {
+        if (!canUpload && currentUser.campus && currentUser.campus !== "All") {
           params.append("campus", currentUser.campus);
         }
       } else if (!showManagementTabs) {
         params.append("assignedToPin", currentUser.pin);
-      } else if (currentUser.campus && currentUser.campus !== "All") {
+      } else if (!canUpload && currentUser.campus && currentUser.campus !== "All") {
         params.append("campus", currentUser.campus);
       }
 
@@ -378,6 +416,26 @@ export default function CallManagement({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const targetClass = selectedClassForUpload.trim();
+    if (!targetClass) {
+      toast.error("Please provide a class name for the upload first.");
+      if (e.target) e.target.value = "";
+      return;
+    }
+
+    const classExists = uniqueClasses.some(
+      (c: any) => c && typeof c === "string" && c.toLowerCase() === targetClass.toLowerCase()
+    );
+
+    if (classExists) {
+      toast.error(
+        "This class already exists. Please use the 'Sync Missing Students' Menu (Sync New Students button) to upload or sync students for existing classes.",
+        { duration: 6000 }
+      );
+      if (e.target) e.target.value = "";
+      return;
+    }
 
     setIsUploading(true);
     const reader = new window.FileReader();
@@ -585,33 +643,23 @@ export default function CallManagement({
           };
         });
 
-        const res = await fetch("/api/call-tasks/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(newTasks),
-        });
-
-        if (res.ok) {
-          const result = await res.json();
-          fetchTasks();
-          if (result.addedCount > 0 && result.duplicateCount > 0) {
-            toast.success(
-              `Added ${result.addedCount} new student(s). ${result.duplicateCount} duplicate(s) were blocked.`,
-            );
-          } else if (result.addedCount > 0) {
-            toast.success(
-              `Successfully imported ${result.addedCount} student(s).`,
-            );
-          } else if (result.duplicateCount > 0) {
-            toast.error(
-              `All ${result.duplicateCount} student(s) in this file already exist. Duplicate upload blocked.`,
-            );
-          } else {
-            toast("No new tasks added.");
-          }
-        } else {
-          toast.error("Failed to import tasks");
+        if (newTasks.length === 0) {
+          toast.error("No valid student rows found in the selected Excel sheet.");
+          setIsUploading(false);
+          return;
         }
+
+        const uniqueBranchesInUpload = Array.from(
+          new Set(newTasks.map((t) => t.branch).filter((b): b is string => Boolean(b && b.trim()))),
+        );
+
+        setExcelPreviewTasks(newTasks);
+        setExcelPreviewStats({
+          studentCount: newTasks.length,
+          branchCount: uniqueBranchesInUpload.length,
+        });
+        setExcelPreviewClassName(selectedClassForUpload);
+        setIsAddStudentModalOpen(false); // Close the entry modal so preview can show
       } catch (err) {
         console.error("Excel parsing error:", err);
         toast.error("Error parsing Excel file");
@@ -621,6 +669,48 @@ export default function CallManagement({
       }
     };
     reader.readAsBinaryString(file);
+  };
+
+  const handleConfirmExcelUpload = async () => {
+    if (!excelPreviewTasks || excelPreviewTasks.length === 0) return;
+    setIsUploading(true);
+    try {
+      const res = await fetch("/api/call-tasks/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(excelPreviewTasks),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        fetchTasks();
+        if (result.addedCount > 0 && result.duplicateCount > 0) {
+          toast.success(
+            `Added ${result.addedCount} new student(s). ${result.duplicateCount} duplicate(s) were blocked.`,
+          );
+        } else if (result.addedCount > 0) {
+          toast.success(
+            `Successfully imported ${result.addedCount} student(s).`,
+          );
+        } else if (result.duplicateCount > 0) {
+          toast.error(
+            `All ${result.duplicateCount} student(s) in this file already exist. Duplicate upload blocked.`,
+          );
+        } else {
+          toast("No new tasks added.");
+        }
+      } else {
+        toast.error("Failed to import tasks");
+      }
+    } catch (err) {
+      console.error("Excel import error:", err);
+      toast.error("Error importing Excel file");
+    } finally {
+      setIsUploading(false);
+      setExcelPreviewTasks(null);
+      setExcelPreviewStats(null);
+      setExcelPreviewClassName("");
+    }
   };
 
   // Check Merit List Handler
@@ -978,6 +1068,7 @@ export default function CallManagement({
 
       if (res.ok) {
         fetchTasks();
+        if (onRefreshEmails) onRefreshEmails();
         setSelectedTasks([]);
         const typeText =
           assignType === "live"
@@ -1071,6 +1162,7 @@ export default function CallManagement({
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
         );
+        if (onRefreshEmails) onRefreshEmails();
       }
     } catch (err) {
       console.error("Update task error:", err);
@@ -1108,6 +1200,29 @@ export default function CallManagement({
   };
 
   const confirmDeleteClass = async () => {
+    if (!deletePassword) {
+      toast.error("Password is required to delete class records");
+      return;
+    }
+    try {
+      const authRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: currentUser.pin,
+          password: deletePassword,
+        }),
+      });
+      if (!authRes.ok) {
+        toast.error("Incorrect password!");
+        return;
+      }
+    } catch (err) {
+      console.error("Auth error:", err);
+      toast.error("Verification failed");
+      return;
+    }
+
     try {
       const res = await fetch(
         `/api/call-tasks/class/${encodeURIComponent(selectedClassForUpload)}`,
@@ -1120,6 +1235,8 @@ export default function CallManagement({
         setSelectedTasks([]);
         setSelectedClassForUpload("");
         setIsDeleteClassModalOpen(false);
+        setDeletePassword("");
+        toast.success(`Tasks for class ${selectedClassForUpload} deleted successfully`);
       }
     } catch (err) {
       console.error("Delete class error:", err);
@@ -1128,29 +1245,27 @@ export default function CallManagement({
   };
 
   const handleDeleteAllTasks = async () => {
-    if (deleteAllTargetClass === "all") {
-      if (!deletePassword) {
-        toast.error("Password is required to delete all records");
+    if (!deletePassword) {
+      toast.error("Password is required to delete records");
+      return;
+    }
+    try {
+      const authRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: currentUser.pin,
+          password: deletePassword,
+        }),
+      });
+      if (!authRes.ok) {
+        toast.error("Incorrect password!");
         return;
       }
-      try {
-        const authRes = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: currentUser.pin,
-            password: deletePassword,
-          }),
-        });
-        if (!authRes.ok) {
-          toast.error("Incorrect password!");
-          return;
-        }
-      } catch (err) {
-        console.error("Auth error:", err);
-        toast.error("Verification failed");
-        return;
-      }
+    } catch (err) {
+      console.error("Auth error:", err);
+      toast.error("Verification failed");
+      return;
     }
 
     try {
@@ -1359,6 +1474,30 @@ export default function CallManagement({
       );
     })
     .sort((a, b) => {
+      const isUserCoordinator = currentUser.role === "manager" || currentUser.role === "mentor";
+      if (isUserCoordinator) {
+        const isLiveUnassignedA = !a.liveAssignedToPin && !a.liveInstructorPin;
+        const isFeedbackUnassignedA = !a.assignedToPin;
+        const isLiveUnassignedB = !b.liveAssignedToPin && !b.liveInstructorPin;
+        const isFeedbackUnassignedB = !b.assignedToPin;
+
+        // Score 0: Both live and feedback are unassigned
+        // Score 1: Only one of them is unassigned
+        // Score 2: Both are assigned
+        const getScore = (isLiveUn: boolean, isFeedUn: boolean) => {
+          if (isLiveUn && isFeedUn) return 0;
+          if (isLiveUn || isFeedUn) return 1;
+          return 2;
+        };
+
+        const scoreA = getScore(isLiveUnassignedA, isFeedbackUnassignedA);
+        const scoreB = getScore(isLiveUnassignedB, isFeedbackUnassignedB);
+
+        if (scoreA !== scoreB) {
+          return scoreA - scoreB;
+        }
+      }
+
       const numA = parseInt(a.sl);
       const numB = parseInt(b.sl);
       if (!isNaN(numA) && !isNaN(numB)) {
@@ -1399,6 +1538,14 @@ export default function CallManagement({
   const [newStudentFormData, setNewStudentFormData] = useState<
     Partial<CallTask>
   >({});
+
+  // New States for Add Students Enhancements
+  const [manualBranchSearchQuery, setManualBranchSearchQuery] = useState("");
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+  const [isCustomClassMode, setIsCustomClassMode] = useState(false);
+  const [excelPreviewTasks, setExcelPreviewTasks] = useState<Partial<CallTask>[] | null>(null);
+  const [excelPreviewStats, setExcelPreviewStats] = useState<{ studentCount: number; branchCount: number } | null>(null);
+  const [excelPreviewClassName, setExcelPreviewClassName] = useState("");
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<"live" | "feedback" | "student">(
@@ -1589,6 +1736,7 @@ export default function CallManagement({
 
       if (res.ok) {
         fetchTasks();
+        if (onRefreshEmails) onRefreshEmails();
         setIsRangeModalOpen(false);
         setRangeStart("");
         setRangeEnd("");
@@ -1649,6 +1797,17 @@ export default function CallManagement({
       .filter((b): b is string => Boolean(b && b.trim()));
     return Array.from(new Set(fromTasks)).sort();
   }, [tasks]);
+
+  const mergedBranches = useMemo(() => {
+    const set = new Set<string>();
+    branches.forEach((b) => {
+      if (b.name) set.add(b.name.trim());
+    });
+    availableBranches.forEach((b) => {
+      if (b) set.add(b.trim());
+    });
+    return Array.from(set).sort();
+  }, [branches, availableBranches]);
 
   const filteredDashboardTasks = useMemo(() => {
     let baseTasks = tasks;
@@ -2219,92 +2378,189 @@ export default function CallManagement({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm"
+            className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-5xl mx-auto"
           >
-            <div className="max-w-md mx-auto space-y-6 text-center">
-              <div>
-                <h3 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
-                  Live Instruction Search
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="text-center pb-2 border-b border-slate-100">
+                <h3 className="text-lg md:text-xl font-black text-slate-800 tracking-tight flex items-center justify-center gap-2">
+                  <span>Live Instruction Center</span>
                 </h3>
-                <p className="text-[10px] md:text-xs text-slate-500 font-bold mt-1">
-                  Search any student in your campus by Registration Number
+                <p className="text-[11px] md:text-xs text-slate-500 font-bold mt-1">
+                  Search students by Registration Number and update instruction logs
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter Registration No."
-                  value={liveSearchRegNo}
-                  onChange={(e) => setLiveSearchRegNo(e.target.value)}
-                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-                <button
-                  onClick={handleLiveSearch}
-                  className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                >
-                  Search
-                </button>
-              </div>
-
-              {liveFoundTask && (
-                <div className="mt-8 p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-200 text-left space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Student Name
+              {/* Layout Grid: 1-Column for search if not found, 2-Columns if student is found to minimize height */}
+              <div className={`grid grid-cols-1 ${liveFoundTask ? "lg:grid-cols-12" : "max-w-xl mx-auto"} gap-6 md:gap-8 items-start`}>
+                
+                {/* LEFT COLUMN: Search & Student Information (Col Span 5) */}
+                <div className={`${liveFoundTask ? "lg:col-span-5" : "w-full"} space-y-4`}>
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
+                      Search Student Reg No
+                    </label>
+                    <div className="relative flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="Enter Registration No."
+                          value={liveSearchRegNo}
+                          onChange={(e) => setLiveSearchRegNo(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleLiveSearch();
+                          }}
+                          className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <div className="absolute left-3 top-2.5 flex items-center justify-center">
+                          {isSearchingLive ? (
+                            <svg className="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          ) : (
+                            <Search className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
                       </div>
-                      <div className="text-sm font-black text-slate-800">
-                        {liveFoundTask.studentName || "N/A"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Reg No
-                      </div>
-                      <div className="text-sm font-black text-slate-800">
-                        {liveFoundTask.registrationNo}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Branch / Class
-                      </div>
-                      <div className="text-sm font-black text-slate-800">
-                        {liveFoundTask.branch} / {liveFoundTask.className}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Contact Numbers
-                      </div>
-                      <div className="text-sm font-black text-slate-800 space-y-1">
-                        <div>P: {liveFoundTask.mobilePersonal || "N/A"}</div>
-                        <div>F: {liveFoundTask.mobileFather || "N/A"}</div>
-                        <div>M: {liveFoundTask.mobileMother || "N/A"}</div>
-                      </div>
+                      <button
+                        onClick={handleLiveSearch}
+                        disabled={isSearchingLive}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-indigo-100 shrink-0"
+                      >
+                        {isSearchingLive ? "Searching" : "Search"}
+                      </button>
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t border-slate-200 space-y-4">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                        Live Instruction Status
-                      </label>
-                      <div className="flex gap-2">
-                        {["Pending", "Completed"].map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => setLiveStatus(s as any)}
-                            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                              liveStatus === s
-                                ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100"
-                                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                            }`}
+                  {/* Searching Indicator */}
+                  {isSearchingLive && (
+                    <div className="p-8 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center gap-3">
+                      <svg className="animate-spin h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span className="text-xs font-bold text-slate-500">Searching student database...</span>
+                    </div>
+                  )}
+
+                  {/* Student Details Card (Only if found) */}
+                  {liveFoundTask && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-5 bg-indigo-50/40 rounded-2xl border border-indigo-100 text-left space-y-4"
+                    >
+                      <div className="border-b border-indigo-100/50 pb-2 mb-2">
+                        <span className="bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider">
+                          Active Student Profile
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                            Student Name
+                          </div>
+                          <div className="text-xs font-black text-slate-800">
+                            {liveFoundTask.studentName || "N/A"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                            Reg No
+                          </div>
+                          <div className="text-xs font-mono font-black text-indigo-600 flex items-center gap-1.5 select-text cursor-text">
+                            <span className="select-text">{liveFoundTask.registrationNo}</span>
+                            <button
+                              type="button"
+                              className="p-1 hover:bg-indigo-100/60 rounded text-indigo-400 hover:text-indigo-700 transition-colors"
+                              title="Copy Registration Number"
+                              onClick={() => {
+                                navigator.clipboard.writeText(liveFoundTask.registrationNo);
+                                toast.success(`Copied Reg No: ${liveFoundTask.registrationNo}`);
+                              }}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                            Branch & Class
+                          </div>
+                          <div className="text-xs font-bold text-slate-700">
+                            {liveFoundTask.branch} / {liveFoundTask.className}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                            Personal Contact
+                          </div>
+                          <div className="text-xs font-bold text-slate-700">
+                            {liveFoundTask.mobilePersonal || "N/A"}
+                          </div>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                            Parents Contact Numbers
+                          </div>
+                          <div className="text-xs font-bold text-slate-700 grid grid-cols-2 gap-1 mt-0.5 bg-white/60 p-2 rounded-lg border border-slate-100">
+                            <div>Father: {liveFoundTask.mobileFather || "N/A"}</div>
+                            <div>Mother: {liveFoundTask.mobileMother || "N/A"}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* RIGHT COLUMN: Form & Multiple Image Management (Col Span 7) */}
+                {liveFoundTask && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="lg:col-span-7 bg-slate-50/50 p-5 rounded-2xl border border-slate-200/80 space-y-4 text-left"
+                  >
+                    {/* Status & Instructor details */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">
+                          Live Instruction Status
+                        </label>
+                        <div className="flex gap-2">
+                          {["Pending", "Completed"].map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => setLiveStatus(s as any)}
+                              className={`flex-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                                liveStatus === s
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                              }`}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-end pb-1.5">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="liveTabTeacherCheckbox"
+                            checked={isLiveInstructorTeacher}
+                            onChange={(e) =>
+                              setIsLiveInstructorTeacher(e.target.checked)
+                            }
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <label
+                            htmlFor="liveTabTeacherCheckbox"
+                            className="text-xs font-bold text-slate-700 cursor-pointer"
                           >
-                            {s}
-                          </button>
-                        ))}
+                            Teacher Role
+                          </label>
+                        </div>
                       </div>
                     </div>
 
@@ -2319,7 +2575,7 @@ export default function CallManagement({
                           onChange={(e) =>
                             setLiveInstructorName(e.target.value)
                           }
-                          className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                         />
                       </div>
                       <div>
@@ -2330,67 +2586,77 @@ export default function CallManagement({
                           type="text"
                           value={liveInstructorPin}
                           onChange={(e) => setLiveInstructorPin(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                         />
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
-                      <input
-                        type="checkbox"
-                        id="liveTabTeacherCheckbox"
-                        checked={isLiveInstructorTeacher}
-                        onChange={(e) =>
-                          setIsLiveInstructorTeacher(e.target.checked)
-                        }
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <label
-                        htmlFor="liveTabTeacherCheckbox"
-                        className="text-xs font-bold text-slate-700 cursor-pointer"
-                      >
-                        Teacher
-                      </label>
-                    </div>
-
                     <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                         Live Instruction Comment
                       </label>
                       <textarea
                         value={liveComment}
                         onChange={(e) => setLiveComment(e.target.value)}
-                        placeholder="Write comment here..."
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 h-24"
+                        placeholder="Write detailed instruction review comment here..."
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 h-16"
                       />
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                        Exam Script Image / Link / Paste
+                    {/* Multiple Images Upload & Paste Section */}
+                    <div className="border-t border-slate-200/60 pt-3">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                        Attached Exam Scripts ({liveInstructionImages.length} Images)
                       </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                        <input
-                          type="text"
-                          placeholder="Image URL (Link)"
-                          value={liveInstructionLink}
-                          onChange={(e) => setLiveInstructionLink(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        />
-                        <div className="relative">
+                      
+                      {/* Controls Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 mb-3">
+                        <div className="sm:col-span-8 flex gap-1">
+                          <input
+                            type="text"
+                            placeholder="Add Image URL (Link)"
+                            value={liveInstructionLink}
+                            onChange={(e) => setLiveInstructionLink(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && liveInstructionLink.trim()) {
+                                setLiveInstructionImages(prev => [...prev, liveInstructionLink.trim()]);
+                                setLiveInstructionLink("");
+                                toast.success("Image URL added");
+                              }
+                            }}
+                            className="flex-grow px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (liveInstructionLink.trim()) {
+                                setLiveInstructionImages(prev => [...prev, liveInstructionLink.trim()]);
+                                setLiveInstructionLink("");
+                                toast.success("Image URL added");
+                              }
+                            }}
+                            className="px-3 bg-slate-200 hover:bg-slate-300 rounded-xl text-xs font-black"
+                          >
+                            Add
+                          </button>
+                        </div>
+                        
+                        <div className="sm:col-span-4 relative">
                           <input
                             type="file"
                             accept="image/*"
+                            multiple
                             onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const reader = new window.FileReader();
-                                reader.onloadend = () => {
-                                  setLiveInstructionImage(
-                                    reader.result as string,
-                                  );
-                                };
-                                reader.readAsDataURL(file);
+                              const files = e.target.files;
+                              if (files && files.length > 0) {
+                                Array.from(files).forEach((file: any) => {
+                                  const reader = new window.FileReader();
+                                  reader.onloadend = () => {
+                                    setLiveInstructionImages(prev => [...prev, reader.result as string]);
+                                  };
+                                  reader.readAsDataURL(file);
+                                });
+                                toast.success(`${files.length} images uploaded`);
                               }
                             }}
                             className="hidden"
@@ -2398,93 +2664,81 @@ export default function CallManagement({
                           />
                           <label
                             htmlFor="liveTabExamScriptUpload"
-                            className="w-full flex items-center justify-center gap-2 bg-white border border-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors text-slate-600"
-                            title="Click to upload image"
+                            className="w-full h-full flex items-center justify-center gap-1.5 bg-indigo-50 border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl hover:bg-indigo-100 cursor-pointer transition-colors text-indigo-700"
                           >
-                            <Upload className="w-4 h-4" />
-                            Upload Image
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload Files</span>
                           </label>
                         </div>
                       </div>
 
-                      {/* Dedicated Paste Zone */}
-                      <div 
-                        onPaste={(e) => handleImagePaste(e, (url) => setLiveInstructionImage(url))}
-                        className="mb-3 p-4 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50 hover:bg-slate-50 hover:border-indigo-300 transition-all cursor-pointer group text-center"
-                      >
-                        <div className="flex flex-col items-center gap-1.5">
-                          <ClipboardIcon className="w-5 h-5 text-slate-400 group-hover:text-indigo-500 transition-colors" />
-                          <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600">
-                            Click here & Paste Image (Ctrl+V)
+                      {/* Paste Box & Gallery Grid side by side */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                        <div 
+                          onPaste={(e) => handleImagePaste(e, (url) => {
+                            setLiveInstructionImages(prev => [...prev, url]);
+                          })}
+                          className="sm:col-span-5 p-3.5 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 hover:border-indigo-300 transition-all cursor-pointer text-center flex flex-col items-center justify-center"
+                        >
+                          <ClipboardIcon className="w-5 h-5 text-slate-400 mb-1" />
+                          <span className="text-[9px] font-bold text-slate-500 block leading-tight">
+                            Click & Paste Here
+                          </span>
+                          <span className="text-[8px] text-slate-400 block mt-0.5 font-mono">
+                            (Ctrl+V)
                           </span>
                         </div>
-                      </div>
 
-                      {(liveInstructionImage || liveInstructionLink) && (
-                        <div className="p-3 bg-white border border-slate-200 rounded-2xl flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 overflow-hidden">
-                            <img
-                              src={liveInstructionImage || liveInstructionLink}
-                              alt="Khata Script Preview"
-                              className="w-16 h-16 object-cover rounded-xl border border-slate-200 flex-shrink-0 cursor-pointer"
-                              onClick={() => {
-                                setViewingImageUrl(
-                                  liveInstructionImage ||
-                                    liveInstructionLink ||
-                                    "",
-                                );
-                                setIsImageViewerOpen(true);
-                              }}
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display =
-                                  "none";
-                              }}
-                            />
-                            <div className="text-xs truncate">
-                              <div className="font-bold text-slate-700">
-                                Scripts Image Attached
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setViewingImageUrl(
-                                    liveInstructionImage ||
-                                      liveInstructionLink ||
-                                      "",
-                                  );
-                                  setIsImageViewerOpen(true);
-                                }}
-                                className="text-indigo-600 hover:underline text-[11px] truncate block font-bold"
-                              >
-                                Click to View Full Size
-                              </button>
+                        {/* Thumbnail gallery */}
+                        <div className="sm:col-span-7 bg-slate-100/40 p-2 rounded-xl border border-slate-200/40 min-h-[72px] flex items-center">
+                          {liveInstructionImages.length === 0 ? (
+                            <div className="text-[10px] text-slate-400 font-bold text-center w-full">
+                              No images attached. Paste or upload.
                             </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLiveInstructionImage("");
-                              setLiveInstructionLink("");
-                            }}
-                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
-                            title="Remove Image"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                          ) : (
+                            <div className="flex flex-wrap gap-2 overflow-x-auto w-full max-h-24 p-0.5">
+                              {liveInstructionImages.map((imgUrl, idx) => (
+                                <div key={idx} className="relative group shrink-0">
+                                  <img
+                                    src={imgUrl}
+                                    alt={`Preview ${idx + 1}`}
+                                    className="w-12 h-12 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-90"
+                                    onClick={() => {
+                                      setViewingImageUrl(imgUrl);
+                                      setIsImageViewerOpen(true);
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLiveInstructionImages(prev => prev.filter((_, i) => i !== idx));
+                                      toast.success("Image removed");
+                                    }}
+                                    className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white p-0.5 rounded-full hover:bg-rose-600 transition-colors shadow"
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
 
-                    <button
-                      onClick={handleUpdateLiveInstruction}
-                      disabled={isUpdatingLive}
-                      className="w-full py-3 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
-                    >
-                      {isUpdatingLive ? "Updating..." : "Save Live Instruction"}
-                    </button>
-                  </div>
-                </div>
-              )}
+                    {/* Action Button */}
+                    <div className="pt-2">
+                      <button
+                        onClick={handleUpdateLiveInstruction}
+                        disabled={isUpdatingLive}
+                        className="w-full py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-700 disabled:bg-emerald-400 transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        {isUpdatingLive ? "Saving Changes..." : "Save Live Instruction Info"}
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -3017,15 +3271,39 @@ export default function CallManagement({
                         <td className="p-4 font-black text-slate-400">
                           {(currentPage - 1) * pageSize + index + 1}
                         </td>
-                        <td
-                          className="p-4 cursor-pointer"
-                          onClick={() => openTaskModal(task)}
-                        >
-                          <div className="font-bold text-slate-800 hover:text-indigo-600 transition-colors">
+                        <td className="p-4 select-text">
+                          <div
+                            className="font-bold text-slate-800 hover:text-indigo-600 transition-colors cursor-pointer select-text"
+                            onClick={() => {
+                              const sel = window.getSelection()?.toString();
+                              if (sel && sel.trim().length > 0) return;
+                              openTaskModal(task);
+                            }}
+                          >
                             {task.studentName || "-"}
                           </div>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            Reg: {task.registrationNo}
+                          <div className="text-[10px] text-slate-500 font-mono mt-1 flex items-center gap-1.5 select-text">
+                            <span className="text-slate-400 font-bold select-none">Reg:</span>
+                            <span
+                              className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md select-text cursor-text border border-indigo-200/80 hover:bg-indigo-100/80 transition-colors inline-block"
+                              title="Click & drag mouse cursor to select Student Reg No"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {task.registrationNo}
+                            </span>
+                            <button
+                              type="button"
+                              className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors shrink-0"
+                              title="Copy Registration Number"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(task.registrationNo);
+                                toast.success(`Copied Reg No: ${task.registrationNo}`);
+                              }}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
                           </div>
                         </td>
                         <td className="p-4">
@@ -3758,11 +4036,11 @@ export default function CallManagement({
 
                     <div className="sm:col-span-2 space-y-2 border-t border-emerald-200/60 pt-3">
                       <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider">
-                        Exam Script Image / Link / Paste
+                        Exam Script Images ({parseMultipleImages(modalFormData.liveInstructionImage).length} Attached)
                       </label>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-8 flex gap-1">
                           <input
                             type="text"
                             placeholder="Image URL (Link)"
@@ -3773,116 +4051,138 @@ export default function CallManagement({
                                 liveInstructionLink: e.target.value,
                               })
                             }
-                            onPaste={(e) => handleImagePaste(e, (url) => setModalFormData({ ...modalFormData, liveInstructionImage: url }))}
-                            className="w-full bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
-                          />
-                        </div>
-                        <div>
-                          <div className="relative">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const reader = new window.FileReader();
-                                  reader.onloadend = () => {
-                                    setModalFormData({
-                                      ...modalFormData,
-                                      liveInstructionImage:
-                                        reader.result as string,
-                                    });
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }}
-                              className="hidden"
-                              id="modalExamScriptUpload"
-                            />
-                            <label
-                              htmlFor="modalExamScriptUpload"
-                              className="w-full flex items-center justify-center gap-2 bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl hover:bg-emerald-50 cursor-pointer transition-colors text-emerald-700"
-                              title="Click to upload image"
-                            >
-                              <Upload className="w-3 h-3" />
-                              Upload Image
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Dedicated Paste Zone */}
-                      <div 
-                        onPaste={(e) => handleImagePaste(e, (url) => setModalFormData({ ...modalFormData, liveInstructionImage: url }))}
-                        className="p-3 border-2 border-dashed border-emerald-100 rounded-xl bg-emerald-50/30 hover:bg-emerald-50 hover:border-emerald-300 transition-all cursor-pointer group text-center"
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <ClipboardIcon className="w-4 h-4 text-emerald-400 group-hover:text-emerald-600 transition-colors" />
-                          <span className="text-[9px] font-bold text-emerald-600/70 group-hover:text-emerald-700">
-                            Click here & Paste Image (Ctrl+V)
-                          </span>
-                        </div>
-                      </div>
-
-                      {(modalFormData.liveInstructionImage ||
-                        modalFormData.liveInstructionLink) && (
-                        <div className="p-3 bg-white border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 mt-2">
-                          <div className="flex items-center gap-3 overflow-hidden">
-                            <img
-                              src={
-                                modalFormData.liveInstructionImage ||
-                                modalFormData.liveInstructionLink
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && modalFormData.liveInstructionLink?.trim()) {
+                                const current = parseMultipleImages(modalFormData.liveInstructionImage);
+                                const updated = [...current, modalFormData.liveInstructionLink.trim()];
+                                setModalFormData({
+                                  ...modalFormData,
+                                  liveInstructionImage: JSON.stringify(updated),
+                                  liveInstructionLink: "",
+                                });
+                                toast.success("Image URL added to modal");
                               }
-                              alt="Script Preview"
-                              className="w-14 h-14 object-cover rounded-xl border border-emerald-200 flex-shrink-0 cursor-pointer"
-                              onClick={() => {
-                                setViewingImageUrl(
-                                  modalFormData.liveInstructionImage ||
-                                    modalFormData.liveInstructionLink ||
-                                    "",
-                                );
-                                setIsImageViewerOpen(true);
-                              }}
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display =
-                                  "none";
-                              }}
-                            />
-                            <div className="text-xs truncate">
-                              <div className="font-bold text-emerald-900">
-                                Khata Script Attached
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setViewingImageUrl(
-                                    modalFormData.liveInstructionImage ||
-                                      modalFormData.liveInstructionLink ||
-                                      "",
-                                  );
-                                  setIsImageViewerOpen(true);
-                                }}
-                                className="text-emerald-600 hover:underline text-[11px] truncate block font-bold"
-                              >
-                                Click to View Full Size
-                              </button>
-                            </div>
-                          </div>
+                            }}
+                            className="flex-grow bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800"
+                          />
                           <button
                             type="button"
-                            onClick={() =>
-                              setModalFormData({
-                                ...modalFormData,
-                                liveInstructionImage: undefined,
-                                liveInstructionLink: undefined,
-                              })
-                            }
-                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                            onClick={() => {
+                              if (modalFormData.liveInstructionLink?.trim()) {
+                                const current = parseMultipleImages(modalFormData.liveInstructionImage);
+                                const updated = [...current, modalFormData.liveInstructionLink.trim()];
+                                setModalFormData({
+                                  ...modalFormData,
+                                  liveInstructionImage: JSON.stringify(updated),
+                                  liveInstructionLink: "",
+                                });
+                                toast.success("Image URL added to modal");
+                              }
+                            }}
+                            className="px-2.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 rounded-xl text-[10px] font-black"
                           >
-                            <X className="w-4 h-4" />
+                            Add
                           </button>
                         </div>
-                      )}
+                        <div className="sm:col-span-4 relative">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={(e) => {
+                              const files = e.target.files;
+                              if (files && files.length > 0) {
+                                Array.from(files).forEach((file: any) => {
+                                  const reader = new window.FileReader();
+                                  reader.onloadend = () => {
+                                    const current = parseMultipleImages(modalFormData.liveInstructionImage);
+                                    const updated = [...current, reader.result as string];
+                                    setModalFormData(prev => ({
+                                      ...prev,
+                                      liveInstructionImage: JSON.stringify(updated)
+                                    }));
+                                  };
+                                  reader.readAsDataURL(file);
+                                });
+                                toast.success(`${files.length} images uploaded`);
+                              }
+                            }}
+                            className="hidden"
+                            id="modalExamScriptUpload"
+                          />
+                          <label
+                            htmlFor="modalExamScriptUpload"
+                            className="w-full flex items-center justify-center gap-1.5 bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl hover:bg-emerald-50 cursor-pointer transition-colors text-emerald-700 h-full"
+                            title="Click to upload image"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload Files</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Paste area & gallery row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 mt-2">
+                        {/* Dedicated Paste Zone */}
+                        <div 
+                          onPaste={(e) => handleImagePaste(e, (url) => {
+                            const current = parseMultipleImages(modalFormData.liveInstructionImage);
+                            const updated = [...current, url];
+                            setModalFormData(prev => ({
+                              ...prev,
+                              liveInstructionImage: JSON.stringify(updated)
+                            }));
+                          })}
+                          className="sm:col-span-5 p-2.5 border-2 border-dashed border-emerald-100 rounded-xl bg-emerald-50/30 hover:bg-emerald-50 hover:border-emerald-300 transition-all cursor-pointer group text-center flex flex-col items-center justify-center"
+                        >
+                          <div className="flex flex-col items-center gap-0.5">
+                            <ClipboardIcon className="w-4 h-4 text-emerald-400 group-hover:text-emerald-600 transition-colors" />
+                            <span className="text-[8px] font-bold text-emerald-600/70 group-hover:text-emerald-700 leading-tight">
+                              Click & Paste Image (Ctrl+V)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Modal thumbnail gallery */}
+                        <div className="sm:col-span-7 bg-emerald-50/10 p-2 rounded-xl border border-emerald-100 min-h-[56px] flex items-center">
+                          {parseMultipleImages(modalFormData.liveInstructionImage).length === 0 ? (
+                            <div className="text-[9px] text-emerald-600/50 font-bold text-center w-full">
+                              No images attached.
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5 overflow-x-auto w-full max-h-20 p-0.5">
+                              {parseMultipleImages(modalFormData.liveInstructionImage).map((imgUrl, idx) => (
+                                <div key={idx} className="relative group shrink-0">
+                                  <img
+                                    src={imgUrl}
+                                    alt={`Preview ${idx + 1}`}
+                                    className="w-10 h-10 object-cover rounded-lg border border-emerald-200 cursor-pointer hover:opacity-90"
+                                    onClick={() => {
+                                      setViewingImageUrl(imgUrl);
+                                      setIsImageViewerOpen(true);
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = parseMultipleImages(modalFormData.liveInstructionImage);
+                                      const updated = current.filter((_, i) => i !== idx);
+                                      setModalFormData({
+                                        ...modalFormData,
+                                        liveInstructionImage: JSON.stringify(updated)
+                                      });
+                                      toast.success("Image removed");
+                                    }}
+                                    className="absolute -top-1 -right-1 bg-rose-500 text-white p-0.5 rounded-full hover:bg-rose-600 transition-colors shadow"
+                                  >
+                                    <X className="w-2 h-2" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="sm:col-span-2">
@@ -4100,7 +4400,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Father's Name (বাবার নাম)
+                        Father's Name
                       </label>
                       <input
                         type="text"
@@ -4117,7 +4417,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Father's Mobile (বাবার মোবাইল নম্বর)
+                        Father's Mobile 
                       </label>
                       <input
                         type="text"
@@ -4134,7 +4434,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Mother's Name (মায়ের নাম)
+                        Mother's Name 
                       </label>
                       <input
                         type="text"
@@ -4151,7 +4451,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Mother's Mobile (মায়ের মোবাইল নম্বর)
+                        Mother's Mobile
                       </label>
                       <input
                         type="text"
@@ -4168,7 +4468,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Branch (শাখা)
+                        Branch
                       </label>
                       <input
                         type="text"
@@ -4185,7 +4485,7 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Class Name (শ্রেণি)
+                        Class Name
                       </label>
                       <input
                         type="text"
@@ -4243,13 +4543,13 @@ export default function CallManagement({
                       if (newLiveStatus === "Completed") {
                         if (!updatedData.liveInstructionSubmitDate) {
                           toast.error(
-                            "অনুগ্রহ করে লাইভ ইন্সট্রাকশনের তারিখ (Date) দিন",
+                            "Please provide the Live Instruction date",
                           );
                           return;
                         }
                         if (!updatedData.liveInstructionComment?.trim()) {
                           toast.error(
-                            "অনুগ্রহ করে লাইভ ইন্সট্রাকশনের মন্তব্য (Comment) লিখুন",
+                            "Please write the Live Instruction comment",
                           );
                           return;
                         }
@@ -4258,7 +4558,7 @@ export default function CallManagement({
                           !updatedData.liveInstructorPin?.trim()
                         ) {
                           toast.error(
-                            "লাইভ ইন্সট্রাকশনের জন্য ইন্সট্রাক্টরের নাম ও পিন নম্বর বাধ্যতামূলক",
+                            "Instructor name and PIN are required for Live Instruction",
                           );
                           return;
                         }
@@ -4267,13 +4567,13 @@ export default function CallManagement({
                       if (newFeedbackStatus === "Completed") {
                         if (!updatedData.feedbackSubmitDate) {
                           toast.error(
-                            "অনুগ্রহ করে ফিডব্যাকের তারিখ (Date) দিন",
+                            "Please provide the Feedback date",
                           );
                           return;
                         }
                         if (!updatedData.feedbackComment?.trim()) {
                           toast.error(
-                            "অনুগ্রহ করে ফিডব্যাকের মন্তব্য (Comment) লিখুন",
+                            "Please write the Feedback comment",
                           );
                           return;
                         }
@@ -4825,13 +5125,27 @@ export default function CallManagement({
                   <h3 className="text-lg font-black text-slate-800 tracking-tight">
                     Delete Class Records?
                   </h3>
-                  <p className="text-xs text-slate-500 font-bold mt-2">
+                  <p className="text-xs text-slate-500 font-bold mt-2 mb-4">
                     Are you sure you want to delete all tasks for class{" "}
                     <span className="text-rose-600">
                       {selectedClassForUpload}
                     </span>
                     ? This action cannot be undone.
                   </p>
+                  <div className="w-full text-left space-y-4">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        Your Password to Confirm
+                      </label>
+                      <input
+                        type="password"
+                        value={deletePassword}
+                        onChange={(e) => setDeletePassword(e.target.value)}
+                        placeholder="Enter your portal password"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div className="flex flex-col w-full gap-2 pt-4">
                   <button
@@ -4841,7 +5155,10 @@ export default function CallManagement({
                     Confirm Delete Class
                   </button>
                   <button
-                    onClick={() => setIsDeleteClassModalOpen(false)}
+                    onClick={() => {
+                      setIsDeleteClassModalOpen(false);
+                      setDeletePassword("");
+                    }}
                     className="w-full py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
                   >
                     Cancel
@@ -4903,20 +5220,18 @@ export default function CallManagement({
                       </select>
                     </div>
 
-                    {deleteAllTargetClass === "all" && (
-                      <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
-                          Your Password to Confirm
-                        </label>
-                        <input
-                          type="password"
-                          value={deletePassword}
-                          onChange={(e) => setDeletePassword(e.target.value)}
-                          placeholder="Enter your portal password"
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        Your Password to Confirm
+                      </label>
+                      <input
+                        type="password"
+                        value={deletePassword}
+                        onChange={(e) => setDeletePassword(e.target.value)}
+                        placeholder="Enter your portal password"
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-col w-full gap-2 pt-4">
@@ -4992,17 +5307,23 @@ export default function CallManagement({
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
                         Class *
                       </label>
-                      <input
-                        type="text"
+                      <select
                         value={newStudentFormData.className || ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setNewStudentFormData({
                             ...newStudentFormData,
                             className: e.target.value,
-                          })
-                        }
-                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
-                      />
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 h-[34px]"
+                      >
+                        <option value="">Select Class</option>
+                        {uniqueClasses.map((cls) => (
+                          <option key={cls} value={cls}>
+                            {cls}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
@@ -5040,17 +5361,59 @@ export default function CallManagement({
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
                         Branch
                       </label>
-                      <input
-                        type="text"
-                        value={newStudentFormData.branch || ""}
-                        onChange={(e) =>
-                          setNewStudentFormData({
-                            ...newStudentFormData,
-                            branch: e.target.value,
-                          })
-                        }
-                        className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
-                      />
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                          className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl text-left flex justify-between items-center focus:outline-none focus:border-indigo-500 h-[34px]"
+                        >
+                          <span className="truncate">
+                            {newStudentFormData.branch || "Select Branch"}
+                          </span>
+                          <ChevronDown className="w-4 h-4 text-slate-400 shrink-0 ml-1" />
+                        </button>
+                        {isBranchDropdownOpen && (
+                          <div className="absolute left-0 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50">
+                            <div className="sticky top-0 bg-white p-2 border-b border-slate-100">
+                              <input
+                                type="text"
+                                placeholder="Search branch..."
+                                value={manualBranchSearchQuery}
+                                onChange={(e) => setManualBranchSearchQuery(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 text-xs px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-indigo-500 font-medium"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                            <div className="py-1">
+                              {mergedBranches.filter(b => b.toLowerCase().includes(manualBranchSearchQuery.toLowerCase())).length > 0 ? (
+                                mergedBranches
+                                  .filter(b => b.toLowerCase().includes(manualBranchSearchQuery.toLowerCase()))
+                                  .map((br) => (
+                                    <button
+                                      key={br}
+                                      type="button"
+                                      onClick={() => {
+                                        setNewStudentFormData({
+                                          ...newStudentFormData,
+                                          branch: br,
+                                        });
+                                        setIsBranchDropdownOpen(false);
+                                        setManualBranchSearchQuery("");
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-slate-950 font-medium transition-colors"
+                                    >
+                                      {br}
+                                    </button>
+                                  ))
+                              ) : (
+                                <div className="px-3 py-2 text-xs text-slate-400 font-medium text-center">
+                                  No branches found
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
@@ -5164,6 +5527,156 @@ export default function CallManagement({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Excel Upload Preview Modal */}
+      <AnimatePresence>
+        {excelPreviewTasks && excelPreviewStats && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-900/50 backdrop-blur-md overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl p-5 sm:p-7 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border border-indigo-100 my-auto overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                    <Sparkles className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
+                      New Class Student Upload Preview
+                    </h3>
+                    <p className="text-xs text-slate-500 font-bold">
+                      Verify upload details, student counts, and branch distributions before confirming
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setExcelPreviewTasks(null);
+                    setExcelPreviewStats(null);
+                    setExcelPreviewClassName("");
+                  }}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="py-4 space-y-5 overflow-y-auto flex-grow pr-1">
+                <p className="text-xs text-slate-500 font-bold leading-relaxed">
+                  You are about to upload students for a <span className="text-indigo-600 font-extrabold">new class</span>. Please review the statistics and preview data below before confirming:
+                </p>
+
+                {/* Overview Badges */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-slate-100 p-3.5 rounded-2xl text-center">
+                    <div className="text-xs font-bold text-slate-500">
+                      Class Name
+                    </div>
+                    <div className="text-base font-black text-slate-800 bg-indigo-50/50 py-1 px-3 rounded-xl inline-block mt-1">
+                      {excelPreviewClassName}
+                    </div>
+                  </div>
+                  <div className="bg-emerald-50 p-3.5 rounded-2xl text-center border border-emerald-100">
+                    <div className="text-xs font-bold text-emerald-600">
+                      Total Students to Upload
+                    </div>
+                    <div className="text-xl font-black text-emerald-700 mt-1">
+                      {excelPreviewStats.studentCount} Students
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 p-3.5 rounded-2xl text-center border border-blue-200">
+                    <div className="text-xs font-bold text-blue-600">
+                      Total Unique Branches
+                    </div>
+                    <div className="text-xl font-black text-blue-700 mt-1">
+                      {excelPreviewStats.branchCount} Branches
+                    </div>
+                  </div>
+                </div>
+
+                {/* Preview Table */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>
+                      Excel Data Sample Preview ({excelPreviewTasks.length} Rows)
+                    </span>
+                  </h4>
+
+                  <div className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 sticky top-0">
+                        <tr>
+                          <th className="p-2.5">SL</th>
+                          <th className="p-2.5">Reg No</th>
+                          <th className="p-2.5">Student Name</th>
+                          <th className="p-2.5">Branch</th>
+                          <th className="p-2.5">Mobile</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {excelPreviewTasks.slice(0, 50).map((st, i) => (
+                          <tr key={i} className="hover:bg-slate-50/80">
+                            <td className="p-2.5 font-bold text-slate-700">
+                              {i + 1}
+                            </td>
+                            <td className="p-2.5 font-mono font-bold text-indigo-600 select-text cursor-text">
+                              {st.registrationNo || st.pin || "—"}
+                            </td>
+                            <td className="p-2.5 font-bold text-slate-800">
+                              {st.studentName || "—"}
+                            </td>
+                            <td className="p-2.5 font-medium text-slate-600">
+                              {st.branch || "—"}
+                            </td>
+                            <td className="p-2.5 font-mono text-slate-600">
+                              {st.mobilePersonal || "—"}
+                            </td>
+                          </tr>
+                        ))}
+                        {excelPreviewTasks.length > 50 && (
+                          <tr>
+                            <td colSpan={5} className="p-3 text-center text-xs text-slate-400 font-bold bg-slate-50">
+                              ... and {excelPreviewTasks.length - 50} more student records.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Footer Controls */}
+                <div className="flex flex-col sm:flex-row justify-end items-center gap-3 pt-4 border-t border-slate-100 flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      setExcelPreviewTasks(null);
+                      setExcelPreviewStats(null);
+                      setExcelPreviewClassName("");
+                    }}
+                    className="w-full sm:w-auto px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmExcelUpload}
+                    className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    Confirm & Add Student Info
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {taskToDelete && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
@@ -5411,7 +5924,7 @@ export default function CallManagement({
                                     <td className="p-2.5 font-bold text-slate-700">
                                       {st.sl || st.meritPosition || i + 1}
                                     </td>
-                                    <td className="p-2.5 font-mono font-bold text-indigo-600">
+                                    <td className="p-2.5 font-mono font-bold text-indigo-600 select-text cursor-text">
                                       {st.pin || st.roll || "—"}
                                     </td>
                                     <td className="p-2.5 font-bold text-slate-800">
@@ -5453,7 +5966,7 @@ export default function CallManagement({
                               {(/online/i.test(meritTargetClass)
                                 ? members
                                 : showManagementTabs
-                                  ? currentUser.campus === "All"
+                                  ? (canUpload || currentUser.campus === "All")
                                     ? members
                                     : members.filter(
                                         (m) => m.campus === currentUser.campus,

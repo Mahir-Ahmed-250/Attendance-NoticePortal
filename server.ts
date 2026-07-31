@@ -4,6 +4,7 @@ import * as path from "node:path";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import cors from "cors";
+import nodemailer from "nodemailer";
 import { 
   User as UserRaw, 
   Email as EmailRaw, 
@@ -197,7 +198,232 @@ app.get("/api/logo", async (req, res) => {
   }
 });
 
+// Helper function to send email via nodemailer
+async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
+  try {
+    let transporter;
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      const isGmail = process.env.SMTP_USER.toLowerCase().endsWith('@gmail.com');
+      
+      if (process.env.SMTP_HOST) {
+        console.log(`[EMAIL] Using custom SMTP Host settings from environment to send OTP.`);
+        transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: parseInt(process.env.SMTP_PORT || '587'),
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          }
+        });
+      } else if (isGmail) {
+        console.log(`[EMAIL] Auto-configuring Gmail SMTP service using SMTP_USER and SMTP_PASS.`);
+        transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          }
+        });
+      } else {
+        console.log(`[EMAIL] SMTP host is missing but SMTP_USER/PASS is set for non-gmail address. Falling back to test account.`);
+      }
+    }
+
+    if (!transporter) {
+      console.log(`[EMAIL] SMTP settings not fully configured in environment. Attempting to create an Ethereal test account...`);
+      const testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: testAccount.smtp.host,
+        port: testAccount.smtp.port,
+        secure: testAccount.smtp.secure,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass
+        }
+      });
+    }
+
+    const mailOptions = {
+      from: process.env.SMTP_FROM || '"Exam Scripts Management" <noreply@portal.com>',
+      to: toEmail,
+      subject: 'Password Reset OTP - Exam Scripts Management',
+      text: `Hello ${userName},\n\nYour OTP for password reset is: ${otp}\n\nThis OTP is valid for 10 minutes. If you did not request this, please ignore this email.\n\nBest regards,\nExam Scripts Management Team`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <h2 style="color: #4f46e5; margin-bottom: 20px;">Password Reset Request</h2>
+          <p>Hello <strong>${userName}</strong>,</p>
+          <p>We received a request to reset your password. Use the following One-Time Password (OTP) to complete the process:</p>
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px; color: #1e1b4b; margin: 25px 0;">
+            ${otp}
+          </div>
+          <p style="color: #64748b; font-size: 14px;">This OTP is valid for 10 minutes. If you did not request this password reset, you can safely ignore this email.</p>
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
+          <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} Exam Scripts Management Team. All rights reserved.</p>
+        </div>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL] Email sent successfully! Message ID: ${info.messageId}`);
+    if (!process.env.SMTP_HOST) {
+      console.log(`[EMAIL] Preview URL for test email: ${nodemailer.getTestMessageUrl(info)}`);
+    }
+    return true;
+  } catch (err: any) {
+    console.error("[EMAIL] Failed to send email via nodemailer:", err.message);
+    return false;
+  }
+}
+
 // Auth
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const { pin } = req.body;
+  try {
+    if (!pin) {
+      return res.status(400).json({ error: "PIN is required." });
+    }
+
+    const trimmedPin = pin.trim();
+    // Escape regex characters for safe search
+    const escapedPin = trimmedPin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    // Find the user by exact PIN
+    const user = await User.findOne({ 
+      pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } 
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "No user found with this PIN." });
+    }
+
+    if (!user.email) {
+      return res.status(400).json({ error: "No email address associated with this PIN. Please contact your mentor or manager." });
+    }
+
+    // Generate a secure random 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    user.otp = otp;
+    user.otpExpiry = expiry;
+    await user.save();
+
+    console.log(`[OTP] Generated OTP for user PIN ${user.pin} (${user.email}): ${otp}`);
+
+    // Send the email asynchronously
+    const sent = await sendOTPEmail(user.email, otp, user.name);
+
+    if (sent) {
+      return res.json({ message: "An OTP has been sent to your email address." });
+    } else {
+      // If email sending failed, still return success with info on logging
+      return res.json({ 
+        message: "OTP generated. Email service fallback enabled. Check the server logs for the OTP.",
+        devFallback: true,
+        otp: otp
+      });
+    }
+
+  } catch (err: any) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  }
+});
+
+app.post("/api/auth/verify-otp", async (req, res) => {
+  const { pin, otp } = req.body;
+  try {
+    if (!pin || !otp) {
+      return res.status(400).json({ error: "PIN and OTP are required." });
+    }
+
+    const trimmedPin = pin.trim();
+    const trimmedOtp = otp.trim();
+
+    const escapedPin = trimmedPin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await User.findOne({ 
+      pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } 
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "No user found with this PIN." });
+    }
+
+    if (!user.otp || !user.otpExpiry) {
+      return res.status(400).json({ error: "No reset request found or OTP expired." });
+    }
+
+    // Check expiry
+    const now = new Date();
+    if (now > new Date(user.otpExpiry)) {
+      return res.status(400).json({ error: "The OTP has expired. Please request a new one." });
+    }
+
+    // Check OTP match
+    if (user.otp !== trimmedOtp) {
+      return res.status(400).json({ error: "Invalid OTP. Please try again." });
+    }
+
+    res.json({ message: "OTP verified successfully!" });
+  } catch (err: any) {
+    console.error("OTP verification error:", err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { pin, otp, password } = req.body;
+  try {
+    if (!pin || !otp || !password) {
+      return res.status(400).json({ error: "PIN, OTP and new password are required." });
+    }
+
+    const trimmedPin = pin.trim();
+    const trimmedOtp = otp.trim();
+    const trimmedPassword = password.trim();
+
+    const escapedPin = trimmedPin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await User.findOne({ 
+      pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } 
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "No user found with this PIN." });
+    }
+
+    if (!user.otp || !user.otpExpiry) {
+      return res.status(400).json({ error: "No reset request found or OTP expired." });
+    }
+
+    // Check expiry
+    const now = new Date();
+    if (now > new Date(user.otpExpiry)) {
+      return res.status(400).json({ error: "The OTP has expired. Please request a new one." });
+    }
+
+    // Check OTP match
+    if (user.otp !== trimmedOtp) {
+      return res.status(400).json({ error: "Invalid OTP. Please try again." });
+    }
+
+    // Update password (plain text since database uses plain text)
+    user.password = trimmedPassword;
+    
+    // Clear OTP fields
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    await user.save();
+
+    console.log(`[RESET] Password reset successfully for user PIN ${user.pin}`);
+    res.json({ message: "Password reset successfully! You can now log in with your new password." });
+
+  } catch (err: any) {
+    console.error("Reset password error:", err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  }
+});
+
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -897,6 +1123,24 @@ app.post("/api/campuses", async (req, res) => {
 
       if (nonDuplicateTasks.length > 0) {
         await CallTask.insertMany(nonDuplicateTasks);
+
+        // Notify assigned team members / mentors for imported tasks
+        const assignedCounts: { [pin: string]: number } = {};
+        const liveAssignedCounts: { [pin: string]: number } = {};
+        nonDuplicateTasks.forEach((t: any) => {
+          if (t.assignedToPin) {
+            assignedCounts[t.assignedToPin] = (assignedCounts[t.assignedToPin] || 0) + 1;
+          }
+          if (t.liveAssignedToPin && t.liveAssignedToPin !== t.assignedToPin) {
+            liveAssignedCounts[t.liveAssignedToPin] = (liveAssignedCounts[t.liveAssignedToPin] || 0) + 1;
+          }
+        });
+        for (const [pin, count] of Object.entries(assignedCounts)) {
+          await notifyTaskAssignment(pin, `${count} call task(s)`);
+        }
+        for (const [pin, count] of Object.entries(liveAssignedCounts)) {
+          await notifyTaskAssignment(pin, `${count} live instruction task(s)`);
+        }
       }
 
       res.json({
@@ -911,6 +1155,33 @@ app.post("/api/campuses", async (req, res) => {
       res.status(500).json({ error: "Failed to import tasks", details: err.message });
     }
   });
+
+async function notifyTaskAssignment(memberPin: string, detailText: string) {
+  if (!memberPin) return;
+  try {
+    const cleanPin = String(memberPin).trim();
+    if (!cleanPin) return;
+    const targetUser = await User.findOne({
+      pin: { $regex: new RegExp(`^${cleanPin.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, "i") }
+    });
+    const toEmail = targetUser?.email || `${cleanPin}@portal.com`;
+    const recipientName = targetUser?.name || cleanPin;
+    const emailObj = new Email({
+      pin: "notif_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
+      toEmail: toEmail,
+      fromEmail: "system@portal.com",
+      fromName: "Call Management System",
+      subject: `New Call Task Assigned (${detailText})`,
+      body: `Hello ${recipientName},\n\nYou have been assigned new call task(s): ${detailText}.\n\nPlease check your Call Management dashboard.\n\nDate: ${new Date().toLocaleString()}`,
+      date: new Date().toISOString(),
+      isRead: false,
+      recipientPin: cleanPin
+    });
+    await emailObj.save();
+  } catch (err) {
+    console.error("Error creating assignment notification email:", err);
+  }
+}
 
   app.put("/api/call-tasks/assign", async (req, res) => {
     try {
@@ -947,6 +1218,14 @@ app.post("/api/campuses", async (req, res) => {
         { id: { $in: taskIds } },
         { $set: setObj }
       );
+
+      if (assignedToPin) {
+        await notifyTaskAssignment(assignedToPin, `${taskIds.length} call task(s)`);
+      }
+      if (liveAssignedToPin && liveAssignedToPin !== assignedToPin) {
+        await notifyTaskAssignment(liveAssignedToPin, `${taskIds.length} live instruction task(s)`);
+      }
+
       res.json({ message: "Tasks assigned successfully" });
     } catch (err) {
       res.status(500).json({ error: "Failed to assign tasks" });
@@ -960,6 +1239,14 @@ app.post("/api/campuses", async (req, res) => {
         { $set: req.body },
         { new: true }
       );
+      if (task) {
+        if (req.body.assignedToPin) {
+          await notifyTaskAssignment(req.body.assignedToPin, `1 call task (${task.studentName || task.id})`);
+        }
+        if (req.body.liveAssignedToPin && req.body.liveAssignedToPin !== req.body.assignedToPin) {
+          await notifyTaskAssignment(req.body.liveAssignedToPin, `1 live instruction task (${task.studentName || task.id})`);
+        }
+      }
       res.json(task);
     } catch (err) {
       res.status(500).json({ error: "Failed to update task" });

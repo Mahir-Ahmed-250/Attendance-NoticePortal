@@ -65,7 +65,7 @@ interface MemberDashboardProps {
   onUpdateNotice: (notice: Notice) => void;
   onDeleteNoticeRequest: (noticeId: string) => void;
   profileRequests: ProfileRequest[];
-  onSubmitProfileRequest: (requestedName: string, requestedPin: string) => void;
+  onSubmitProfileRequest: (requestedName: string, requestedPin: string, requestedEmail?: string) => void;
   onInstantUpdate: (updatedFields: Partial<UserType>) => void;
   leaveRequests: LeaveRequest[];
   onSubmitLeaveRequest: (req: LeaveRequest) => void;
@@ -73,6 +73,7 @@ interface MemberDashboardProps {
   onSubmitAttendanceEditRequest: (req: AttendanceEditRequest) => void;
   emails: EmailMessage[];
   onMarkEmailAsRead: (emailPin: string) => void;
+  onMarkAllEmailsAsRead?: (userPin: string) => void;
   campuses: Campus[];
   branches: Branch[];
   onAddBranch: (name: string) => void;
@@ -86,6 +87,7 @@ interface MemberDashboardProps {
   onDeleteMember?: (pin: string) => void;
   onAddMentor?: (mentor: Mentor) => void;
   onDeleteMentor?: (pin: string) => void;
+  onRefreshEmails?: () => void;
 }
 
 export default function MemberDashboard({
@@ -107,6 +109,7 @@ export default function MemberDashboard({
   onSubmitAttendanceEditRequest,
   emails,
   onMarkEmailAsRead,
+  onMarkAllEmailsAsRead,
   campuses,
   branches,
   onAddBranch,
@@ -120,6 +123,7 @@ export default function MemberDashboard({
   onDeleteMember,
   onAddMentor,
   onDeleteMentor,
+  onRefreshEmails,
 }: MemberDashboardProps) {
   const allowedPerms =
     currentMember.permissions && currentMember.permissions.length > 0
@@ -208,17 +212,32 @@ export default function MemberDashboard({
   // Find their assigned mentor
   const assignedMentor = mentors.find((m) => m.pin === currentMember.mentorPin);
 
+  const memberPinLower = (currentMember.pin || "").trim().toLowerCase();
+  const memberEmailLower = (currentMember.email || "").trim().toLowerCase();
+
   // Get emails for this team member
-  const myEmails = emails.filter(
-    (e) =>
-      e.toEmail === currentMember.email ||
-      e.toEmail === `${currentMember.pin}@portal.com`,
-  );
+  const myEmails = emails.filter((e) => {
+    const rPin = (e.recipientPin || "").trim().toLowerCase();
+    const toEm = (e.toEmail || "").trim().toLowerCase();
+
+    return (
+      (rPin && rPin === memberPinLower) ||
+      (toEm && memberEmailLower && toEm === memberEmailLower) ||
+      (toEm && toEm === `${memberPinLower}@portal.com`) ||
+      (toEm && toEm === memberPinLower)
+    );
+  });
   const unreadEmailCount = myEmails.filter((e) => !e.isRead).length;
 
   const [readNotifications, setReadNotifications] = useState<string[]>(
     currentMember.readNotifications || [],
   );
+
+  useEffect(() => {
+    if (currentMember.readNotifications) {
+      setReadNotifications(currentMember.readNotifications);
+    }
+  }, [currentMember.readNotifications]);
 
   const myFilteredNotices = notices.filter((n) => {
     if (!n.campus || n.campus === "all") return true;
@@ -357,7 +376,6 @@ export default function MemberDashboard({
     setLeaveStartDate("");
     setLeaveEndDate("");
     setLeaveReason("");
-    toast.success("Leave request submitted!");
   };
 
   const handleAdjustmentSubmit = (e: React.FormEvent) => {
@@ -399,7 +417,6 @@ export default function MemberDashboard({
     setAdjReason("");
     setAdjCheckIn("");
     setAdjCheckOut("");
-    toast.success("Attendance adjustment request submitted!");
   };
 
   // Compute Statistics
@@ -585,9 +602,28 @@ export default function MemberDashboard({
                           Recent alerts and bulletins
                         </p>
                       </div>
-                      <button onClick={() => setIsNotificationsOpen(false)}>
-                        <X className="w-4 h-4 text-slate-400" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {totalNotificationBadgeCount > 0 && (
+                          <button
+                            onClick={async () => {
+                              if (onMarkAllEmailsAsRead) {
+                                await onMarkAllEmailsAsRead(currentMember.pin);
+                              }
+                              const allNoticePins = notices.map(n => n.pin);
+                              const newDismissed = Array.from(new Set([...readNotifications, ...allNoticePins]));
+                              setReadNotifications(newDismissed);
+                              onInstantUpdate({ readNotifications: newDismissed });
+                              toast.success("All notifications marked as read!");
+                            }}
+                            className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-wider bg-indigo-50 px-2 py-1 rounded-lg cursor-pointer"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                        <button onClick={() => setIsNotificationsOpen(false)} className="cursor-pointer">
+                          <X className="w-4 h-4 text-slate-400" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="max-h-[300px] overflow-y-auto p-2 space-y-2">
@@ -1386,6 +1422,7 @@ export default function MemberDashboard({
                 mentors={mentors}
                 campuses={campuses}
                 branches={branches}
+                onRefreshEmails={onRefreshEmails}
               />
             </motion.div>
           )}

@@ -18,6 +18,9 @@ async function request(path: string, options: RequestInit = {}) {
 export const api = {
   auth: {
     login: (credentials: any) => request('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
+    forgotPassword: (pin: string) => request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ pin }) }),
+    verifyOtp: (data: { pin: string; otp: string }) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify(data) }),
+    resetPassword: (data: any) => request('/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
   },
   users: {
     getAll: () => request('/users'),

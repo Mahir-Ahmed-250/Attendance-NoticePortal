@@ -35,6 +35,7 @@ export interface EmailMessage {
   body: string;
   date: string;
   isRead: boolean;
+  recipientPin?: string;
 }
 
 export type AttendanceStatus =
@@ -136,8 +137,10 @@ export interface ProfileRequest {
   userRole: Role;
   currentName: string;
   currentPin: string; // current pin
+  currentEmail?: string;
   requestedName: string;
   requestedPin: string; // requested pin
+  requestedEmail?: string;
   status: "Pending" | "Approved" | "Rejected";
   createdAt: string;
 }

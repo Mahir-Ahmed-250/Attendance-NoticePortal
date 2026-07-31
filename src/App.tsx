@@ -121,6 +121,23 @@ export default function App() {
     fetchData();
   }, []);
 
+  const refreshEmails = async () => {
+    try {
+      const freshEmails = await api.emails.getAll();
+      setEmails(freshEmails);
+    } catch (err) {
+      console.error("Failed to refresh emails:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isInitializing) return;
+    const interval = setInterval(() => {
+      refreshEmails();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isInitializing]);
+
   const handleLogout = () => {
     setLoggedInUser(null);
     localStorage.removeItem('portal_logged_in_user');
@@ -128,7 +145,7 @@ export default function App() {
 
 
   // --- PROFILE LOGIC HANDLERS ---
-  const handleSubmitProfileRequest = async (requestedName: string, requestedPin: string) => {
+  const handleSubmitProfileRequest = async (requestedName: string, requestedPin: string, requestedEmail?: string) => {
     if (!loggedInUser) return;
     const newRequest: ProfileRequest = {
       pin: `req-${Date.now()}`,
@@ -136,8 +153,10 @@ export default function App() {
       userRole: loggedInUser.role === 'member' ? 'member' : 'mentor',
       currentName: loggedInUser.name,
       currentPin: loggedInUser.pin, 
+      currentEmail: loggedInUser.email,
       requestedName: requestedName.trim(),
       requestedPin: requestedPin.trim(),
+      requestedEmail: requestedEmail ? requestedEmail.trim() : loggedInUser.email,
       status: 'Pending',
       createdAt: new Date().toISOString()
     };
@@ -167,7 +186,11 @@ export default function App() {
       // 1. Find the user to update
       const userToUpdate = allUsers.find(u => u.pin === req.userPin);
       if (userToUpdate) {
-        const updatedFields = { name: req.requestedName, pin: req.requestedPin };
+        const updatedFields = { 
+          name: req.requestedName, 
+          pin: req.requestedPin,
+          ...(req.requestedEmail ? { email: req.requestedEmail } : {})
+        };
         await api.users.update(req.userPin, { ...userToUpdate, ...updatedFields });
         
         // 2. Update local lists
@@ -214,20 +237,42 @@ export default function App() {
     if (!loggedInUser) return;
     
     try {
-      const updatedUser = await api.users.update(loggedInUser.pin, { ...loggedInUser, ...updatedFields });
+      const oldPin = loggedInUser.pin;
+      const payload = { ...loggedInUser, ...updatedFields };
+
+      // Pass oldPin so the backend finds the existing user document by current PIN in MongoDB, even if PIN is being changed
+      const response = await api.users.update(oldPin, payload);
+
+      // Merge updated response with current user and updated fields
+      const updatedUser: User = { 
+        ...loggedInUser, 
+        ...response, 
+        ...updatedFields 
+      };
+
+      // Preserve password field in client state if provided or existing
+      if (updatedFields.password) {
+        updatedUser.password = updatedFields.password;
+      } else if (loggedInUser.password) {
+        updatedUser.password = loggedInUser.password;
+      }
+
       setLoggedInUser(updatedUser);
       localStorage.setItem('portal_logged_in_user', JSON.stringify(updatedUser));
 
-      if (loggedInUser.role === 'mentor') {
-        setMentors(prev => (prev || []).map(m => m.pin === loggedInUser.pin ? updatedUser : m));
-      } else if (loggedInUser.role === 'member') {
-        setMembers(prev => (prev || []).map(m => m.pin === loggedInUser.pin ? updatedUser : m));
-      } else if (loggedInUser.role === 'manager') {
-        setManagers(prev => (prev || []).map(m => m.pin === loggedInUser.pin ? updatedUser : m));
+      // Update in user arrays matching either oldPin or new pin
+      setMembers(prev => (prev || []).map(m => (m.pin === oldPin || m.pin === updatedUser.pin) ? updatedUser : m));
+      setMentors(prev => (prev || []).map(m => (m.pin === oldPin || m.pin === updatedUser.pin) ? updatedUser : m));
+      setManagers(prev => (prev || []).map(m => (m.pin === oldPin || m.pin === updatedUser.pin) ? updatedUser : m));
+
+      if (!('readNotifications' in updatedFields)) {
+        toast.success('Profile updated successfully!');
       }
-      toast.success('Profile updated successfully!');
     } catch (err) {
-      toast.error('Failed to update profile.');
+      if (!('readNotifications' in updatedFields)) {
+        toast.error('Failed to update profile.');
+      }
+      throw err;
     }
   };
 
@@ -705,6 +750,34 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to mark email as read", err);
+    }
+  };
+
+  const handleMarkAllEmailsAsRead = async (userPin: string) => {
+    try {
+      const cleanUserPin = (userPin || "").trim().toLowerCase();
+      const isUserEmail = (e: any) => {
+        const rPin = (e.recipientPin || "").trim().toLowerCase();
+        const toEm = (e.toEmail || "").trim().toLowerCase();
+        return (
+          (rPin && rPin === cleanUserPin) ||
+          (toEm && toEm === cleanUserPin) ||
+          (toEm && toEm === `${cleanUserPin}@portal.com`)
+        );
+      };
+
+      const userEmails = emails.filter((e) => isUserEmail(e) && !e.isRead);
+      for (const email of userEmails) {
+        const updated = { ...email, isRead: true };
+        await api.emails.update(email.pin, updated);
+      }
+      setEmails((prev) =>
+        prev.map((e) =>
+          isUserEmail(e) && !e.isRead ? { ...e, isRead: true } : e
+        )
+      );
+    } catch (err) {
+      console.error("Failed to mark all emails as read", err);
     }
   };
 
@@ -1286,6 +1359,8 @@ export default function App() {
                           onUnassignBranch={handleUnassignBranch}
                           emails={emails}
                           onMarkEmailAsRead={handleMarkEmailAsRead}
+                          onMarkAllEmailsAsRead={handleMarkAllEmailsAsRead}
+                          onRefreshEmails={refreshEmails}
                         />
                       </motion.div>
                     )}
@@ -1324,6 +1399,8 @@ export default function App() {
                           onInstantUpdate={handleInstantUpdate}
                           emails={emails}
                           onMarkEmailAsRead={handleMarkEmailAsRead}
+                          onMarkAllEmailsAsRead={handleMarkAllEmailsAsRead}
+                          onRefreshEmails={refreshEmails}
                           branches={branches}
                           onAddBranch={handleAddBranch}
                           onUpdateBranch={handleUpdateBranch}
@@ -1366,6 +1443,8 @@ export default function App() {
                           onSubmitAttendanceEditRequest={handleSubmitAttendanceEditRequest}
                           emails={emails}
                           onMarkEmailAsRead={handleMarkEmailAsRead}
+                          onMarkAllEmailsAsRead={handleMarkAllEmailsAsRead}
+                          onRefreshEmails={refreshEmails}
                           campuses={campuses}
                           branches={branches}
                           onAddBranch={handleAddBranch}

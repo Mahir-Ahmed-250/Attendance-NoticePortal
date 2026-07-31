@@ -79,6 +79,11 @@ export default function MemberManagementView({
       return;
     }
 
+    if (crudMode === "edit" && selectedCrudPin === currentUser.pin) {
+      toast.error("Members with Member Management permission cannot edit their own info!");
+      return;
+    }
+
     const existingUser = [...members, ...mentors].find((u) => u.pin === selectedCrudPin);
     const finalPassword = memberForm.password.trim() ? memberForm.password.trim() : (crudMode === "create" ? "password" : (existingUser?.password || "password"));
 
@@ -322,7 +327,12 @@ export default function MemberManagementView({
             <button
               onClick={() => {
                 const pins = bulkPinInput.split(",").map((p) => p.trim());
+                let selfDeactivateAttempt = false;
                 pins.forEach((pin) => {
+                  if (pin === currentUser.pin) {
+                    selfDeactivateAttempt = true;
+                    return; // Skip self
+                  }
                   const user = members.find((m) => m.pin === pin) || mentors.find((m) => m.pin === pin);
                   if (user) {
                     const updatedUser = { ...user, isActive: !user.isActive };
@@ -334,6 +344,9 @@ export default function MemberManagementView({
                   }
                 });
                 setBulkPinInput("");
+                if (selfDeactivateAttempt) {
+                  toast.error("For security reasons, you cannot deactivate your own account!");
+                }
                 toast.success("Bulk update executed!");
               }}
               className="text-xs font-black text-white bg-indigo-600 px-3 py-1.5 rounded-lg whitespace-nowrap cursor-pointer hover:bg-indigo-700"
@@ -389,6 +402,7 @@ export default function MemberManagementView({
                   const coordinator = [...managers, ...mentors].find(
                     (m) => m.pin === member.mentorPin,
                   );
+                  const isOwnAccount = member.pin === currentUser.pin;
                   return (
                     <tr key={member.pin} className="hover:bg-slate-50/50 transition-colors">
                       <td className="p-4 text-xs font-mono text-slate-400 text-center">
@@ -403,6 +417,11 @@ export default function MemberManagementView({
                               {member.role === "mentor" && (
                                 <span className="text-[8px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-1 py-0.5 rounded uppercase font-black">
                                   Coordinator
+                                </span>
+                              )}
+                              {isOwnAccount && (
+                                <span className="text-[8px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-1 py-0.5 rounded uppercase font-black">
+                                  You
                                 </span>
                               )}
                             </h4>
@@ -427,7 +446,12 @@ export default function MemberManagementView({
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
+                            disabled={isOwnAccount}
                             onClick={() => {
+                              if (isOwnAccount) {
+                                toast.error("You cannot modify your own account!");
+                                return;
+                              }
                               setCrudMode("edit");
                               setSelectedCrudPin(member.pin);
                               setSelectedCrudRole(member.role || "member");
@@ -438,13 +462,18 @@ export default function MemberManagementView({
                                 designation: member.designation || "",
                                 password: "",
                                 campus: member.campus || campuses[0]?.name || "",
+                                mentorPin: member.mentorPin || "",
                                 permissions: member.permissions || [],
                                 role: member.role || "member",
                               });
                               setIsRosterModalOpen(true);
                             }}
-                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                            title="Edit"
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              isOwnAccount
+                                ? "text-slate-300 cursor-not-allowed opacity-50"
+                                : "text-indigo-600 hover:bg-indigo-50"
+                            }`}
+                            title={isOwnAccount ? "Cannot modify own account" : "Edit"}
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
@@ -452,9 +481,20 @@ export default function MemberManagementView({
                           {onConfigurePermissions && (
                             <button
                               type="button"
-                              onClick={() => onConfigurePermissions(member.pin)}
-                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
-                              title="Configure Permissions"
+                              disabled={isOwnAccount}
+                              onClick={() => {
+                                if (isOwnAccount) {
+                                  toast.error("You cannot change your own permissions!");
+                                  return;
+                                }
+                                onConfigurePermissions(member.pin);
+                              }}
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                isOwnAccount
+                                  ? "text-slate-300 cursor-not-allowed opacity-50"
+                                  : "text-amber-600 hover:bg-amber-50"
+                              }`}
+                              title={isOwnAccount ? "Cannot change own permissions" : "Configure Permissions"}
                             >
                               <Shield className="w-3.5 h-3.5" />
                             </button>
@@ -462,11 +502,20 @@ export default function MemberManagementView({
 
                           <button
                             type="button"
+                            disabled={isOwnAccount}
                             onClick={() => {
+                              if (isOwnAccount) {
+                                toast.error("You cannot delete your own account!");
+                                return;
+                              }
                               setDeletingMember({ pin: member.pin, name: member.name, role: member.role || "member" });
                             }}
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="Delete"
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              isOwnAccount
+                                ? "text-slate-300 cursor-not-allowed opacity-50"
+                                : "text-rose-600 hover:bg-rose-50"
+                            }`}
+                            title={isOwnAccount ? "Cannot delete own account" : "Delete"}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -483,128 +532,206 @@ export default function MemberManagementView({
       {/* Modal */}
       {isRosterModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 text-left max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-150 pb-4 mb-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-6xl w-full p-0 flex flex-col text-left overflow-hidden max-h-[85vh]"
+          >
+            <div className="flex items-center justify-between border-b border-slate-150 p-6 shrink-0 bg-white z-10 sticky top-0">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-indigo-600" />
                 <h3 className="font-extrabold text-slate-800 text-sm">
-                  {crudMode === "create" ? "Add New User" : "Edit User Details"}
+                  {crudMode === "create" ? "Add New" : "Edit Details:"} Team Member
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsRosterModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold"
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer text-xs"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveMemberRoster} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-500 uppercase mb-1">
-                  PIN
-                </label>
-                <input
-                  type="number"
-                  
-                  disabled={crudMode === "edit"}
-                  value={memberForm.pin}
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, pin: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50"
-                />
-              </div>
+            <div className="p-6 overflow-y-auto">
+              <form onSubmit={handleSaveMemberRoster} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* PIN */}
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                      User PIN
+                    </label>
+                    <input
+                      type="number"
+                      disabled={crudMode === "edit"}
+                      placeholder="Team Member PIN"
+                      value={memberForm.pin}
+                      onChange={(e) =>
+                        setMemberForm((prev) => ({
+                          ...prev,
+                          pin: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold bg-slate-50"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-500 uppercase mb-1">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  
-                  value={memberForm.name}
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold"
-                />
-              </div>
+                  {/* Name */}
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Team Member Full Name"
+                      value={memberForm.name}
+                      onChange={(e) =>
+                        setMemberForm((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-500 uppercase mb-1">
-                  Email
-                </label>
-                <input
-                  type="text"
-                  
-                  value={memberForm.email}
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs"
-                />
-              </div>
+                  {/* Email */}
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="name.pin@udvash.net"
+                      value={memberForm.email}
+                      onChange={(e) =>
+                        setMemberForm((prev) => ({
+                          ...prev,
+                          email: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-500 uppercase mb-1">
-                  Designation
-                </label>
-                <input
-                  type="text"
-                  placeholder=""
-                  value={memberForm.designation}
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, designation: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold"
-                />
-              </div>
+                  {/* Designation */}
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                      Designation
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Scrutineer"
+                      value={memberForm.designation}
+                      onChange={(e) =>
+                        setMemberForm((prev) => ({
+                          ...prev,
+                          designation: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold"
+                    />
+                  </div>
 
-              {crudMode === "create" && (
-                <div>
-                  <label className="block text-[11px] font-extrabold text-slate-500 uppercase mb-1">
-                    Portal Password
-                  </label>
-                  <input
-                    type="text"
-                    
-                    placeholder="Set Initial Password"
-                    value={memberForm.password}
-                    onChange={(e) => setMemberForm((prev) => ({ ...prev, password: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-mono"
-                  />
+                  {/* Password */}
+                  {crudMode === "create" && (
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                        Portal Password
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Set Initial Password"
+                        value={memberForm.password}
+                        onChange={(e) =>
+                          setMemberForm((prev) => ({
+                            ...prev,
+                            password: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
+                      />
+                    </div>
+                  )}
+
+                  {/* Campus */}
+                  <div>
+                    <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                      Campus Location
+                    </label>
+                    <select
+                      value={memberForm.campus}
+                      onChange={(e) =>
+                        setMemberForm((prev) => ({
+                          ...prev,
+                          campus: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
+                    >
+                      <option value="">Select Campus</option>
+                      {campuses.map((c) => (
+                        <option key={`member-form-campus-${c.id}`} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Campus Coordinator */}
+                  {crudMode !== "create" && (
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                        Campus Coordinator
+                      </label>
+                      <select
+                        value={memberForm.mentorPin}
+                        onChange={(e) =>
+                          setMemberForm((prev) => ({
+                            ...prev,
+                            mentorPin: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-semibold"
+                      >
+                        <option value="">Select Coordinator</option>
+                        {/* Managers */}
+                        {managers.map((m) => (
+                          <option key={`mgr-option-${m.pin}`} value={m.pin}>
+                            {m.name}
+                          </option>
+                        ))}
+                        {/* Coordinators assigned to this campus */}
+                        {mentors
+                          .filter((m) => m.campus === memberForm.campus)
+                          .map((m) => (
+                            <option key={`coord-option-${m.pin}`} value={m.pin}>
+                              {m.name} (Coordinator)
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
-              )}
 
-              <div>
-                <label className="block text-[11px] font-extrabold text-slate-500 uppercase mb-1">
-                  Campus
-                </label>
-                <select
-                  value={memberForm.campus}
-                  onChange={(e) => setMemberForm((prev) => ({ ...prev, campus: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold"
-                >
-                  <option value="">Select Campus</option>
-                  {campuses.map((c) => (
-                    <option key={c.id} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-150">
-                <button
-                  type="button"
-                  onClick={() => setIsRosterModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold"
-                >
-                  Save User
-                </button>
-              </div>
-            </form>
-          </div>
+                <div className="flex gap-2.5 pt-6 border-t border-slate-150 bg-white sticky bottom-0 z-10">
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-colors shadow-2xs"
+                  >
+                    {crudMode === "create" ? "Create Team Member" : "Save Changes"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsRosterModalOpen(false)}
+                    className="px-6 py-3 border border-slate-200 hover:bg-slate-100 text-slate-600 font-bold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
         </div>
       )}
 
@@ -672,6 +799,10 @@ export default function MemberManagementView({
                 <div className="flex flex-col w-full gap-2 pt-4">
                   <button
                     onClick={async () => {
+                      if (deletingMember.pin === currentUser.pin) {
+                        toast.error("Members with Member Management permission cannot delete their own info!");
+                        return;
+                      }
                       // Instead of full deletion, mark as inactive to preserve in records
                       const userToUpdate = [...members, ...mentors].find(m => m.pin === deletingMember.pin);
                       if (userToUpdate) {

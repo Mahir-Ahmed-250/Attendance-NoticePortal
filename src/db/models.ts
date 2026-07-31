@@ -13,6 +13,8 @@ const UserSchema = new mongoose.Schema({
   campus: String,
   mentorPin: String, // For members and mentors
   isActive: { type: Boolean, default: true },
+  otp: String,
+  otpExpiry: Date,
 });
 
 const EmailSchema = new mongoose.Schema({
@@ -24,6 +26,7 @@ const EmailSchema = new mongoose.Schema({
   body: String,
   date: String,
   isRead: { type: Boolean, default: false },
+  recipientPin: String,
 });
 
 const AttendanceReportSchema = new mongoose.Schema({
@@ -93,8 +96,10 @@ const ProfileRequestSchema = new mongoose.Schema({
   userRole: String,
   currentName: String,
   currentPin: String,
+  currentEmail: String,
   requestedName: String,
   requestedPin: String,
+  requestedEmail: String,
   status: { type: String, default: "Pending" },
   createdAt: { type: String, default: () => new Date().toISOString() },
 });

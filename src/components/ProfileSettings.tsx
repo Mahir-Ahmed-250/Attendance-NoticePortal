@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { User, ProfileRequest, Role } from '../types';
-import { ShieldCheck, Lock, UserCheck, Image as ImageIcon, Save, AlertCircle, Clock, Eye, EyeOff, Upload } from 'lucide-react';
+import { ShieldCheck, Lock, UserCheck, Image as ImageIcon, Save, AlertCircle, Clock, Eye, EyeOff, Upload, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface ProfileSettingsProps {
   currentUser: any;
   userRole: Role;
   profileRequests: ProfileRequest[];
-  onSubmitProfileRequest: (requestedName: string, requestedPin: string) => void;
-  onInstantUpdate: (updatedFields: Partial<User>) => void;
+  onSubmitProfileRequest: (requestedName: string, requestedPin: string, requestedEmail?: string) => void | Promise<void>;
+  onInstantUpdate: (updatedFields: Partial<User>) => void | Promise<void>;
 }
 
 export default function ProfileSettings({
@@ -20,6 +20,7 @@ export default function ProfileSettings({
 }: ProfileSettingsProps) {
   const [name, setName] = React.useState(currentUser.name || '');
   const [pin, setPin] = React.useState(currentUser.pin || ''); // PIN corresponds to user.pin
+  const [email, setEmail] = React.useState(currentUser.email || '');
   const [avatarUrl, setAvatarUrl] = React.useState(currentUser.avatarUrl || '');
   const [password, setPassword] = React.useState('');
   const [designation, setDesignation] = React.useState(currentUser.designation || '');
@@ -27,9 +28,13 @@ export default function ProfileSettings({
   const [showPassword, setShowPassword] = React.useState(false);
   const [message, setMessage] = React.useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
 
+  const [isSavingInstant, setIsSavingInstant] = React.useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = React.useState(false);
+
   React.useEffect(() => {
     setName(currentUser.name || '');
     setPin(currentUser.pin || '');
+    setEmail(currentUser.email || '');
     setAvatarUrl(currentUser.avatarUrl || '');
     setPassword('');
     setDesignation(currentUser.designation || '');
@@ -40,9 +45,11 @@ export default function ProfileSettings({
     r => r.userPin === currentUser.pin && r.status === 'Pending'
   );
 
-  const handleInstantSave = (e: React.FormEvent) => {
+  const handleInstantSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingInstant) return;
     setMessage(null);
+    setIsSavingInstant(true);
 
     // Update password, avatarUrl and designation (if manager)
     const updatedFields: Partial<User> = {
@@ -57,16 +64,26 @@ export default function ProfileSettings({
       updatedFields.designation = designation.trim();
     }
 
-    onInstantUpdate(updatedFields);
-
-    setMessage({
-      type: 'success',
-      text: 'Password, profile picture, and other information updated successfully!'
-    });
+    try {
+      await onInstantUpdate(updatedFields);
+      setPassword('');
+      setMessage({
+        type: 'success',
+        text: 'Password, profile picture, and other information updated successfully!'
+      });
+    } catch (err: any) {
+      setMessage({
+        type: 'error',
+        text: err?.message || 'Failed to update profile settings.'
+      });
+    } finally {
+      setIsSavingInstant(false);
+    }
   };
 
-  const handleVerificationRequest = (e: React.FormEvent) => {
+  const handleVerificationRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRequest) return;
     setMessage(null);
 
     if (pendingRequest) {
@@ -79,39 +96,48 @@ export default function ProfileSettings({
 
     const cleanName = name.trim();
     const cleanPin = pin.trim();
+    const cleanEmail = email.trim();
 
-    if (!cleanName || !cleanPin) {
+    if (!cleanName || !cleanPin || !cleanEmail) {
       setMessage({
         type: 'error',
-        text: 'Name and PIN number cannot be empty.'
+        text: 'Name, PIN, and Email cannot be empty.'
       });
       return;
     }
 
-    if (cleanName === currentUser.name && cleanPin === currentUser.pin) {
+    if (cleanName === currentUser.name && cleanPin === currentUser.pin && cleanEmail === (currentUser.email || '')) {
       setMessage({
         type: 'info',
-        text: 'No changes made. Your name and PIN match the current information.'
+        text: 'No changes made. Your name, PIN, and Email match the current information.'
       });
       return;
     }
 
-    if (userRole === 'manager') {
-      onInstantUpdate({ name: cleanName, pin: cleanPin });
+    setIsSubmittingRequest(true);
+
+    try {
+      if (userRole === 'manager') {
+        await onInstantUpdate({ name: cleanName, pin: cleanPin, email: cleanEmail });
+        setMessage({
+          type: 'success',
+          text: 'Your name, PIN, and Email have been successfully updated!'
+        });
+      } else {
+        await onSubmitProfileRequest(cleanName, cleanPin, cleanEmail);
+        setMessage({
+          type: 'success',
+          text: 'The request to change your name, PIN, and Email has been successfully sent. It will be updated once the mentors verifies and submits it.'
+        });
+      }
+    } catch (err: any) {
       setMessage({
-        type: 'success',
-        text: 'Your name and PIN have been successfully updated!'
+        type: 'error',
+        text: err?.message || 'Failed to update name, PIN, or Email.'
       });
-      return;
+    } finally {
+      setIsSubmittingRequest(false);
     }
-
-    // Submit request to manager
-    onSubmitProfileRequest(cleanName, cleanPin);
-
-    setMessage({
-      type: 'success',
-      text: 'The request to change your name and PIN has been successfully sent. It will be updated once the mentors verifies and submits it.'
-    });
   };
 
   return (
@@ -127,14 +153,19 @@ export default function ProfileSettings({
         </p>
 
         {message && (
-          <div className={`mt-4 p-4 rounded-xl text-xs font-bold leading-relaxed flex items-start gap-2.5 ${
-            message.type === 'success' ? 'bg-emerald-50 border border-emerald-150 text-emerald-800' :
-            message.type === 'info' ? 'bg-indigo-50 border border-indigo-150 text-indigo-800' :
-            'bg-rose-50 border border-rose-150 text-rose-800'
-          }`}>
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className={`mt-4 p-4 rounded-xl text-xs font-bold leading-relaxed flex items-start gap-2.5 ${
+              message.type === 'success' ? 'bg-emerald-50 border border-emerald-150 text-emerald-800' :
+              message.type === 'info' ? 'bg-indigo-50 border border-indigo-150 text-indigo-800' :
+              'bg-rose-50 border border-rose-150 text-rose-800'
+            }`}
+          >
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div>{message.text}</div>
-          </div>
+          </motion.div>
         )}
       </div>
 
@@ -269,10 +300,20 @@ export default function ProfileSettings({
 
               <button
                 type="submit"
-                className="w-full mt-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-colors flex items-center justify-center gap-2 shadow-2xs"
+                disabled={isSavingInstant}
+                className="w-full mt-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-center gap-2 shadow-2xs active:scale-[0.99] disabled:cursor-not-allowed"
               >
-                <Save className="w-4 h-4" />
-                Save Password & Photo
+                {isSavingInstant ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Saving Updates...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save Password & Photo</span>
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -283,10 +324,10 @@ export default function ProfileSettings({
           <div>
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
               <UserCheck className="w-4.5 h-4.5 text-indigo-600" />
-              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Correct Your Name or PIN</h3>
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Correct Your Name, PIN or Email</h3>
             </div>
             <p className="text-xs text-slate-400 font-medium mb-5">
-             {userRole === 'manager' ? '' : 'Mentor Will Verify Your Name and PIN Before Updating'}
+             {userRole === 'manager' ? '' : 'Mentor Will Verify Your Name, PIN and Email Before Updating'}
             </p>
 
             {pendingRequest && (
@@ -296,11 +337,12 @@ export default function ProfileSettings({
                  Awaiting Verification
                 </div>
                 <p className="font-medium text-slate-600">
-                 One Request is already pending for your name and PIN change. Please wait for the mentor to verify
+                 One Request is already pending for your name, PIN or Email change. Please wait for the mentor to verify
                 </p>
                 <div className="mt-2 pl-2 border-l-2 border-amber-400 space-y-1 text-[11px] font-mono">
                   <p>Requested Name: {pendingRequest.requestedName}</p>
                   <p>Requested PIN: {pendingRequest.requestedPin}</p>
+                  <p>Requested Email: {pendingRequest.requestedEmail || 'No Change'}</p>
                 </div>
               </div>
             )}
@@ -315,7 +357,7 @@ export default function ProfileSettings({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
-                  disabled={!!pendingRequest}
+                  disabled={!!pendingRequest || isSubmittingRequest}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans disabled:opacity-50"
                 />
               </div>
@@ -329,18 +371,41 @@ export default function ProfileSettings({
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
                   required
-                  disabled={!!pendingRequest}
+                  disabled={!!pendingRequest || isSubmittingRequest}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={!!pendingRequest || isSubmittingRequest}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans disabled:opacity-50"
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={!!pendingRequest || (name.trim() === currentUser.name && pin.trim() === currentUser.pin)}
-                className="w-full mt-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-colors flex items-center justify-center gap-2 shadow-2xs"
+                disabled={isSubmittingRequest || !!pendingRequest || (name.trim() === currentUser.name && pin.trim() === currentUser.pin && email.trim() === (currentUser.email || ''))}
+                className="w-full mt-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-center gap-2 shadow-2xs active:scale-[0.99] disabled:cursor-not-allowed"
               >
-                <Save className="w-4 h-4" />
-                {userRole === 'manager' ? 'Update' : 'Request For Review & Update'}
+                {isSubmittingRequest ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Updating Server...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>{userRole === 'manager' ? 'Update' : 'Request For Review & Update'}</span>
+                  </>
+                )}
               </button>
             </form>
           </div>
