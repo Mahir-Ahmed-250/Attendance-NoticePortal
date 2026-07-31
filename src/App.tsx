@@ -1214,7 +1214,7 @@ export default function App() {
                   <h1 className="text-xs sm:text-sm font-extrabold tracking-tight text-slate-900 uppercase truncate max-w-[180px] sm:max-w-none">
                     Exam Scripts Management
                   </h1>
-                   <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold font-mono tracking-wider uppercase">Attendance & Notice Management</p>
+                   <p className="text-[9px] sm:text-[10px] text-slate-400 font-bold font-mono tracking-wider uppercase">Management Portal</p>
                   
                 </div>
               </div>

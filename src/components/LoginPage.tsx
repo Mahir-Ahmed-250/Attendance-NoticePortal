@@ -188,7 +188,7 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
               Exam Scripts Management
             </h2>
             <p className="text-[10px] text-slate-400 font-bold font-mono tracking-wider uppercase text-center">
-              Attendance & Notice Management
+              Management Portal
             </p>
           </div>
         </div>
