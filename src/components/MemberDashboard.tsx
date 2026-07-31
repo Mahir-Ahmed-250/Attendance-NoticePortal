@@ -126,9 +126,7 @@ export default function MemberDashboard({
   onRefreshEmails,
 }: MemberDashboardProps) {
   const allowedPerms =
-    currentMember.permissions && currentMember.permissions.length > 0
-      ? currentMember.permissions
-      : ["member_attendance", "member_notices", "member_emails"];
+    currentMember.permissions ?? ["member_attendance", "member_notices", "member_emails", "call_management"];
 
   const [activeTab, setActiveTab] = useState<
     | "attendance"
@@ -151,7 +149,9 @@ export default function MemberDashboard({
       return "members";
     if (allowedPerms.includes("manage_campus_settings"))
       return "campus_settings";
-    return "call-management"; // Allow members to see their calls
+    if (allowedPerms.includes("call_management")) return "call-management";
+    
+    return "profile"; // Default to profile if others are restricted
   });
   const [memberSearch, setMemberSearch] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(
@@ -505,7 +505,7 @@ export default function MemberDashboard({
         <div className="text-left relative z-10">
           <h2 className="text-md font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <LayoutDashboard className="w-4 h-4 text-indigo-600" />
-            Member's Workspace
+            Member's Dashboard
           </h2>
           <p className="text-[10px] text-slate-500 font-medium mt-0.5">Control Center</p>
           <div className="flex gap-2">
@@ -792,23 +792,25 @@ export default function MemberDashboard({
                   <span className="whitespace-nowrap">Profile Settings</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    setActiveTab("call-management");
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
-                    activeTab === "call-management"
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
-                  }`}
-                >
-                  <Phone className="w-4 h-4 shrink-0" />
-                  <span className="whitespace-nowrap">
-                    {currentMember.permissions?.includes("can_upload_call_info")
-                      ? "Call Management"
-                      : "Assigned Calls"}
-                  </span>
-                </button>
+                {allowedPerms.includes("call_management") && (
+                  <button
+                    onClick={() => {
+                      setActiveTab("call-management");
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
+                      activeTab === "call-management"
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Phone className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-nowrap">
+                      {currentMember.permissions?.includes("can_upload_call_info")
+                        ? "Call Management"
+                        : "Assigned Calls"}
+                    </span>
+                  </button>
+                )}
               </div>
             </motion.div>
           )}
@@ -1290,7 +1292,10 @@ export default function MemberDashboard({
                           .map((msg) => (
                             <div
                               key={msg.pin}
-                              onClick={() => setSelectedEmail(msg)}
+                              onClick={() => {
+                                setSelectedEmail(msg);
+                                onMarkEmailAsRead(msg.pin);
+                              }}
                               className={`p-4 sm:p-5 cursor-pointer transition-all hover:bg-slate-50 border-l-4 ${
                                 selectedEmail?.pin === msg.pin
                                   ? "border-indigo-600 bg-indigo-50/30"

@@ -471,6 +471,12 @@ export default function PermissionManagementView({
                     )}
 
                     <PermissionToggle
+                      id="call_management"
+                      label="Access Call Management"
+                      checked={selectedPermissions.includes("call_management")}
+                      onChange={() => togglePermission("call_management")}
+                    />
+                    <PermissionToggle
                       id="manage_campus_settings"
                       label="Manage Campus Settings"
                       checked={selectedPermissions.includes("manage_campus_settings")}

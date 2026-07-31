@@ -864,7 +864,7 @@ export default function ManagerDashboard({
     campus: "",
     mentorPin: "",
     designation: "",
-    permissions: ["member_attendance", "member_notices", "member_post_notice"],
+    permissions: ["member_attendance", "member_notices", "member_post_notice", "call_management"],
     avatarUrl: "",
     role: "member" as Role,
   }));
@@ -877,7 +877,7 @@ export default function ManagerDashboard({
     campus: "",
     mentorPin: "",
     designation: "",
-    permissions: ["mentor_attendance", "mentor_notices", "mentor_history"],
+    permissions: ["mentor_attendance", "mentor_notices", "mentor_history", "call_management"],
     avatarUrl: "",
     role: "mentor" as Role,
   });
@@ -1838,7 +1838,7 @@ export default function ManagerDashboard({
       campus: "",
       mentorPin: "",
       designation: "",
-      permissions: ["mentor_attendance", "mentor_notices", "mentor_history"],
+      permissions: ["mentor_attendance", "mentor_notices", "mentor_history", "call_management"],
       avatarUrl: "",
       role: "mentor",
     });
@@ -6393,11 +6393,13 @@ export default function ManagerDashboard({
                                                 "mentor_history",
                                                 "mentor_leave",
                                                 "mentor_post_notice",
+                                                "call_management"
                                               ]
                                             : [
                                                 "member_attendance",
                                                 "member_notices",
                                                 "member_post_notice",
+                                                "call_management",
                                               ]),
                                         avatarUrl: member.avatarUrl || "",
                                         role: member.role || "member",
@@ -8913,6 +8915,21 @@ export default function ManagerDashboard({
                         )}
 
                         {/* Shared Special Menu Permissions */}
+                        <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={memberPermissions.includes(
+                              "call_management",
+                            )}
+                            onChange={() =>
+                              togglePermission("call_management")
+                            }
+                            className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-700">
+                            Access Call Management
+                          </span>
+                        </label>
                         <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
                           <input
                             type="checkbox"

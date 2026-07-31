@@ -336,7 +336,7 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
                     required
                     value={forgotPin}
                     onChange={(e) => setForgotPin(e.target.value)}
-                    placeholder="Enter your PIN (e.g. member-1)"
+                    placeholder="Enter your PIN"
                     className="block w-full pl-12 pr-4 py-3.5 bg-slate-50/50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-colors placeholder:text-slate-400 text-slate-900 font-medium"
                   />
                 </div>

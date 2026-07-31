@@ -621,20 +621,12 @@ export default function CallManagement({
             ),
             gender: String(getValue(row, ["gender"]) || ""),
             institute: String(getValue(row, ["institute"]) || ""),
-            district: String(getValue(row, ["district"]) || ""),
             fatherName: String(
               getValue(row, ["father name", "fathers name"]) || "",
             ),
             motherName: String(
               getValue(row, ["mother name", "mothers name"]) || "",
             ),
-            academicGroup: String(
-              getValue(row, ["academic group", "group"]) || "",
-            ),
-            admissionTarget: String(
-              getValue(row, ["admission target", "target"]) || "",
-            ),
-            campus: campusName,
             className: selectedClassForUpload,
             liveInstructionStatus: "Pending",
             feedbackStatus: "Pending",
@@ -894,14 +886,10 @@ export default function CallManagement({
             studentName: studentName,
             gender: getValue(["gender", "sex"]),
             institute: getValue(["institute", "school", "college"]),
-            district: getValue(["district"]),
             fatherName: getValue(["fathername", "father"]),
             motherName: getValue(["mothername", "mother"]),
             mobilePersonal: mobilePersonal,
             mobileFather: mobileFather,
-            academicGroup: getValue(["academic", "academicgroup"]),
-            admissionTarget: getValue(["admission", "admissiontarget"]),
-            campus: getValue(["campus"]),
             branch: getValue(["branch"]) || getValue(["campus"]),
             className:
               getValue([
@@ -1619,14 +1607,21 @@ export default function CallManagement({
     const taskBranches = [...new Set(taskSubset.map((t) => t.branch))];
 
     if (taskBranches.length > 1 && currentUser.role !== "mentor") return []; // If range has students from multiple branches, assignment not allowed
-    const campusId = branches.find((b) => b.name === taskBranches[0])?.campusId;
-    if (!campusId) return myCampusMembers;
-    const campusObj = campuses.find((c) => c.id === campusId);
-    if (!campusObj) return myCampusMembers;
+    const isAllowed = taskSubset.every((t) => {
+      const b = branches.find((br) => br.name === t.branch);
+      const cId = b?.campusId;
+      const cName = campuses.find((c) => c.id === cId)?.name;
 
-    // Intersect task campus with user campus
-    if (campusObj.name !== currentUser.campus) {
-      return []; // Coordinator cannot assign tasks from another campus
+      const isMyCampus = cName === currentUser.campus || !cName;
+      const isAssignedToMe =
+        t.assignedToPin === currentUser.pin ||
+        t.liveAssignedToPin === currentUser.pin;
+
+      return isMyCampus || isAssignedToMe;
+    });
+
+    if (!isAllowed) {
+      return []; // Coordinator cannot assign tasks from another campus unless assigned to them
     }
 
     return myCampusMembers;
@@ -4383,6 +4378,57 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Roll No 
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.rollNo || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            rollNo: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Gender
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.gender || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            gender: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Institute
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.institute || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            institute: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
                         Personal Mobile
                       </label>
                       <input
@@ -4601,6 +4647,7 @@ export default function CallManagement({
                             : undefined,
                       });
                       setTaskModalOpen(false);
+                      toast.success("Call assigned successfully");
                     }}
                     className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md shadow-indigo-100"
                   >
@@ -5091,6 +5138,7 @@ export default function CallManagement({
                       updates.liveAssignedToName = mName;
                     }
                     handleUpdateTask(assignTarget.id, updates);
+                    toast.success("Assigned successfully");
                     setIsAssignModalOpen(false);
                     setAssignTarget(null);
                     setAssignTargetMember("");

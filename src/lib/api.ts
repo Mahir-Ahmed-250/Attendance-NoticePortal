@@ -8,10 +8,23 @@ async function request(path: string, options: RequestInit = {}) {
       ...options.headers,
     },
   });
+
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || 'Request failed');
+    if (isJson) {
+      const error = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(error.error || `Request failed (${res.status})`);
+    } else {
+      throw new Error(`Server returned error status (${res.status})`);
+    }
   }
+
+  if (!isJson) {
+    throw new Error('Expected JSON response from server');
+  }
+
   return res.json();
 }
 

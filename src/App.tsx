@@ -742,14 +742,10 @@ export default function App() {
 
   const handleMarkEmailAsRead = async (emailPin: string) => {
     try {
-      const email = emails.find(e => e.pin === emailPin);
-      if (email && !email.isRead) {
-        const updated = { ...email, isRead: true };
-        await api.emails.update(emailPin, updated);
-        setEmails(prev => prev.map(e => e.pin === emailPin ? updated : e));
-      }
+      await api.emails.delete(emailPin);
+      setEmails(prev => prev.filter(e => e.pin !== emailPin));
     } catch (err) {
-      console.error("Failed to mark email as read", err);
+      console.error("Failed to delete read email notification from database:", err);
     }
   };
 
@@ -766,18 +762,13 @@ export default function App() {
         );
       };
 
-      const userEmails = emails.filter((e) => isUserEmail(e) && !e.isRead);
+      const userEmails = emails.filter((e) => isUserEmail(e));
       for (const email of userEmails) {
-        const updated = { ...email, isRead: true };
-        await api.emails.update(email.pin, updated);
+        await api.emails.delete(email.pin);
       }
-      setEmails((prev) =>
-        prev.map((e) =>
-          isUserEmail(e) && !e.isRead ? { ...e, isRead: true } : e
-        )
-      );
+      setEmails((prev) => prev.filter((e) => !isUserEmail(e)));
     } catch (err) {
-      console.error("Failed to mark all emails as read", err);
+      console.error("Failed to delete all read emails from database:", err);
     }
   };
 

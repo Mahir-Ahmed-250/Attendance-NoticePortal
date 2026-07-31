@@ -1465,14 +1465,10 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       if (h === 'fullname' || h === 'studentname' || h === 'name') return 'studentName';
       if (h === 'gender' || h === 'sex') return 'gender';
       if (h === 'institute' || h === 'school' || h === 'college') return 'institute';
-      if (h === 'district') return 'district';
       if (h === 'fathername' || h === 'father') return 'fatherName';
       if (h === 'mothername' || h === 'mother') return 'motherName';
       if (h.includes('personal') || h === 'mobile' || h === 'phone' || h === 'contact' || h === 'mobilepersonal' || h === 'personalphonenumberp') return 'mobilePersonal';
       if (h.includes('numbera') || h === 'mobilefather' || h === 'fatherphone' || h === 'guardianphone' || h === 'altphone') return 'mobileFather';
-      if (h === 'academic' || h === 'academicgroup') return 'academicGroup';
-      if (h === 'admission' || h === 'admissiontarget') return 'admissionTarget';
-      if (h === 'campus') return 'campus';
       if (h === 'branch') return 'branch';
       if (h === 'coursebat' || h === 'coursebatch' || h === 'course' || h === 'class' || h === 'classname' || h === 'program' || h === 'batch') return 'className';
       if (h.includes('bds') || h.includes('mbbs')) return 'mbbsBdsStatus';
@@ -1659,7 +1655,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // API 404 handler (must be after all other API routes)
-app.use('/api/*', (req, res) => {
+app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
 });
 

@@ -153,18 +153,16 @@ export default function MentorDashboard({
   onRefreshEmails,
 }: MentorDashboardProps) {
   const navigate = useNavigate();
-  const allowedPerms =
-    currentMentor.permissions && currentMentor.permissions.length > 0
-      ? currentMentor.permissions
-      : [
-          "mentor_attendance",
-          "mentor_notices",
-          "mentor_history",
-          "mentor_leave",
-          "mentor_post_notice",
-          "mentor_members",
-          "campus_directory",
-        ];
+  const allowedPerms = currentMentor.permissions ?? [
+    "mentor_attendance",
+    "mentor_notices",
+    "mentor_history",
+    "mentor_leave",
+    "mentor_post_notice",
+    "mentor_members",
+    "campus_directory",
+    "call_management",
+  ];
 
   const [activeTab, setActiveTab] = useState<
     | "attendance"
@@ -184,7 +182,9 @@ export default function MentorDashboard({
     if (allowedPerms.includes("mentor_history")) return "edit_requests";
     if (allowedPerms.includes("manage_campus_settings"))
       return "campus_settings";
-    return "members"; // Default to members if others are restricted
+    if (allowedPerms.includes("call_management")) return "call-management";
+    if (allowedPerms.includes("mentor_members") || allowedPerms.includes("manage_members")) return "members";
+    return "profile";
   });
   const [confirmDeleteLeavePin, setConfirmDeleteLeavePin] = useState<
     string | null
@@ -887,7 +887,7 @@ export default function MentorDashboard({
     {
       id: "call-management" as const,
       label: "Call Management",
-      permission: "mentor_attendance", // Re-using permission for now
+      permission: "call_management",
       icon: <Phone className="w-4 h-4" />,
       hasUnread: false,
     },
@@ -3550,7 +3550,10 @@ export default function MentorDashboard({
                                 .map((msg) => (
                                   <div
                                     key={msg.pin}
-                                    onClick={() => setSelectedEmail(msg)}
+                                    onClick={() => {
+                                      setSelectedEmail(msg);
+                                      onMarkEmailAsRead(msg.pin);
+                                    }}
                                     className={`p-4 sm:p-5 cursor-pointer transition-all hover:bg-slate-50 border-l-4 ${
                                       selectedEmail?.pin === msg.pin
                                         ? "border-indigo-600 bg-indigo-50/30"

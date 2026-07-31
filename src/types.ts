@@ -229,10 +229,6 @@ export interface CallTask {
   nickName?: string;
   gender?: string;
   institute?: string;
-  district?: string;
   fatherName?: string;
   motherName?: string;
-  academicGroup?: string;
-  admissionTarget?: string;
-  campus?: string;
 }
