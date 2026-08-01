@@ -304,88 +304,123 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
       }
     }
 
-    // Force IPv4 lookup function to prevent IPv6 ENETUNREACH errors on cloud hostings like Render
-    const forceIpv4Lookup = (hostname: string, options: any, callback: any) => {
-      const cb = typeof options === 'function' ? options : callback;
-      if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-        return cb(null, hostname, 4);
-      }
-      dns.resolve4(hostname, (err, addresses) => {
-        if (!err && addresses && addresses.length > 0) {
-          return cb(null, addresses[0], 4);
-        }
-        dns.lookup(hostname, { family: 4 }, (lErr, address) => {
-          if (lErr) return cb(lErr);
-          cb(null, address, 4);
+    // If Resend API key is provided, use Resend HTTP API (100% reliable on Render via HTTPS port 443)
+    if (process.env.RESEND_API_KEY) {
+      try {
+        console.log(`[EMAIL] RESEND_API_KEY found. Sending email via Resend API...`);
+        const resendRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.RESEND_API_KEY.trim()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from: process.env.SMTP_FROM || 'Exam Scripts Management <onboarding@resend.dev>',
+            to: [toEmail],
+            subject: mailOptions.subject,
+            html: mailOptions.html
+          })
         });
-      });
-    };
+        if (resendRes.ok) {
+          console.log(`[EMAIL] OTP Email sent successfully via Resend HTTP API!`);
+          return { success: true };
+        } else {
+          const resendErr = await resendRes.json();
+          console.error(`[EMAIL] Resend API failed:`, resendErr);
+        }
+      } catch (rErr: any) {
+        console.error(`[EMAIL] Resend API request exception:`, rErr.message);
+      }
+    }
+
+    // Resolve IPv4 IP addresses for target domain to prevent IPv6 ENETUNREACH errors on Render
+    const targetHost = customHost || 'smtp.gmail.com';
+    let ipv4Addresses: string[] = [];
+    try {
+      ipv4Addresses = await dns.promises.resolve4(targetHost);
+      console.log(`[EMAIL] Resolved ${targetHost} to IPv4 addresses:`, ipv4Addresses);
+    } catch (dnsErr: any) {
+      console.warn(`[EMAIL] Could not resolve IPv4 for ${targetHost}:`, dnsErr.message);
+    }
 
     // List of configurations to try sequentially with strict low timeouts to avoid HTTP 502 on Render
     const configs: Array<{ name: string; transportOptions: any }> = [];
 
     if (customHost && customHost !== 'smtp.gmail.com') {
       const port = customPort ? parseInt(customPort) : 587;
+      if (ipv4Addresses.length > 0) {
+        for (const ip of ipv4Addresses) {
+          configs.push({
+            name: `Custom Host IPv4 (${ip}:${port})`,
+            transportOptions: {
+              host: ip,
+              port,
+              secure: process.env.SMTP_SECURE === 'true' || port === 465,
+              auth: { user: cleanUser, pass: cleanPass },
+              tls: { servername: customHost, rejectUnauthorized: false },
+              connectionTimeout: 5000,
+              greetingTimeout: 5000,
+              socketTimeout: 7000,
+            }
+          });
+        }
+      }
       configs.push({
-        name: `Custom Host (${customHost}:${port})`,
+        name: `Custom Host Name (${customHost}:${port})`,
         transportOptions: {
           host: customHost,
           port,
           secure: process.env.SMTP_SECURE === 'true' || port === 465,
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: forceIpv4Lookup,
           connectionTimeout: 5000,
           greetingTimeout: 5000,
           socketTimeout: 7000,
         }
       });
     } else {
-      // Gmail strategies for Render cloud environments with enforced IPv4 lookup:
-      // 1. Port 465 (SSL)
+      // Gmail SMTP on Render
+      // Use literal IPv4 IP addresses first to prevent IPv6 ENETUNREACH (2404:6800:...)
+      if (ipv4Addresses.length > 0) {
+        for (const ip of ipv4Addresses.slice(0, 2)) {
+          configs.push({
+            name: `Gmail IPv4 (${ip}:465 SSL)`,
+            transportOptions: {
+              host: ip,
+              port: 465,
+              secure: true,
+              auth: { user: cleanUser, pass: cleanPass },
+              tls: { servername: 'smtp.gmail.com', rejectUnauthorized: false },
+              connectionTimeout: 5000,
+              greetingTimeout: 5000,
+              socketTimeout: 7000,
+            }
+          });
+          configs.push({
+            name: `Gmail IPv4 (${ip}:587 TLS)`,
+            transportOptions: {
+              host: ip,
+              port: 587,
+              secure: false,
+              auth: { user: cleanUser, pass: cleanPass },
+              tls: { servername: 'smtp.gmail.com', rejectUnauthorized: false },
+              connectionTimeout: 5000,
+              greetingTimeout: 5000,
+              socketTimeout: 7000,
+            }
+          });
+        }
+      }
+
+      // Fallback domain name transport
       configs.push({
-        name: 'Gmail SMTP (smtp.gmail.com:465 SSL IPv4)',
+        name: 'Gmail Domain (smtp.gmail.com:465 SSL)',
         transportOptions: {
           host: 'smtp.gmail.com',
           port: 465,
           secure: true,
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: forceIpv4Lookup,
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 7000,
-        }
-      });
-
-      // 2. Port 587 (TLS)
-      configs.push({
-        name: 'Gmail SMTP (smtp.gmail.com:587 TLS IPv4)',
-        transportOptions: {
-          host: 'smtp.gmail.com',
-          port: 587,
-          secure: false,
-          auth: { user: cleanUser, pass: cleanPass },
-          tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: forceIpv4Lookup,
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 7000,
-        }
-      });
-
-      // 3. Service 'gmail' transport with forced IPv4 lookup
-      configs.push({
-        name: 'Gmail Service Transport (IPv4)',
-        transportOptions: {
-          service: 'gmail',
-          auth: { user: cleanUser, pass: cleanPass },
-          tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: forceIpv4Lookup,
           connectionTimeout: 5000,
           greetingTimeout: 5000,
           socketTimeout: 7000,
