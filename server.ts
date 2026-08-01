@@ -1018,7 +1018,7 @@ app.post("/api/campuses", async (req, res) => {
   // Call Tasks
   app.get("/api/call-tasks", async (req, res) => {
     try {
-      const { assignedToPin, liveAssignedToPin, liveInstructionStatus, feedbackStatus, className, campus, branch } = req.query;
+      const { assignedToPin, liveAssignedToPin, liveInstructionStatus, feedbackStatus, className, campus, branch, userPin } = req.query;
       const andConditions: any[] = [];
 
       if (assignedToPin && !liveAssignedToPin) {
@@ -1059,13 +1059,47 @@ app.post("/api/campuses", async (req, res) => {
         
         const campusBranches = await Branch.find({ campusId: { $in: campusIds } });
         const branchNames = campusBranches.map(b => b.name);
+
+        const campusUsers = await User.find({ campus: { $regex: new RegExp(campusStr, "i") } }, { pin: 1 });
+        const campusUserPins = campusUsers.map(u => String(u.pin));
         
-        andConditions.push({
-          $or: [
-            { campus: { $regex: new RegExp(campusStr, "i") } },
-            { campus: { $in: campusNames } },
-            { branch: { $in: branchNames.map(name => new RegExp(`^${name.trim()}$`, "i")) } }
+        // Automatic campus/branch match applies ONLY to non-online classes
+        const autoCampusBranch = {
+          $and: [
+            { className: { $not: { $regex: /online|অনলাইন/i } } },
+            {
+              $or: [
+                { campus: { $regex: new RegExp(campusStr, "i") } },
+                { campus: { $in: campusNames } },
+                { branch: { $in: branchNames.map(name => new RegExp(`^${name.trim()}$`, "i")) } }
+              ]
+            }
           ]
+        };
+
+        const campusConditions: any[] = [autoCampusBranch];
+
+        if (campusUserPins.length > 0) {
+          campusConditions.push(
+            { assignedToPin: { $in: campusUserPins } },
+            { liveAssignedToPin: { $in: campusUserPins } },
+            { liveInstructorPin: { $in: campusUserPins } },
+            { createdByPin: { $in: campusUserPins } }
+          );
+        }
+
+        const targetPin = userPin || assignedToPin;
+        if (targetPin) {
+          campusConditions.push(
+            { assignedToPin: String(targetPin) },
+            { liveAssignedToPin: String(targetPin) },
+            { liveInstructorPin: String(targetPin) },
+            { createdByPin: String(targetPin) }
+          );
+        }
+
+        andConditions.push({
+          $or: campusConditions
         });
       }
       

@@ -507,7 +507,7 @@ export default function MemberDashboard({
             <LayoutDashboard className="w-4 h-4 text-indigo-600" />
             Member's Dashboard
           </h2>
-          <p className="text-[10px] text-slate-500 font-medium mt-0.5">Control Center</p>
+          <p className="text-[10px] text-slate-500 font-medium mt-0.5"></p>
           <div className="flex gap-2">
             {/* Desktop Toggle Button */}
             <div className="hidden lg:block">

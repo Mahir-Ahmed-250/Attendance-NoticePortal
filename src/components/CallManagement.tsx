@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import { optimizeImage, optimizeBase64 } from "../utils/imageUtils";
@@ -144,7 +144,7 @@ export default function CallManagement({
   >("feedback");
   const [rangeAssignType, setRangeAssignType] = useState<
     "feedback" | "live" | "both"
-  >("feedback");
+  >("both");
 
   // Script / Khata Image & Link
   const [liveInstructionImages, setLiveInstructionImages] = useState<string[]>([]);
@@ -255,6 +255,47 @@ export default function CallManagement({
   const mentorPins = useMemo(
     () => new Set(mentors.map((m) => m.pin)),
     [mentors],
+  );
+
+  const getTaskAssignPermissions = useCallback(
+    (
+      task: CallTask,
+      user: { pin: string; role?: string; permissions?: string[] },
+      userCanUpload: boolean,
+    ) => {
+      if (userCanUpload) {
+        return { canAssignFeedback: true, canAssignLive: true };
+      }
+
+      const isFeedbackAssignedToSelf = task.assignedToPin === user.pin;
+      const isLiveAssignedToSelf =
+        task.liveAssignedToPin === user.pin ||
+        task.liveInstructorPin === user.pin;
+
+      const isAssignedToSelfAny =
+        isFeedbackAssignedToSelf || isLiveAssignedToSelf;
+
+      if (isAssignedToSelfAny) {
+        return {
+          canAssignFeedback: isFeedbackAssignedToSelf,
+          canAssignLive: isLiveAssignedToSelf,
+        };
+      }
+
+      const isFeedbackAssignedToOther = Boolean(
+        task.assignedToPin && task.assignedToPin !== user.pin,
+      );
+      const isLiveAssignedToOther = Boolean(
+        (task.liveAssignedToPin && task.liveAssignedToPin !== user.pin) ||
+          (task.liveInstructorPin && task.liveInstructorPin !== user.pin),
+      );
+
+      return {
+        canAssignFeedback: !isFeedbackAssignedToOther,
+        canAssignLive: !isLiveAssignedToOther,
+      };
+    },
+    [],
   );
 
   // Drag to scroll logic
@@ -399,11 +440,13 @@ export default function CallManagement({
       } else if (activeSubTab === "live-instruction") {
         if (!canUpload && currentUser.campus && currentUser.campus !== "All") {
           params.append("campus", currentUser.campus);
+          params.append("userPin", currentUser.pin);
         }
       } else if (!showManagementTabs) {
         params.append("assignedToPin", currentUser.pin);
       } else if (!canUpload && currentUser.campus && currentUser.campus !== "All") {
         params.append("campus", currentUser.campus);
+        params.append("userPin", currentUser.pin);
       }
 
       const res = await fetch(`/api/call-tasks?${params.toString()}`);
@@ -1152,15 +1195,45 @@ export default function CallManagement({
     taskId: string,
     updates: Partial<CallTask>,
   ) => {
+    const existingTask = tasks.find((t) => t.id === taskId);
+    const finalUpdates = { ...updates };
+
+    if (finalUpdates.feedbackStatus === "Completed") {
+      if (
+        !finalUpdates.assignedToPin &&
+        (!existingTask || !existingTask.assignedToPin)
+      ) {
+        finalUpdates.assignedToPin = currentUser.pin;
+        finalUpdates.assignedToName = currentUser.name;
+      }
+    }
+
+    if (finalUpdates.liveInstructionStatus === "Completed") {
+      if (
+        !finalUpdates.liveInstructorPin &&
+        (!existingTask || !existingTask.liveInstructorPin)
+      ) {
+        finalUpdates.liveInstructorPin = currentUser.pin;
+        finalUpdates.liveInstructorName = currentUser.name;
+      }
+      if (
+        !finalUpdates.liveAssignedToPin &&
+        (!existingTask || !existingTask.liveAssignedToPin)
+      ) {
+        finalUpdates.liveAssignedToPin = currentUser.pin;
+        finalUpdates.liveAssignedToName = currentUser.name;
+      }
+    }
+
     try {
       const res = await fetch(`/api/call-tasks/${taskId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(finalUpdates),
       });
       if (res.ok) {
         setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
+          prev.map((t) => (t.id === taskId ? { ...t, ...finalUpdates } : t)),
         );
         if (onRefreshEmails) onRefreshEmails();
       }
@@ -1390,15 +1463,98 @@ export default function CallManagement({
     return "";
   };
 
+  const isOnlineTask = useCallback((task: CallTask | Partial<CallTask>) => {
+    const cn = (task.className || "").toLowerCase();
+    const br = (task.branch || "").toLowerCase();
+    const ca = (task.campus || "").toLowerCase();
+    return (
+      cn.includes("online") ||
+      cn.includes("অনলাইন") ||
+      br === "online" ||
+      br === "অনলাইন" ||
+      ca === "online" ||
+      ca === "অনলাইন"
+    );
+  }, []);
+
+  const isAssignedToOtherMember = useCallback((task: CallTask, userPin: string) => {
+    return Boolean(
+      (task.assignedToPin && task.assignedToPin !== userPin) ||
+        (task.liveAssignedToPin && task.liveAssignedToPin !== userPin) ||
+        (task.liveInstructorPin && task.liveInstructorPin !== userPin),
+    );
+  }, []);
+
+  const isAssignedSolelyToSelf = useCallback(
+    (task: CallTask, userPin: string) => {
+      const isAssignedToSelf = Boolean(
+        task.assignedToPin === userPin ||
+          task.liveAssignedToPin === userPin ||
+          task.liveInstructorPin === userPin,
+      );
+      return isAssignedToSelf && !isAssignedToOtherMember(task, userPin);
+    },
+    [isAssignedToOtherMember],
+  );
+
   const filteredTasks = tasks
     .filter((task) => {
+      const isAssignedToSelf = Boolean(
+        task.assignedToPin === currentUser.pin ||
+          task.liveAssignedToPin === currentUser.pin ||
+          task.liveInstructorPin === currentUser.pin,
+      );
+
+      const isAssignedToOther = isAssignedToOtherMember(task, currentUser.pin);
+
+      // SubTab Specific Rule 1: My Assigned Calls tab
+      if (activeSubTab === "my-tasks") {
+        if (!isAssignedToSelf) return false;
+      }
+
+      // SubTab Specific Rule 2: Call Management tab
+      if (activeSubTab === "management") {
+        const isUserCoordinator =
+          currentUser.role === "mentor" || (isCoordinator && !canUpload);
+        if (isUserCoordinator) {
+          // Hide calls assigned solely to coordinator self until assigned to a team member
+          if (isAssignedSolelyToSelf(task, currentUser.pin)) {
+            return false;
+          }
+        }
+      }
+
       const matchesSearch =
         task.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.registrationNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.mobilePersonal.includes(searchQuery);
 
-      const matchesCampus =
-        campusFilter === "all" || getTaskCampus(task) === campusFilter;
+      const isOnline = isOnlineTask(task);
+
+      // Campus matching
+      let matchesCampus = false;
+      if (isAssignedToSelf || isAssignedToOther) {
+        matchesCampus = true;
+      } else if (!isOnline) {
+        matchesCampus =
+          campusFilter === "all" || getTaskCampus(task) === campusFilter;
+      } else if (canUpload) {
+        matchesCampus =
+          campusFilter === "all" || getTaskCampus(task) === campusFilter;
+      }
+
+      // Branch matching
+      let matchesBranch = false;
+      if (isAssignedToSelf || isAssignedToOther) {
+        matchesBranch = true;
+      } else if (!isOnline) {
+        matchesBranch =
+          selectedBranches.length === 0 || selectedBranches.includes(task.branch);
+      } else if (canUpload) {
+        matchesBranch =
+          selectedBranches.length === 0 || selectedBranches.includes(task.branch);
+      }
+
       const matchesLiveStatus =
         liveStatusFilter === "all" ||
         task.liveInstructionStatus === liveStatusFilter;
@@ -1445,28 +1601,7 @@ export default function CallManagement({
         }
       }
 
-      const matchesBranch =
-        selectedBranches.length === 0 || selectedBranches.includes(task.branch);
-
       if (!matchesImageFilter) return false;
-
-      // Visibility Logic for Coordinators: In Management tab, hide tasks assigned to Mentors/Coordinators or Self
-      if (
-        activeSubTab === "management" &&
-        (currentUser.role === "mentor" || (isCoordinator && !canUpload))
-      ) {
-        const isAssignedToMentorOrSelf =
-          (task.assignedToPin &&
-            (mentorPins.has(task.assignedToPin) ||
-              task.assignedToPin === currentUser.pin)) ||
-          (task.liveAssignedToPin &&
-            (mentorPins.has(task.liveAssignedToPin) ||
-              task.liveAssignedToPin === currentUser.pin)) ||
-          (task.liveInstructorPin &&
-            (mentorPins.has(task.liveInstructorPin) ||
-              task.liveInstructorPin === currentUser.pin));
-        if (isAssignedToMentorOrSelf) return false;
-      }
 
       return (
         matchesSearch &&
@@ -1593,11 +1728,11 @@ export default function CallManagement({
     const start = parseInt(rangeStart);
     const end = parseInt(rangeEnd);
     if (isNaN(start) || isNaN(end)) return [];
-    return tasks.filter((t) => {
+    return filteredTasks.filter((t) => {
       const sl = parseInt(t.sl);
       return !isNaN(sl) && sl >= start && sl <= end;
     });
-  }, [rangeStart, rangeEnd, tasks]);
+  }, [rangeStart, rangeEnd, filteredTasks]);
 
   const getValidMembers = (taskSubset: CallTask[]) => {
     const allAssignable = [...members, ...mentors];
@@ -1730,17 +1865,12 @@ export default function CallManagement({
     try {
       const payload: any = {
         taskIds: taskIdsToProcess,
-        assignType: rangeAssignType,
+        assignType: "both",
+        assignedToPin: member.pin,
+        assignedToName: member.name,
+        liveAssignedToPin: member.pin,
+        liveAssignedToName: member.name,
       };
-
-      if (rangeAssignType === "feedback" || rangeAssignType === "both") {
-        payload.assignedToPin = member.pin;
-        payload.assignedToName = member.name;
-      }
-      if (rangeAssignType === "live" || rangeAssignType === "both") {
-        payload.liveAssignedToPin = member.pin;
-        payload.liveAssignedToName = member.name;
-      }
 
       const res = await fetch("/api/call-tasks/assign", {
         method: "PUT",
@@ -1755,14 +1885,8 @@ export default function CallManagement({
         setRangeStart("");
         setRangeEnd("");
         setRangeTargetMember("");
-        const typeText =
-          rangeAssignType === "live"
-            ? "Live Instruction"
-            : rangeAssignType === "both"
-              ? "Both"
-              : "Feedback";
         toast.success(
-          `Successfully assigned ${taskIdsToProcess.length} tasks (${typeText}) to ${member.name}`,
+          `Successfully assigned ${taskIdsToProcess.length} tasks (Both) to ${member.name}`,
         );
       }
     } catch (err) {
@@ -1827,23 +1951,35 @@ export default function CallManagement({
     let baseTasks = tasks;
     if (currentUser.role === "mentor" || (isCoordinator && !canUpload)) {
       baseTasks = tasks.filter((task) => {
-        const isAssignedToMentorOrSelf =
-          (task.assignedToPin &&
-            (mentorPins.has(task.assignedToPin) ||
-              task.assignedToPin === currentUser.pin)) ||
-          (task.liveAssignedToPin &&
-            (mentorPins.has(task.liveAssignedToPin) ||
-              task.liveAssignedToPin === currentUser.pin)) ||
-          (task.liveInstructorPin &&
-            (mentorPins.has(task.liveInstructorPin) ||
-              task.liveInstructorPin === currentUser.pin));
-        return !isAssignedToMentorOrSelf;
+        // Exclude tasks assigned solely to coordinator self (waiting to be assigned to team members)
+        if (isAssignedSolelyToSelf(task, currentUser.pin)) {
+          return false;
+        }
+
+        // Exclude unassigned online class tasks
+        if (isOnlineTask(task)) {
+          const isAssigned = Boolean(
+            task.assignedToPin || task.liveAssignedToPin || task.liveInstructorPin,
+          );
+          if (!isAssigned) return false;
+        }
+
+        return true;
       });
     }
     return dashboardClassFilter === "all"
       ? baseTasks
       : baseTasks.filter((t) => t.className === dashboardClassFilter);
-  }, [tasks, isCoordinator, canUpload, mentorPins, dashboardClassFilter, currentUser.role, currentUser.pin]);
+  }, [
+    tasks,
+    isCoordinator,
+    canUpload,
+    dashboardClassFilter,
+    currentUser.role,
+    currentUser.pin,
+    isAssignedSolelyToSelf,
+    isOnlineTask,
+  ]);
 
   const totalTasks = filteredDashboardTasks.length;
   const liveCompleted = filteredDashboardTasks.filter(
@@ -3505,14 +3641,12 @@ export default function CallManagement({
                         <td className="p-4 text-center">
                           <div
                             className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase ${
-                              task.assignedToPin &&
-                              !mentorPins.has(task.assignedToPin)
+                              task.assignedToPin
                                 ? "bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20"
                                 : "bg-rose-50 text-rose-600 ring-1 ring-rose-500/20"
                             }`}
                           >
-                            {task.assignedToPin &&
-                            !mentorPins.has(task.assignedToPin)
+                            {task.assignedToPin
                               ? "Assigned"
                               : "Unassigned"}
                           </div>
@@ -3521,20 +3655,18 @@ export default function CallManagement({
                           <div className="font-medium text-slate-700 text-[10px]">
                             {task.assignedToName || "-"}
                           </div>
-                          {task.assignedToPin &&
-                            !mentorPins.has(task.assignedToPin) && (
-                              <div className="text-[9px] text-slate-400 font-mono">
-                                Pin: {task.assignedToPin}
-                              </div>
-                            )}
+                          {task.assignedToPin && (
+                            <div className="text-[9px] text-slate-400 font-mono">
+                              Pin: {task.assignedToPin}
+                            </div>
+                          )}
                         </td>
                         <td className="p-4">
                           <div className="font-medium text-indigo-600 text-[10px]">
                             {task.liveAssignedToPin &&
                             mentorPins.has(task.liveAssignedToPin)
                               ? task.liveAssignedToName
-                              : task.assignedToPin &&
-                                  mentorPins.has(task.assignedToPin)
+                              : task.assignedToPin
                                 ? task.assignedToName
                                 : "-"}
                           </div>
@@ -3543,23 +3675,16 @@ export default function CallManagement({
                           <div className="flex justify-end gap-1">
                             {showManagementTabs &&
                               (() => {
-                                const isFeedbackAssignedToMember =
-                                  task.assignedToPin &&
-                                  !mentorPins.has(task.assignedToPin) &&
-                                  task.assignedToPin !== currentUser.pin;
+                                const { canAssignFeedback, canAssignLive } =
+                                  getTaskAssignPermissions(
+                                    task,
+                                    currentUser,
+                                    canUpload,
+                                  );
 
-                                const isLiveAssignedToMember =
-                                  task.liveAssignedToPin &&
-                                  !mentorPins.has(task.liveAssignedToPin) &&
-                                  task.liveAssignedToPin !== currentUser.pin;
-
-                                // If both Feedback Call & Live Instruction are assigned to team members, hide Assign button
-                                if (isFeedbackAssignedToMember && isLiveAssignedToMember) {
+                                if (!canAssignFeedback && !canAssignLive) {
                                   return null;
                                 }
-
-                                const canAssignFeedback = !isFeedbackAssignedToMember;
-                                const canAssignLive = !isLiveAssignedToMember;
 
                                 return (
                                   <button
@@ -3855,11 +3980,13 @@ export default function CallManagement({
                   canUpload ||
                   currentUser.role !== "member" ||
                   editingTask?.liveAssignedToPin === currentUser.pin ||
-                  editingTask?.liveInstructorPin === currentUser.pin;
+                  editingTask?.liveInstructorPin === currentUser.pin ||
+                  (!editingTask?.liveAssignedToPin && !editingTask?.liveInstructorPin);
                 const isAssignedFeedback =
                   canUpload ||
                   currentUser.role !== "member" ||
-                  editingTask?.assignedToPin === currentUser.pin;
+                  editingTask?.assignedToPin === currentUser.pin ||
+                  !editingTask?.assignedToPin;
 
                 const visibleTabs = [];
                 if (isAssignedLive) visibleTabs.push("live");
@@ -4013,7 +4140,13 @@ export default function CallManagement({
                       />
                     </div>
 
-                    {canUpload && (
+                    {(canUpload ||
+                      (editingTask &&
+                        getTaskAssignPermissions(
+                          editingTask,
+                          currentUser,
+                          canUpload,
+                        ).canAssignLive)) && (
                       <div className="sm:col-span-2 ">
                         <label className="block text-[10px] font-black text-emerald-900 uppercase tracking-wider mb-1 ">
                           Live Instruction Assigned Member
@@ -4382,7 +4515,13 @@ export default function CallManagement({
                       />
                     </div>
 
-                    {canUpload && (
+                    {(canUpload ||
+                      (editingTask &&
+                        getTaskAssignPermissions(
+                          editingTask,
+                          currentUser,
+                          canUpload,
+                        ).canAssignFeedback)) && (
                       <div className="sm:col-span-2">
                         <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
                           Feedback Assigned Member
@@ -4694,6 +4833,27 @@ export default function CallManagement({
                       const newLiveStatus = modalFormData.liveInstructionStatus;
                       const newFeedbackStatus = modalFormData.feedbackStatus;
 
+                      if (modalTab === "live") {
+                        if (newLiveStatus === "Pending" || newLiveStatus !== "Completed") {
+                          toast.error(
+                            "Cannot save while Live Instruction Status is Pending. Please change status to 'Completed'.",
+                          );
+                          return;
+                        }
+                      }
+
+                      if (modalTab === "feedback") {
+                        if (
+                          newFeedbackStatus === "Pending" ||
+                          newFeedbackStatus !== "Completed"
+                        ) {
+                          toast.error(
+                            "Cannot save while Feedback Status is Pending. Please change status to 'Completed'.",
+                          );
+                          return;
+                        }
+                      }
+
                       let updatedData = { ...modalFormData };
                       if (!canUpload && currentUser.role === "member") {
                         if (
@@ -4742,6 +4902,10 @@ export default function CallManagement({
                           );
                           return;
                         }
+                        if (!updatedData.assignedToPin) {
+                          updatedData.assignedToPin = currentUser.pin;
+                          updatedData.assignedToName = currentUser.name;
+                        }
                       }
 
                       const liveSubmitDate =
@@ -4766,7 +4930,7 @@ export default function CallManagement({
                             : undefined,
                       });
                       setTaskModalOpen(false);
-                      toast.success("Call assigned successfully");
+                      toast.success("Call updated successfully");
                     }}
                     className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md shadow-indigo-100"
                   >
@@ -4856,17 +5020,9 @@ export default function CallManagement({
                       <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
                         Assignment Type
                       </label>
-                      <select
-                        value={rangeAssignType}
-                        onChange={(e) =>
-                          setRangeAssignType(e.target.value as any)
-                        }
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                      >
-                        <option value="feedback">Feedback Assign</option>
-                        <option value="live">Live Instruction Assign</option>
-                        <option value="both">Both</option>
-                      </select>
+                      <div className="w-full px-4 py-2.5 bg-indigo-50/60 border border-indigo-100 rounded-xl text-xs font-bold text-indigo-700 flex items-center gap-2">
+                        <span>Both (Feedback & Live Instruction)</span>
+                      </div>
                     </div>
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
@@ -5050,27 +5206,35 @@ export default function CallManagement({
                     Assignment Type
                   </label>
                   {(() => {
-                    const canAssignFeedback =
-                      !assignTarget?.assignedToPin ||
-                      mentorPins.has(assignTarget.assignedToPin) ||
-                      assignTarget.assignedToPin === currentUser.pin;
-
-                    const canAssignLive =
-                      !assignTarget?.liveAssignedToPin ||
-                      mentorPins.has(assignTarget.liveAssignedToPin) ||
-                      assignTarget.liveAssignedToPin === currentUser.pin;
+                    const { canAssignFeedback, canAssignLive } = assignTarget
+                      ? getTaskAssignPermissions(
+                          assignTarget,
+                          currentUser,
+                          canUpload,
+                        )
+                      : { canAssignFeedback: true, canAssignLive: true };
 
                     return (
                       <select
-                        value={assignChoice}
-                        onChange={(e) => setAssignChoice(e.target.value as any)}
+                        value={
+                          !canAssignFeedback && assignChoice === "feedback"
+                            ? "live"
+                            : !canAssignLive && assignChoice === "live"
+                              ? "feedback"
+                              : assignChoice
+                        }
+                        onChange={(e) =>
+                          setAssignChoice(e.target.value as any)
+                        }
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                       >
                         {canAssignFeedback && (
                           <option value="feedback">Feedback Assign Only</option>
                         )}
                         {canAssignLive && (
-                          <option value="live">Live Instruction Assign Only</option>
+                          <option value="live">
+                            Live Instruction Assign Only
+                          </option>
                         )}
                         {canAssignFeedback && canAssignLive && (
                           <option value="both">
@@ -5245,14 +5409,43 @@ export default function CallManagement({
                     );
                     const mName = selectedMember?.name || "";
 
+                    const { canAssignFeedback, canAssignLive } = assignTarget
+                      ? getTaskAssignPermissions(
+                          assignTarget,
+                          currentUser,
+                          canUpload,
+                        )
+                      : { canAssignFeedback: true, canAssignLive: true };
+
+                    let effectiveChoice = assignChoice;
                     if (
-                      assignChoice === "feedback" ||
-                      assignChoice === "both"
+                      !canAssignFeedback &&
+                      (effectiveChoice === "feedback" ||
+                        effectiveChoice === "both")
+                    ) {
+                      effectiveChoice = "live";
+                    }
+                    if (
+                      !canAssignLive &&
+                      (effectiveChoice === "live" ||
+                        effectiveChoice === "both")
+                    ) {
+                      effectiveChoice = "feedback";
+                    }
+
+                    if (
+                      (effectiveChoice === "feedback" ||
+                        effectiveChoice === "both") &&
+                      canAssignFeedback
                     ) {
                       updates.assignedToPin = assignTargetMember;
                       updates.assignedToName = mName;
                     }
-                    if (assignChoice === "live" || assignChoice === "both") {
+                    if (
+                      (effectiveChoice === "live" ||
+                        effectiveChoice === "both") &&
+                      canAssignLive
+                    ) {
                       updates.liveAssignedToPin = assignTargetMember;
                       updates.liveAssignedToName = mName;
                     }

@@ -203,6 +203,7 @@ export interface CallTask {
   mobileFather: string;
   mobileMother: string;
   branch: string;
+  campus?: string;
   className: string;
   assignedToPin?: string;
   assignedToName?: string;
