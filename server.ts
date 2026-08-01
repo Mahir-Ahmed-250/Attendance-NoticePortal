@@ -256,32 +256,32 @@ app.get("/api/logo", async (req, res) => {
 async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
   try {
     let transporter;
-    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-      const isGmail = process.env.SMTP_USER.toLowerCase().endsWith('@gmail.com');
-      
-      if (process.env.SMTP_HOST) {
-        console.log(`[EMAIL] Using custom SMTP Host settings from environment to send OTP.`);
-        transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: parseInt(process.env.SMTP_PORT || '587'),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          }
-        });
-      } else if (isGmail) {
-        console.log(`[EMAIL] Auto-configuring Gmail SMTP service using SMTP_USER and SMTP_PASS.`);
-        transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          }
-        });
-      } else {
-        console.log(`[EMAIL] SMTP host is missing but SMTP_USER/PASS is set for non-gmail address. Falling back to test account.`);
-      }
+    const cleanUser = (process.env.SMTP_USER || '').trim();
+    const cleanPass = (process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
+
+    if (cleanUser && cleanPass) {
+      const isGmail = cleanUser.toLowerCase().endsWith('@gmail.com') || cleanUser.toLowerCase().endsWith('@googlemail.com');
+      const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+      const port = parseInt(process.env.SMTP_PORT || (host === 'smtp.gmail.com' ? '587' : '587'));
+      const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+
+      console.log(`[EMAIL] Configuring SMTP transporter with host=${host}, port=${port}, secure=${secure}, user=${cleanUser}`);
+
+      transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: {
+          user: cleanUser,
+          pass: cleanPass,
+        },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
     }
 
     if (!transporter) {
@@ -298,8 +298,9 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
       });
     }
 
+    const defaultSender = cleanUser ? `"Exam Scripts Management" <${cleanUser}>` : '"Exam Scripts Management" <noreply@portal.com>';
     const mailOptions = {
-      from: process.env.SMTP_FROM || '"Exam Scripts Management" <noreply@portal.com>',
+      from: process.env.SMTP_FROM || defaultSender,
       to: toEmail,
       subject: 'Password Reset OTP - Exam Scripts Management',
       text: `Hello ${userName},\n\nYour OTP for password reset is: ${otp}\n\nThis OTP is valid for 10 minutes. If you did not request this, please ignore this email.\n\nBest regards,\nExam Scripts Management Team`,
@@ -320,12 +321,12 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
 
     const info = await transporter.sendMail(mailOptions);
     console.log(`[EMAIL] Email sent successfully! Message ID: ${info.messageId}`);
-    if (!process.env.SMTP_HOST) {
+    if (!cleanUser) {
       console.log(`[EMAIL] Preview URL for test email: ${nodemailer.getTestMessageUrl(info)}`);
     }
     return true;
   } catch (err: any) {
-    console.error("[EMAIL] Failed to send email via nodemailer:", err.message);
+    console.error("[EMAIL] Failed to send email via nodemailer:", err.message || err);
     return false;
   }
 }

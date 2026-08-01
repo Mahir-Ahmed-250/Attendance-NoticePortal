@@ -391,31 +391,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
                 </div>
               )}
 
-              {devOtp && (
-                <div className="bg-amber-50 text-amber-900 border border-amber-200 rounded-xl p-4 text-xs font-semibold space-y-2">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-amber-600 animate-pulse" />
-                    <span>Dev OTP Helper:</span>
-                  </div>
-                  <p className="text-[11px] font-normal text-amber-800">
-                    SMTP service is not configured. For your test convenience, the generated OTP is below:
-                  </p>
-                  <div className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-amber-100 font-mono text-sm tracking-wider font-extrabold text-amber-700">
-                    <span>{devOtp}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOtp(devOtp);
-                        toast.success('OTP auto-filled!');
-                      }}
-                      className="text-[10px] bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded font-sans cursor-pointer transition-colors"
-                    >
-                      Auto-fill OTP
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {error && (
                 <motion.div 
                   initial={{ opacity: 0, height: 0 }}
