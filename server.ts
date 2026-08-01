@@ -253,74 +253,12 @@ app.get("/api/logo", async (req, res) => {
 });
 
 // Helper function to send email via nodemailer
-async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
+async function sendOTPEmail(toEmail: string, otp: string, userName: string): Promise<{ success: boolean; error?: string }> {
   try {
-    let transporter;
     const cleanUser = (process.env.SMTP_USER || '').trim().replace(/^["']|["']$/g, '');
     const cleanPass = (process.env.SMTP_PASS || '').trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
     const customHost = (process.env.SMTP_HOST || '').trim().replace(/^["']|["']$/g, '');
     const customPort = (process.env.SMTP_PORT || '').trim().replace(/^["']|["']$/g, '');
-
-    if (cleanUser && cleanPass) {
-      const isGmail = cleanUser.toLowerCase().endsWith('@gmail.com') || cleanUser.toLowerCase().endsWith('@googlemail.com');
-
-      if (!customHost || customHost === 'smtp.gmail.com' || isGmail) {
-        // Render and cloud hosts often block or hang port 587 STARTTLS.
-        // Using service: 'gmail' or implicit TLS on port 465 is vastly more reliable on Render.
-        const port = customPort ? parseInt(customPort) : 465;
-        const secure = customPort ? (port === 465 || process.env.SMTP_SECURE === 'true') : true;
-
-        console.log(`[EMAIL] Configuring Gmail SMTP for cloud (Render) with user=${cleanUser}`);
-
-        transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: cleanUser,
-            pass: cleanPass,
-          },
-          tls: {
-            rejectUnauthorized: false
-          },
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 20000,
-        });
-      } else {
-        const port = customPort ? parseInt(customPort) : 587;
-        const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-
-        console.log(`[EMAIL] Configuring custom SMTP with host=${customHost}, port=${port}, secure=${secure}, user=${cleanUser}`);
-        transporter = nodemailer.createTransport({
-          host: customHost,
-          port,
-          secure,
-          auth: {
-            user: cleanUser,
-            pass: cleanPass,
-          },
-          tls: {
-            rejectUnauthorized: false
-          },
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 20000,
-        });
-      }
-    }
-
-    if (!transporter) {
-      console.log(`[EMAIL] SMTP settings not fully configured in environment. Attempting to create an Ethereal test account...`);
-      const testAccount = await nodemailer.createTestAccount();
-      transporter = nodemailer.createTransport({
-        host: testAccount.smtp.host,
-        port: testAccount.smtp.port,
-        secure: testAccount.smtp.secure,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass
-        }
-      });
-    }
 
     const defaultSender = cleanUser ? `"Exam Scripts Management" <${cleanUser}>` : '"Exam Scripts Management" <noreply@portal.com>';
     const mailOptions = {
@@ -343,15 +281,115 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[EMAIL] Email sent successfully! Message ID: ${info.messageId}`);
-    if (!cleanUser) {
-      console.log(`[EMAIL] Preview URL for test email: ${nodemailer.getTestMessageUrl(info)}`);
+    if (!cleanUser || !cleanPass) {
+      console.log(`[EMAIL] SMTP credentials missing in environment variables. Creating Ethereal test account...`);
+      try {
+        const testAccount = await nodemailer.createTestAccount();
+        const testTransporter = nodemailer.createTransport({
+          host: testAccount.smtp.host,
+          port: testAccount.smtp.port,
+          secure: testAccount.smtp.secure,
+          auth: { user: testAccount.user, pass: testAccount.pass }
+        });
+        const info = await testTransporter.sendMail(mailOptions);
+        console.log(`[EMAIL] Test Email sent via Ethereal! Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
+        return { success: true };
+      } catch (etherealErr: any) {
+        return { success: false, error: "SMTP_USER and SMTP_PASS environment variables are not configured on Render." };
+      }
     }
-    return true;
+
+    // List of configurations to try sequentially (Render cloud servers sometimes block specific ports)
+    const configs: Array<{ name: string; transportOptions: any }> = [];
+
+    if (customHost && customHost !== 'smtp.gmail.com') {
+      const port = customPort ? parseInt(customPort) : 587;
+      configs.push({
+        name: `Custom Host (${customHost}:${port})`,
+        transportOptions: {
+          host: customHost,
+          port,
+          secure: process.env.SMTP_SECURE === 'true' || port === 465,
+          auth: { user: cleanUser, pass: cleanPass },
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 12000,
+          greetingTimeout: 12000,
+          socketTimeout: 15000,
+        }
+      });
+    } else {
+      // Gmail strategies for cloud/Render environments:
+      // 1. Port 465 (SSL) - most reliable on cloud hostings like Render
+      configs.push({
+        name: 'Gmail SMTP (smtp.gmail.com:465 SSL)',
+        transportOptions: {
+          host: 'smtp.gmail.com',
+          port: 465,
+          secure: true,
+          auth: { user: cleanUser, pass: cleanPass },
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 12000,
+          greetingTimeout: 12000,
+          socketTimeout: 15000,
+        }
+      });
+
+      // 2. Port 587 (TLS)
+      configs.push({
+        name: 'Gmail SMTP (smtp.gmail.com:587 TLS)',
+        transportOptions: {
+          host: 'smtp.gmail.com',
+          port: 587,
+          secure: false,
+          auth: { user: cleanUser, pass: cleanPass },
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 12000,
+          greetingTimeout: 12000,
+          socketTimeout: 15000,
+        }
+      });
+
+      // 3. Service 'gmail'
+      configs.push({
+        name: 'Gmail Service Transport',
+        transportOptions: {
+          service: 'gmail',
+          auth: { user: cleanUser, pass: cleanPass },
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 12000,
+          greetingTimeout: 12000,
+          socketTimeout: 15000,
+        }
+      });
+    }
+
+    let lastError = '';
+
+    for (const cfg of configs) {
+      try {
+        console.log(`[EMAIL] Attempting to send OTP email via ${cfg.name}...`);
+        const transporter = nodemailer.createTransport(cfg.transportOptions);
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`[EMAIL] OTP Email sent successfully via ${cfg.name}! Message ID: ${info.messageId}`);
+        return { success: true };
+      } catch (err: any) {
+        lastError = err.message || String(err);
+        console.error(`[EMAIL] ${cfg.name} failed: ${lastError}`);
+      }
+    }
+
+    // Determine exact user-facing error message
+    let detailedError = `Failed to send email. Server output: ${lastError}`;
+    if (lastError.includes('535') || lastError.includes('Invalid login') || lastError.includes('Username and Password not accepted') || lastError.includes('BadCredentials')) {
+      detailedError = "Gmail Authentication Failed: Google rejected your credentials. You must use a 16-character Gmail 'App Password' (https://myaccount.google.com/apppasswords), NOT your normal Gmail account password.";
+    } else if (lastError.includes('ETIMEDOUT') || lastError.includes('ECONNREFUSED') || lastError.includes('ENOTFOUND')) {
+      detailedError = "SMTP Connection Timed Out on Render. Ensure port 465 is used or check Render environment variables.";
+    }
+
+    return { success: false, error: detailedError };
   } catch (err: any) {
-    console.error("[EMAIL] Failed to send email via nodemailer:", err.message || err);
-    return false;
+    console.error("[EMAIL] Unexpected error in sendOTPEmail:", err.message || err);
+    return { success: false, error: err.message || "Failed to send email." };
   }
 }
 
@@ -391,13 +429,13 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     console.log(`[OTP] Generated OTP for user PIN ${user.pin} (${user.email}): ${otp}`);
 
     // Send the email asynchronously
-    const sent = await sendOTPEmail(user.email, otp, user.name);
+    const emailResult = await sendOTPEmail(user.email, otp, user.name);
 
-    if (sent) {
+    if (emailResult.success) {
       return res.json({ message: "An OTP has been sent to your email address." });
     } else {
       return res.status(500).json({ 
-        error: "Failed to send OTP email. Please check server SMTP configuration." 
+        error: emailResult.error || "Failed to send OTP email. Please check server SMTP configuration." 
       });
     }
 
