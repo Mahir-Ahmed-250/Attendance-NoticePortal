@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { optimizeImage } from "../utils/imageUtils";
 import { User, ProfileRequest, Role } from '../types';
 import { ShieldCheck, Lock, UserCheck, Image as ImageIcon, Save, AlertCircle, Clock, Eye, EyeOff, Upload, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -229,17 +230,16 @@ export default function ProfileSettings({
                 <div 
                   className="border-2 border-dashed border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/10 rounded-2xl p-4 text-center cursor-pointer transition-all relative group mb-3"
                   onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
+                  onDrop={async (e) => {
                     e.preventDefault();
                     const file = e.dataTransfer.files?.[0];
                     if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        if (typeof reader.result === 'string') {
-                          setAvatarUrl(reader.result);
-                        }
-                      };
-                      reader.readAsDataURL(file);
+                      try {
+                        const optimized = await optimizeImage(file);
+                        setAvatarUrl(optimized);
+                      } catch (err) {
+                        console.error("Image optimization failed:", err);
+                      }
                     }
                   }}
                   onClick={() => document.getElementById('profile-image-upload')?.click()}
@@ -248,16 +248,15 @@ export default function ProfileSettings({
                     id="profile-image-upload"
                     type="file"
                     accept="image/*"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          if (typeof reader.result === 'string') {
-                            setAvatarUrl(reader.result);
-                          }
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          const optimized = await optimizeImage(file);
+                          setAvatarUrl(optimized);
+                        } catch (err) {
+                          console.error("Image optimization failed:", err);
+                        }
                       }
                     }}
                     className="hidden"
@@ -281,7 +280,7 @@ export default function ProfileSettings({
                     <span className="text-[10px] font-extrabold text-slate-600 mt-1">
                       {avatarUrl ? 'Click or drag to change photo' : 'Click or drag to upload photo'}
                     </span>
-                    <span className="text-[9px] text-slate-400">PNG, JPG up to 2MB (Converted to Base64)</span>
+                    <span className="text-[9px] text-slate-400">Image up to 100KB (Auto-compressed to Base64)</span>
                   </div>
                 </div>
 

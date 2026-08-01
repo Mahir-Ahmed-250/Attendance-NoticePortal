@@ -1274,7 +1274,7 @@ export default function App() {
             !loggedInUser ? (
               <Navigate to="/login" replace />
             ) : (
-              <main className="flex-1 max-w-[1600px] w-full mx-auto px-2 py-3 sm:px-4 lg:px-6 sm:py-4">
+              <main className="flex-1 max-w-[1800px] w-full mx-auto px-2 py-2 sm:px-4 lg:px-6 sm:py-4">
                 <TeamMemberAttendanceViewer
                   reports={reports}
                   members={members}
@@ -1290,7 +1290,7 @@ export default function App() {
               <>
 
 
-                <main className="flex-1 max-w-[1600px] w-full mx-auto px-2 py-3 sm:px-4 lg:px-6 sm:py-4 space-y-3 sm:space-y-4">
+                <main className="flex-1 max-w-[1800px] w-full mx-auto px-2 py-2 sm:px-4 lg:px-6 sm:py-4 space-y-3 sm:space-y-4">
                   <AnimatePresence mode="wait">
                     {activeRole === 'manager' && (
                       <motion.div

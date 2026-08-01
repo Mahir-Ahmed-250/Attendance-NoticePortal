@@ -1243,7 +1243,7 @@ export default function MentorDashboard({
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:gap-8 items-start">
+      <div className="flex flex-col lg:flex-row gap-3 sm:gap-5 lg:gap-6 items-start">
         {/* Mobile Sidebar Overlay */}
         <AnimatePresence>
           {isMobileMenuOpen && (
@@ -1263,7 +1263,7 @@ export default function MentorDashboard({
             <motion.div
               initial={{ width: 0, opacity: 0, x: -20 }}
               animate={{
-                width: "240px",
+                width: "220px",
                 opacity: 1,
                 x: 0,
               }}
@@ -1324,7 +1324,7 @@ export default function MentorDashboard({
               }}
               exit={{ x: "-100%", opacity: 0 }}
               transition={{ type: "tween", duration: 0.25 }}
-              className="lg:hidden fixed inset-y-0 left-0 w-[280px] bg-white p-4 sm:p-5 border-r border-slate-200/80 shadow-2xl text-left overflow-y-auto z-50 flex flex-col"
+              className="lg:hidden fixed inset-y-0 left-0 w-[240px] bg-white p-4 sm:p-5 border-r border-slate-200/80 shadow-2xl text-left overflow-y-auto z-50 flex flex-col"
             >
               <div className="flex items-center justify-between px-2 mb-6">
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">

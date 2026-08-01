@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import { optimizeImage } from "../utils/imageUtils";
 import { Notice, NoticeCategory } from '../types';
 import { 
   Megaphone, 
@@ -112,7 +114,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
     }
   };
 
-  const insertImage = (e?: React.ChangeEvent<HTMLInputElement>) => {
+  const insertImage = async (e?: React.ChangeEvent<HTMLInputElement>) => {
     const quill = quillRef.current?.getEditor();
     if (!quill) return;
 
@@ -120,20 +122,22 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
 
     if (e?.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result;
-        if (base64) {
-          quill.insertEmbed(range.index, 'image', base64);
-          if (imageCaption) {
-            quill.insertText(range.index + 1, `\n${imageCaption}`, { 'align': 'center', 'italic': true });
-          }
-          setImageUrl('');
-          setImageCaption('');
-          setShowImageModal(false);
+      try {
+        const base64 = await optimizeImage(file);
+        quill.insertEmbed(range.index, "image", base64);
+        if (imageCaption) {
+          quill.insertText(range.index + 1, `\n${imageCaption}`, {
+            align: "center",
+            italic: true,
+          });
         }
-      };
-      reader.readAsDataURL(file);
+        setImageUrl("");
+        setImageCaption("");
+        setShowImageModal(false);
+      } catch (err) {
+        console.error("Image optimization failed:", err);
+        toast.error("Failed to process image");
+      }
       return;
     }
 
@@ -895,7 +899,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                   <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors group">
                     <div className="flex flex-col items-center justify-center pt-2">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-indigo-500 mb-2" />
-                      <p className="text-[10px] font-bold text-slate-500">Click to upload image</p>
+                      <p className="text-[10px] font-bold text-slate-500">Click to upload image (Max 100KB)</p>
                     </div>
                     <input type="file" className="hidden" accept="image/*" onChange={insertImage} />
                   </label>

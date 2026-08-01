@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
+import { optimizeImage, optimizeBase64 } from "../utils/imageUtils";
+import CameraModal from "./CameraModal";
 import { motion, AnimatePresence } from "motion/react";
 import {
   PieChart,
@@ -56,6 +58,8 @@ import {
   ChevronDown,
   Clipboard as ClipboardIcon,
   Copy,
+  Camera,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   CallTask,
@@ -147,7 +151,16 @@ export default function CallManagement({
   const [liveInstructionLink, setLiveInstructionLink] = useState<string>("");
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [viewingImageUrl, setViewingImageUrl] = useState("");
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<"live" | "modal">("live");
   const [isSearchingLive, setIsSearchingLive] = useState(false);
+  const [showOnlyWithImages, setShowOnlyWithImages] = useState(false);
+
+  const isGoogleDriveLink = (url: string) => {
+    return (
+      url.includes("drive.google.com") || url.includes("docs.google.com/uc")
+    );
+  };
 
   const parseMultipleImages = (val: string | null | undefined): string[] => {
     if (!val) return [];
@@ -163,7 +176,7 @@ export default function CallManagement({
     return [trimmed];
   };
 
-  const handleImagePaste = (
+  const handleImagePaste = async (
     e: React.ClipboardEvent,
     callback: (dataUrl: string) => void,
   ) => {
@@ -175,14 +188,13 @@ export default function CallManagement({
         e.preventDefault();
         const file = items[i].getAsFile();
         if (file) {
-          const reader = new window.FileReader();
-          reader.onload = (event) => {
-            if (event.target?.result) {
-              callback(event.target.result as string);
-              toast.success("Image pasted from clipboard");
-            }
-          };
-          reader.readAsDataURL(file);
+          try {
+            const optimized = await optimizeImage(file);
+            callback(optimized);
+            toast.success("Image pasted & optimized");
+          } catch (err) {
+            console.error("Paste optimization failed:", err);
+          }
         }
         return;
       }
@@ -1406,6 +1418,11 @@ export default function CallManagement({
           ? !!task.liveAssignedToPin || !!task.liveInstructorPin
           : !task.liveAssignedToPin && !task.liveInstructorPin);
 
+      const matchesImageFilter =
+        !showOnlyWithImages ||
+        (task.liveInstructionImage &&
+          parseMultipleImages(task.liveInstructionImage).length > 0);
+
       // Date Filtering Logic
       const checkDateInRange = (dStr?: string) => {
         if (!dStr) return false;
@@ -1430,6 +1447,8 @@ export default function CallManagement({
 
       const matchesBranch =
         selectedBranches.length === 0 || selectedBranches.includes(task.branch);
+
+      if (!matchesImageFilter) return false;
 
       // Visibility Logic for Coordinators: In Management tab, hide tasks assigned to Mentors/Coordinators or Self
       if (
@@ -1924,13 +1943,13 @@ export default function CallManagement({
             <>
               <button
                 onClick={() => setActiveSubTab("dashboard")}
-                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "dashboard" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "dashboard" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Dashboard
               </button>
               <button
                 onClick={() => setActiveSubTab("management")}
-                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "management" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "management" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Call Management
               </button>
@@ -1939,14 +1958,14 @@ export default function CallManagement({
           {currentUser.role !== "manager" && (
             <button
               onClick={() => setActiveSubTab("my-tasks")}
-              className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "my-tasks" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "my-tasks" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
             >
               {showManagementTabs ? "My Assigned Calls" : "Call Management"}
             </button>
           )}
           <button
             onClick={() => setActiveSubTab("live-instruction")}
-            className={`px-3 py-1.5 md:px-4 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "live-instruction" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "live-instruction" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
           >
             Live Instruction
           </button>
@@ -2641,29 +2660,49 @@ export default function CallManagement({
                             type="file"
                             accept="image/*"
                             multiple
-                            onChange={(e) => {
+                            onChange={async (e) => {
                               const files = e.target.files;
                               if (files && files.length > 0) {
-                                Array.from(files).forEach((file: any) => {
-                                  const reader = new window.FileReader();
-                                  reader.onloadend = () => {
-                                    setLiveInstructionImages(prev => [...prev, reader.result as string]);
-                                  };
-                                  reader.readAsDataURL(file);
-                                });
+                                for (const file of Array.from(files) as File[]) {
+                                  try {
+                                    const optimized = await optimizeImage(file);
+                                    setLiveInstructionImages((prev) => [
+                                      ...prev,
+                                      optimized,
+                                    ]);
+                                  } catch (err) {
+                                    console.error(
+                                      "Image optimization failed:",
+                                      err,
+                                    );
+                                  }
+                                }
                                 toast.success(`${files.length} images uploaded`);
                               }
                             }}
                             className="hidden"
                             id="liveTabExamScriptUpload"
                           />
-                          <label
-                            htmlFor="liveTabExamScriptUpload"
-                            className="w-full h-full flex items-center justify-center gap-1.5 bg-indigo-50 border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl hover:bg-indigo-100 cursor-pointer transition-colors text-indigo-700"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Upload Files</span>
-                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label
+                              htmlFor="liveTabExamScriptUpload"
+                              className="flex items-center justify-center gap-1.5 bg-indigo-50 border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl hover:bg-indigo-100 cursor-pointer transition-colors text-indigo-700 h-10"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Upload</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCameraTarget("live");
+                                setIsCameraOpen(true);
+                              }}
+                              className="flex items-center justify-center gap-1.5 bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded-xl hover:bg-indigo-700 transition-colors h-10"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Camera</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -2692,29 +2731,51 @@ export default function CallManagement({
                             </div>
                           ) : (
                             <div className="flex flex-wrap gap-2 overflow-x-auto w-full max-h-24 p-0.5">
-                              {liveInstructionImages.map((imgUrl, idx) => (
-                                <div key={idx} className="relative group shrink-0">
-                                  <img
-                                    src={imgUrl}
-                                    alt={`Preview ${idx + 1}`}
-                                    className="w-12 h-12 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-90"
-                                    onClick={() => {
-                                      setViewingImageUrl(imgUrl);
-                                      setIsImageViewerOpen(true);
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setLiveInstructionImages(prev => prev.filter((_, i) => i !== idx));
-                                      toast.success("Image removed");
-                                    }}
-                                    className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white p-0.5 rounded-full hover:bg-rose-600 transition-colors shadow"
+                                {liveInstructionImages.map((imgUrl, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="relative group shrink-0"
                                   >
-                                    <X className="w-2.5 h-2.5" />
-                                  </button>
-                                </div>
-                              ))}
+                                    {isGoogleDriveLink(imgUrl) ? (
+                                      <div
+                                        className="w-12 h-12 flex flex-col items-center justify-center bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
+                                        onClick={() =>
+                                          window.open(imgUrl, "_blank")
+                                        }
+                                        title="View on Google Drive"
+                                      >
+                                        <div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center text-[10px] text-white font-bold">
+                                          G
+                                        </div>
+                                        <span className="text-[7px] font-bold text-blue-600 mt-0.5">
+                                          Drive
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <img
+                                        src={imgUrl}
+                                        alt={`Preview ${idx + 1}`}
+                                        className="w-12 h-12 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-90"
+                                        onClick={() => {
+                                          setViewingImageUrl(imgUrl);
+                                          setIsImageViewerOpen(true);
+                                        }}
+                                      />
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setLiveInstructionImages((prev) =>
+                                          prev.filter((_, i) => i !== idx),
+                                        );
+                                        toast.success("Image removed");
+                                      }}
+                                      className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white p-0.5 rounded-full hover:bg-rose-600 transition-colors shadow"
+                                    >
+                                      <X className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                ))}
                             </div>
                           )}
                         </div>
@@ -3027,7 +3088,7 @@ export default function CallManagement({
                     className="bg-white border border-slate-200/80 text-[11px] sm:text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
                   >
                     <option value="all">
-                      Target: Live Instruction & Feedback
+                      All
                     </option>
                     <option value="live">Live Instruction</option>
                     <option value="feedback">Feedback</option>
@@ -3097,10 +3158,23 @@ export default function CallManagement({
                 {/* Right Action Tools */}
                 {(activeSubTab === "management" ||
                   activeSubTab === "my-tasks") && (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-1 scrollbar-hide">
+                    {canUpload && (
+                      <button
+                        onClick={() => setShowOnlyWithImages(!showOnlyWithImages)}
+                        className={`flex-shrink-0 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-xs ${
+                          showOnlyWithImages
+                            ? "bg-indigo-600 text-white shadow-indigo-200"
+                            : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>{showOnlyWithImages ? "With Images" : "Only Images"}</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => setIsRangeModalOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-[11px] sm:text-xs font-bold transition-all shadow-sm"
+                      className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-sm whitespace-nowrap"
                     >
                       <UserPlus className="w-3.5 h-3.5" />
                       By SL Range
@@ -3113,18 +3187,16 @@ export default function CallManagement({
                             t.liveAssignedToPin ||
                             t.liveInstructorPin),
                       ) && (
-                        <div className="flex items-center gap-2 flex-wrap animate-in fade-in slide-in-from-right-4">
-                          <button
-                            onClick={() => {
-                              setUnassignTarget({ type: "bulk" });
-                              setIsUnassignModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1.5 transition-colors"
-                          >
-                            <UserMinus className="w-3.5 h-3.5" />
-                            <span>Unassign Selected</span>
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => {
+                            setUnassignTarget({ type: "bulk" });
+                            setIsUnassignModalOpen(true);
+                          }}
+                          className="flex-shrink-0 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap animate-in fade-in slide-in-from-right-2"
+                        >
+                          <UserMinus className="w-3.5 h-3.5" />
+                          <span>Unassign Selected</span>
+                        </button>
                       )}
                   </div>
                 )}
@@ -4084,35 +4156,55 @@ export default function CallManagement({
                             type="file"
                             accept="image/*"
                             multiple
-                            onChange={(e) => {
+                            onChange={async (e) => {
                               const files = e.target.files;
                               if (files && files.length > 0) {
-                                Array.from(files).forEach((file: any) => {
-                                  const reader = new window.FileReader();
-                                  reader.onloadend = () => {
-                                    const current = parseMultipleImages(modalFormData.liveInstructionImage);
-                                    const updated = [...current, reader.result as string];
-                                    setModalFormData(prev => ({
+                                for (const file of Array.from(files) as File[]) {
+                                  try {
+                                    const optimized = await optimizeImage(file);
+                                    const current = parseMultipleImages(
+                                      modalFormData.liveInstructionImage,
+                                    );
+                                    const updated = [...current, optimized];
+                                    setModalFormData((prev) => ({
                                       ...prev,
-                                      liveInstructionImage: JSON.stringify(updated)
+                                      liveInstructionImage:
+                                        JSON.stringify(updated),
                                     }));
-                                  };
-                                  reader.readAsDataURL(file);
-                                });
+                                  } catch (err) {
+                                    console.error(
+                                      "Image optimization failed:",
+                                      err,
+                                    );
+                                  }
+                                }
                                 toast.success(`${files.length} images uploaded`);
                               }
                             }}
                             className="hidden"
                             id="modalExamScriptUpload"
                           />
-                          <label
-                            htmlFor="modalExamScriptUpload"
-                            className="w-full flex items-center justify-center gap-1.5 bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl hover:bg-emerald-50 cursor-pointer transition-colors text-emerald-700 h-full"
-                            title="Click to upload image"
-                          >
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>Upload Files</span>
-                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label
+                              htmlFor="modalExamScriptUpload"
+                              className="flex items-center justify-center gap-1.5 bg-white border border-emerald-200 text-[10px] font-bold px-3 py-2 rounded-xl hover:bg-emerald-50 cursor-pointer transition-colors text-emerald-700 h-10"
+                              title="Click to upload image"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Upload</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCameraTarget("modal");
+                                setIsCameraOpen(true);
+                              }}
+                              className="flex items-center justify-center gap-1.5 bg-emerald-600 text-white text-[10px] font-bold px-3 py-2 rounded-xl hover:bg-emerald-700 transition-colors h-10"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Camera</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -4146,25 +4238,52 @@ export default function CallManagement({
                             </div>
                           ) : (
                             <div className="flex flex-wrap gap-1.5 overflow-x-auto w-full max-h-20 p-0.5">
-                              {parseMultipleImages(modalFormData.liveInstructionImage).map((imgUrl, idx) => (
-                                <div key={idx} className="relative group shrink-0">
-                                  <img
-                                    src={imgUrl}
-                                    alt={`Preview ${idx + 1}`}
-                                    className="w-10 h-10 object-cover rounded-lg border border-emerald-200 cursor-pointer hover:opacity-90"
-                                    onClick={() => {
-                                      setViewingImageUrl(imgUrl);
-                                      setIsImageViewerOpen(true);
-                                    }}
-                                  />
+                              {parseMultipleImages(
+                                modalFormData.liveInstructionImage,
+                              ).map((imgUrl, idx) => (
+                                <div
+                                  key={idx}
+                                  className="relative group shrink-0"
+                                >
+                                  {isGoogleDriveLink(imgUrl) ? (
+                                    <div
+                                      className="w-10 h-10 flex flex-col items-center justify-center bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors"
+                                      onClick={() =>
+                                        window.open(imgUrl, "_blank")
+                                      }
+                                      title="View on Google Drive"
+                                    >
+                                      <div className="w-4 h-4 bg-blue-600 rounded flex items-center justify-center text-[8px] text-white font-bold">
+                                        G
+                                      </div>
+                                      <span className="text-[6px] font-bold text-blue-600 mt-0.5">
+                                        Drive
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <img
+                                      src={imgUrl}
+                                      alt={`Preview ${idx + 1}`}
+                                      className="w-10 h-10 object-cover rounded-lg border border-emerald-200 cursor-pointer hover:opacity-90"
+                                      onClick={() => {
+                                        setViewingImageUrl(imgUrl);
+                                        setIsImageViewerOpen(true);
+                                      }}
+                                    />
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const current = parseMultipleImages(modalFormData.liveInstructionImage);
-                                      const updated = current.filter((_, i) => i !== idx);
+                                      const current = parseMultipleImages(
+                                        modalFormData.liveInstructionImage,
+                                      );
+                                      const updated = current.filter(
+                                        (_, i) => i !== idx,
+                                      );
                                       setModalFormData({
                                         ...modalFormData,
-                                        liveInstructionImage: JSON.stringify(updated)
+                                        liveInstructionImage:
+                                          JSON.stringify(updated),
                                       });
                                       toast.success("Image removed");
                                     }}
@@ -6119,6 +6238,31 @@ export default function CallManagement({
           </div>
         )}
       </AnimatePresence>
+      <CameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onCapture={async (base64) => {
+          try {
+            const optimized = await optimizeBase64(base64);
+            if (cameraTarget === "live") {
+              setLiveInstructionImages((prev) => [...prev, optimized]);
+            } else {
+              const current = parseMultipleImages(
+                modalFormData.liveInstructionImage,
+              );
+              const updated = [...current, optimized];
+              setModalFormData((prev) => ({
+                ...prev,
+                liveInstructionImage: JSON.stringify(updated),
+              }));
+            }
+            toast.success("Image captured & optimized");
+          } catch (err) {
+            console.error("Camera optimization failed:", err);
+            toast.error("Failed to process image");
+          }
+        }}
+      />
       {/* ... could add a more detailed modal here if needed ... */}
     </div>
   );
