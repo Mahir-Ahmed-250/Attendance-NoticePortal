@@ -16,7 +16,6 @@ import {
   ProfileRequest as ProfileRequestRaw, 
   AttendanceEditRequest as AttendanceEditRequestRaw, 
   LeaveRequest as LeaveRequestRaw,
-  Configuration as ConfigurationRaw,
   Branch as BranchRaw,
   CallTask as CallTaskRaw
 } from "./src/db/models";
@@ -32,7 +31,6 @@ const Campus = CampusRaw as any;
 const ProfileRequest = ProfileRequestRaw as any;
 const AttendanceEditRequest = AttendanceEditRequestRaw as any;
 const LeaveRequest = LeaveRequestRaw as any;
-const Configuration = ConfigurationRaw as any;
 const Branch = BranchRaw as any;
 const CallTask = CallTaskRaw as any;
 
@@ -82,7 +80,7 @@ const connectDB = async () => {
     }
 
     const opts = {
-      dbName: 'Attendance_NoticePortal',
+      dbName: process.env.MONGODB_DB_NAME || 'Attendance_NoticePortal',
       bufferCommands: false,
       serverSelectionTimeoutMS: 8000,
       connectTimeoutMS: 8000,
@@ -166,14 +164,40 @@ const seedInitialData = async () => {
       console.log(`[SEED] Seeded ${branchesToInsert.length} branches.`);
     }
 
-    // Clean up logo from database configurations as requested
+    // Clean up/drop configurations collection as requested
     try {
-      await Configuration.deleteOne({ key: 'logo' });
+      if (mongoose.connection && mongoose.connection.db) {
+        await mongoose.connection.db.dropCollection('configurations').catch(() => {});
+      }
     } catch (e) {
       // ignore
     }
+
+    // Run database optimization & compaction
+    await optimizeDatabase();
   } catch (err: any) {
     console.error("[SEED] Error seeding data:", err.message);
+  }
+};
+
+const optimizeDatabase = async () => {
+  try {
+    if (!mongoose.connection || !mongoose.connection.db) return;
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
+    for (const colInfo of collections) {
+      const colName = colInfo.name;
+      if (colName.startsWith('system.')) continue;
+      
+      try {
+        await db.command({ compact: colName }).catch(() => {});
+      } catch (e) {
+        // ignore if not supported by current DB tier
+      }
+    }
+    console.log("[DB] Database optimization and compaction completed successfully.");
+  } catch (err: any) {
+    console.warn("[DB] Optimization notice:", err.message);
   }
 };
 
@@ -200,6 +224,16 @@ app.use("/api", async (req, res, next) => {
       error: "Database Connection Error",
       details: process.env.NODE_ENV === "development" ? err.message : undefined
     });
+  }
+});
+
+// Database Optimization Endpoint
+app.post("/api/db/optimize", async (req, res) => {
+  try {
+    await optimizeDatabase();
+    res.json({ success: true, message: "Database optimized and compacted successfully." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to optimize database" });
   }
 });
 

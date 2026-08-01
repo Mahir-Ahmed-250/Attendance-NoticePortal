@@ -138,10 +138,6 @@ const LeaveRequestSchema = new mongoose.Schema({
   responsiblePersonName: String,
 });
 
-const ConfigurationSchema = new mongoose.Schema({
-  key: { type: String, required: true, unique: true },
-  value: { type: String, required: true },
-});
 
 const BranchSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
@@ -185,9 +181,6 @@ const CallTaskSchema = new mongoose.Schema({
   completedAt: String,
 });
 
-export const Configuration: Model<any> =
-  mongoose.models.Configuration ||
-  mongoose.model("Configuration", ConfigurationSchema);
 export const User: Model<any> =
   mongoose.models.User || mongoose.model("User", UserSchema);
 
