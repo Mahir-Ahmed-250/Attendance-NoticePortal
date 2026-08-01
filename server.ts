@@ -304,10 +304,18 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
       }
     }
 
-    // Custom IPv4 lookup function for Nodemailer to prevent ENETUNREACH IPv6 errors on Render
-    const customIpv4Lookup = (hostname: string, options: any, callback: any) => {
-      dns.lookup(hostname, { family: 4 }, callback);
-    };
+    // Explicitly resolve host to IPv4 addresses to prevent IPv6 ENETUNREACH on Render
+    const hostToResolve = customHost || 'smtp.gmail.com';
+    let ipv4Host = hostToResolve;
+    try {
+      const ips = await dns.promises.resolve4(hostToResolve);
+      if (ips && ips.length > 0) {
+        ipv4Host = ips[0]; // Use explicit IPv4 IP string
+        console.log(`[EMAIL] Resolved ${hostToResolve} to IPv4: ${ipv4Host}`);
+      }
+    } catch (dnsErr: any) {
+      console.warn(`[EMAIL] Could not resolve IPv4 for ${hostToResolve}, using hostname:`, dnsErr.message);
+    }
 
     // List of configurations to try sequentially with strict low timeouts to avoid HTTP 502 on Render
     const configs: Array<{ name: string; transportOptions: any }> = [];
@@ -317,51 +325,60 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
       configs.push({
         name: `Custom Host (${customHost}:${port})`,
         transportOptions: {
-          host: customHost,
+          host: ipv4Host,
           port,
           secure: process.env.SMTP_SECURE === 'true' || port === 465,
           auth: { user: cleanUser, pass: cleanPass },
-          tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: customIpv4Lookup,
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 7000,
+          tls: { servername: customHost, rejectUnauthorized: false },
+          connectionTimeout: 4000,
+          greetingTimeout: 4000,
+          socketTimeout: 6000,
         }
       });
     } else {
-      // Gmail strategies for Render cloud environments:
-      // 1. Port 465 (SSL) with forced IPv4 lookup - Most reliable on Render & cloud environments
+      // Gmail strategies for Render cloud environments with explicit IPv4:
+      // 1. Port 465 (SSL) with explicit IPv4 IP address
       configs.push({
-        name: 'Gmail SMTP (smtp.gmail.com:465 SSL IPv4)',
+        name: `Gmail SMTP (${ipv4Host}:465 SSL IPv4)`,
+        transportOptions: {
+          host: ipv4Host,
+          port: 465,
+          secure: true,
+          auth: { user: cleanUser, pass: cleanPass },
+          tls: { servername: 'smtp.gmail.com', rejectUnauthorized: false },
+          connectionTimeout: 4000,
+          greetingTimeout: 4000,
+          socketTimeout: 6000,
+        }
+      });
+
+      // 2. Port 587 (TLS) with explicit IPv4 IP address
+      configs.push({
+        name: `Gmail SMTP (${ipv4Host}:587 TLS IPv4)`,
+        transportOptions: {
+          host: ipv4Host,
+          port: 587,
+          secure: false,
+          auth: { user: cleanUser, pass: cleanPass },
+          tls: { servername: 'smtp.gmail.com', rejectUnauthorized: false },
+          connectionTimeout: 4000,
+          greetingTimeout: 4000,
+          socketTimeout: 6000,
+        }
+      });
+
+      // 3. Fallback: Hostname 'smtp.gmail.com'
+      configs.push({
+        name: 'Gmail SMTP (smtp.gmail.com:465 SSL Fallback)',
         transportOptions: {
           host: 'smtp.gmail.com',
           port: 465,
           secure: true,
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: customIpv4Lookup,
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 7000,
-        }
-      });
-
-      // 2. Port 587 (TLS) with forced IPv4 lookup
-      configs.push({
-        name: 'Gmail SMTP (smtp.gmail.com:587 TLS IPv4)',
-        transportOptions: {
-          host: 'smtp.gmail.com',
-          port: 587,
-          secure: false,
-          auth: { user: cleanUser, pass: cleanPass },
-          tls: { rejectUnauthorized: false },
-          family: 4,
-          lookup: customIpv4Lookup,
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
-          socketTimeout: 7000,
+          connectionTimeout: 4000,
+          greetingTimeout: 4000,
+          socketTimeout: 6000,
         }
       });
     }
