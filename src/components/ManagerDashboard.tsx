@@ -2856,7 +2856,7 @@ export default function ManagerDashboard({
                   },
                   { id: "campuses", icon: MapPin, label: "Campus Settings" },
                   { id: "permissions", icon: Key, label: "Permission Management" },
-                  { id: "notices", icon: Megaphone, label: "Notice" },
+                  { id: "notices", icon: Megaphone, label: "Notice Board" },
                   {
                     id: "verification",
                     icon: Shield,

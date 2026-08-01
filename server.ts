@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { 
   User as UserRaw, 
   Email as EmailRaw, 
@@ -252,8 +253,52 @@ app.get("/api/logo", async (req, res) => {
   }
 });
 
-// Helper function to send email via nodemailer
+// Helper function to send email via Resend API or Nodemailer
 async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+      <h2 style="color: #4f46e5; margin-bottom: 20px;">Password Reset Request</h2>
+      <p>Hello <strong>${userName}</strong>,</p>
+      <p>We received a request to reset your password. Use the following One-Time Password (OTP) to complete the process:</p>
+      <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px; color: #1e1b4b; margin: 25px 0;">
+        ${otp}
+      </div>
+      <p style="color: #64748b; font-size: 14px;">This OTP is valid for 10 minutes. If you did not request this password reset, you can safely ignore this email.</p>
+      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
+      <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} Exam Scripts Management Team. All rights reserved.</p>
+    </div>
+  `;
+  const emailText = `Hello ${userName},\n\nYour OTP for password reset is: ${otp}\n\nThis OTP is valid for 10 minutes. If you did not request this, please ignore this email.\n\nBest regards,\nExam Scripts Management Team`;
+
+  // 1. Try Resend API if RESEND_API_KEY is set (Best for Render / Cloud deployment where SMTP ports are blocked)
+  if (process.env.RESEND_API_KEY) {
+    console.log(`[EMAIL] RESEND_API_KEY detected. Sending email via Resend API...`);
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const fromAddress = process.env.RESEND_FROM || process.env.SMTP_FROM || 'Exam Scripts Management <onboarding@resend.dev>';
+      
+      const { data, error } = await resend.emails.send({
+        from: fromAddress,
+        to: [toEmail],
+        subject: 'Password Reset OTP - Exam Scripts Management',
+        html: emailHtml,
+        text: emailText
+      });
+
+      if (error) {
+        console.error(`[EMAIL] Resend API error:`, error);
+        console.log(`[EMAIL] Falling back to Nodemailer SMTP...`);
+      } else {
+        console.log(`[EMAIL] OTP Email sent successfully via Resend API! Message ID: ${data?.id}`);
+        return true;
+      }
+    } catch (resendErr: any) {
+      console.error(`[EMAIL] Resend API exception:`, resendErr.message);
+      console.log(`[EMAIL] Falling back to Nodemailer SMTP...`);
+    }
+  }
+
+  // 2. Fallback to Nodemailer SMTP
   try {
     let transporter;
     if (process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -302,24 +347,12 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
       from: process.env.SMTP_FROM || '"Exam Scripts Management" <noreply@portal.com>',
       to: toEmail,
       subject: 'Password Reset OTP - Exam Scripts Management',
-      text: `Hello ${userName},\n\nYour OTP for password reset is: ${otp}\n\nThis OTP is valid for 10 minutes. If you did not request this, please ignore this email.\n\nBest regards,\nExam Scripts Management Team`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-          <h2 style="color: #4f46e5; margin-bottom: 20px;">Password Reset Request</h2>
-          <p>Hello <strong>${userName}</strong>,</p>
-          <p>We received a request to reset your password. Use the following One-Time Password (OTP) to complete the process:</p>
-          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; text-align: center; letter-spacing: 5px; color: #1e1b4b; margin: 25px 0;">
-            ${otp}
-          </div>
-          <p style="color: #64748b; font-size: 14px;">This OTP is valid for 10 minutes. If you did not request this password reset, you can safely ignore this email.</p>
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
-          <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} Exam Scripts Management Team. All rights reserved.</p>
-        </div>
-      `
+      text: emailText,
+      html: emailHtml
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`[EMAIL] Email sent successfully! Message ID: ${info.messageId}`);
+    console.log(`[EMAIL] Email sent successfully via Nodemailer! Message ID: ${info.messageId}`);
     if (!process.env.SMTP_HOST) {
       console.log(`[EMAIL] Preview URL for test email: ${nodemailer.getTestMessageUrl(info)}`);
     }
@@ -371,11 +404,8 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     if (sent) {
       return res.json({ message: "An OTP has been sent to your email address." });
     } else {
-      // If email sending failed, still return success with info on logging
-      return res.json({ 
-        message: "OTP generated. Email service fallback enabled. Check the server logs for the OTP.",
-        devFallback: true,
-        otp: otp
+      return res.status(500).json({ 
+        error: "Failed to send OTP email. Please ensure your email service (Resend / SMTP) is properly configured."
       });
     }
 

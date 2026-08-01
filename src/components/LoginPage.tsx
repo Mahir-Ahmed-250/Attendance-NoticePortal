@@ -20,7 +20,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
-  const [devOtp, setDevOtp] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Password visibility states
@@ -88,9 +87,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
       const res = await api.auth.forgotPassword(trimmedPin);
       toast.success(res.message || 'OTP sent to your email.');
       setInfoMessage(res.message || 'OTP sent successfully!');
-      if (res.devFallback && res.otp) {
-        setDevOtp(res.otp);
-      }
       setView('verify-otp');
     } catch (err: any) {
       setError(err.message || 'PIN not found or failed to send mail.');
@@ -388,31 +384,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
                 <div className="bg-emerald-50 text-emerald-700 rounded-xl p-4 text-xs font-medium flex items-start gap-3 border border-emerald-100">
                   <span className="shrink-0 font-bold mt-0.5">✓</span>
                   <span>{infoMessage}</span>
-                </div>
-              )}
-
-              {devOtp && (
-                <div className="bg-amber-50 text-amber-900 border border-amber-200 rounded-xl p-4 text-xs font-semibold space-y-2">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-amber-600 animate-pulse" />
-                    <span>Dev OTP Helper:</span>
-                  </div>
-                  <p className="text-[11px] font-normal text-amber-800">
-                    SMTP service is not configured. For your test convenience, the generated OTP is below:
-                  </p>
-                  <div className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-amber-100 font-mono text-sm tracking-wider font-extrabold text-amber-700">
-                    <span>{devOtp}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOtp(devOtp);
-                        toast.success('OTP auto-filled!');
-                      }}
-                      className="text-[10px] bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded font-sans cursor-pointer transition-colors"
-                    >
-                      Auto-fill OTP
-                    </button>
-                  </div>
                 </div>
               )}
 
