@@ -6,6 +6,11 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import nodemailer from "nodemailer";
+import dns from "dns";
+
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
 import { 
   User as UserRaw, 
   Email as EmailRaw, 
@@ -299,7 +304,7 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
       }
     }
 
-    // List of configurations to try sequentially (Render cloud servers sometimes block specific ports)
+    // List of configurations to try sequentially with strict low timeouts to avoid HTTP 502 on Render
     const configs: Array<{ name: string; transportOptions: any }> = [];
 
     if (customHost && customHost !== 'smtp.gmail.com') {
@@ -312,14 +317,15 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
           secure: process.env.SMTP_SECURE === 'true' || port === 465,
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
-          connectionTimeout: 12000,
-          greetingTimeout: 12000,
-          socketTimeout: 15000,
+          family: 4,
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 8000,
         }
       });
     } else {
-      // Gmail strategies for cloud/Render environments:
-      // 1. Port 465 (SSL) - most reliable on cloud hostings like Render
+      // Gmail strategies for Render cloud environments:
+      // 1. Port 465 (SSL) - Most reliable on Render & cloud environments with forced IPv4
       configs.push({
         name: 'Gmail SMTP (smtp.gmail.com:465 SSL)',
         transportOptions: {
@@ -328,9 +334,10 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
           secure: true,
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
-          connectionTimeout: 12000,
-          greetingTimeout: 12000,
-          socketTimeout: 15000,
+          family: 4,
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 8000,
         }
       });
 
@@ -343,22 +350,10 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
           secure: false,
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
-          connectionTimeout: 12000,
-          greetingTimeout: 12000,
-          socketTimeout: 15000,
-        }
-      });
-
-      // 3. Service 'gmail'
-      configs.push({
-        name: 'Gmail Service Transport',
-        transportOptions: {
-          service: 'gmail',
-          auth: { user: cleanUser, pass: cleanPass },
-          tls: { rejectUnauthorized: false },
-          connectionTimeout: 12000,
-          greetingTimeout: 12000,
-          socketTimeout: 15000,
+          family: 4,
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 8000,
         }
       });
     }
