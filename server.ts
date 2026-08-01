@@ -304,6 +304,11 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
       }
     }
 
+    // Custom IPv4 lookup function for Nodemailer to prevent ENETUNREACH IPv6 errors on Render
+    const customIpv4Lookup = (hostname: string, options: any, callback: any) => {
+      dns.lookup(hostname, { family: 4 }, callback);
+    };
+
     // List of configurations to try sequentially with strict low timeouts to avoid HTTP 502 on Render
     const configs: Array<{ name: string; transportOptions: any }> = [];
 
@@ -318,16 +323,17 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
           family: 4,
+          lookup: customIpv4Lookup,
           connectionTimeout: 5000,
           greetingTimeout: 5000,
-          socketTimeout: 8000,
+          socketTimeout: 7000,
         }
       });
     } else {
       // Gmail strategies for Render cloud environments:
-      // 1. Port 465 (SSL) - Most reliable on Render & cloud environments with forced IPv4
+      // 1. Port 465 (SSL) with forced IPv4 lookup - Most reliable on Render & cloud environments
       configs.push({
-        name: 'Gmail SMTP (smtp.gmail.com:465 SSL)',
+        name: 'Gmail SMTP (smtp.gmail.com:465 SSL IPv4)',
         transportOptions: {
           host: 'smtp.gmail.com',
           port: 465,
@@ -335,15 +341,16 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
           family: 4,
+          lookup: customIpv4Lookup,
           connectionTimeout: 5000,
           greetingTimeout: 5000,
-          socketTimeout: 8000,
+          socketTimeout: 7000,
         }
       });
 
-      // 2. Port 587 (TLS)
+      // 2. Port 587 (TLS) with forced IPv4 lookup
       configs.push({
-        name: 'Gmail SMTP (smtp.gmail.com:587 TLS)',
+        name: 'Gmail SMTP (smtp.gmail.com:587 TLS IPv4)',
         transportOptions: {
           host: 'smtp.gmail.com',
           port: 587,
@@ -351,9 +358,10 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string): Pro
           auth: { user: cleanUser, pass: cleanPass },
           tls: { rejectUnauthorized: false },
           family: 4,
+          lookup: customIpv4Lookup,
           connectionTimeout: 5000,
           greetingTimeout: 5000,
-          socketTimeout: 8000,
+          socketTimeout: 7000,
         }
       });
     }
