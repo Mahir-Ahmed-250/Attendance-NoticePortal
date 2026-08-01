@@ -379,6 +379,10 @@ export default function CallManagement({
       toast.error("Cannot save while status is Pending. Please change status to 'Completed'.");
       return;
     }
+    if (!liveComment || !liveComment.trim()) {
+      toast.error("Please write the Live Instruction comment");
+      return;
+    }
     setIsUpdatingLive(true);
     const today = getTodayLocalDate();
     const isNewCompletion =

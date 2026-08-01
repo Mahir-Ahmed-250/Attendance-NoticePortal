@@ -80,7 +80,7 @@ const connectDB = async () => {
     }
 
     const opts = {
-      dbName: process.env.MONGODB_DB_NAME || 'Attendance_NoticePortal',
+      dbName: process.env.MONGODB_DB_NAME || 'Attendance_NoticePortal_Dev',
       bufferCommands: false,
       serverSelectionTimeoutMS: 8000,
       connectTimeoutMS: 8000,
