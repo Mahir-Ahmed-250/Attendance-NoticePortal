@@ -21,11 +21,7 @@ import {
 } from "./src/db/models";
 import { INITIAL_BRANCHES } from "./src/db/branches";
 
-// Load environment variables in local development
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
-}
-
+// Model aliases
 const User = UserRaw as any;
 const Email = EmailRaw as any;
 const AttendanceReport = AttendanceReportRaw as any;
@@ -39,8 +35,23 @@ const Configuration = ConfigurationRaw as any;
 const Branch = BranchRaw as any;
 const CallTask = CallTaskRaw as any;
 
-const app = express();
+// Load environment variables
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config();
+}
+
 const PORT = 3000;
+const app = express();
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -1659,37 +1670,42 @@ app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
 });
 
-// For Vercel, we export the app as a default handler
-if (process.env.NODE_ENV !== "production") {
-  const init = async () => {
+// Start Server
+async function startServer() {
+  // Try to connect to DB in background
+  connectDB().catch(err => {
+    console.error("Initial MongoDB connection failed. Server will retry on API requests.", err.message);
+  });
+
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     try {
-      await connectDB();
       const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
       app.use(vite.middlewares);
-      
-      app.listen(3000, "0.0.0.0", () => {
-        console.log(`Server running on http://localhost:${PORT}`);
-      });
-    } catch (err) {
-      console.error("Server init error:", err);
+      console.log("Vite middleware integrated.");
+    } catch (err: any) {
+      console.error("Failed to integrate Vite middleware:", err.message);
     }
-  };
-  init();
-} else if (!process.env.VERCEL) {
-  // Standard production node environment (not Vercel)
-  const distPath = path.join(process.cwd(), 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-  
-  app.listen(3000, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  } else if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+    console.log("Serving static files from dist.");
+  }
+
+  // Bind to port 3000 and 0.0.0.0 as required
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT} (${process.env.NODE_ENV || 'development'} mode)`);
+    });
+  }
 }
+
+startServer();
 
 export default app;

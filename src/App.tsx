@@ -35,8 +35,7 @@ export default function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
 
   useEffect(() => {
-    fetch('/api/logo')
-      .then(res => res.json())
+    api.logo.get()
       .then(data => setFetchedLogo(data.logo))
       .catch(err => console.error("Logo fetch error", err));
   }, []);
@@ -46,6 +45,14 @@ export default function App() {
   // Initial Fetch
   useEffect(() => {
     const fetchData = async () => {
+      // Add a small delay and wait for health check to ensure server is ready
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        await api.health();
+      } catch (e) {
+        console.warn("Server not yet healthy, continuing with fetch...");
+      }
+      
       const interval = setInterval(() => {
         setLoadingProgress(p => (p < 90 ? p + Math.floor(Math.random() * 15) : p));
       }, 150);
@@ -619,6 +626,21 @@ export default function App() {
       toast.success(`Attendance report(s) for ${date} deleted.`);
     } catch (err) {
       toast.error('Failed to delete reports.');
+    }
+  };
+
+  const handleDeleteMonthlyAttendance = async (month: string, campus: string) => {
+    try {
+      const toDelete = reports.filter(r => r.date.startsWith(month) && (campus === 'All' || r.campus === campus));
+      if (toDelete.length === 0) {
+        toast.error('No reports found for this month.');
+        return;
+      }
+      await Promise.all(toDelete.map(r => api.reports.delete(r.pin)));
+      setReports(prev => (prev || []).filter(r => !(r.date.startsWith(month) && (campus === 'All' || r.campus === campus))));
+      toast.success(`All attendance reports for ${month} deleted.`);
+    } catch (err) {
+      toast.error('Failed to delete monthly reports.');
     }
   };
 
@@ -1324,6 +1346,7 @@ export default function App() {
                           onUpdateReportStatus={handleUpdateReportStatus}
                           onDeleteAttendanceRecord={handleDeleteAttendanceRecord}
                           onDeleteReport={handleDeleteReport}
+                          onDeleteMonthlyAttendance={handleDeleteMonthlyAttendance}
                           onUpdateAttendanceRecord={handleUpdateAttendanceRecord}
                           onUpdateAssignment={handleUpdateAssignment}
                           onResolveFeedback={handleResolveFeedback}

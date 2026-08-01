@@ -147,6 +147,7 @@ interface ManagerDashboardProps {
   ) => void;
   onDeleteAttendanceRecord: (reportPin: string, memberPin: string) => void;
   onDeleteReport: (date: string, campus: string) => void;
+  onDeleteMonthlyAttendance: (month: string, campus: string) => void;
   onUpdateAttendanceRecord: (
     reportPin: string,
     memberPin: string,
@@ -234,6 +235,7 @@ export default function ManagerDashboard({
   onUpdateReportStatus,
   onDeleteAttendanceRecord,
   onDeleteReport,
+  onDeleteMonthlyAttendance,
   onUpdateAttendanceRecord,
   onUpdateAssignment,
   onResolveFeedback,
@@ -594,6 +596,11 @@ export default function ManagerDashboard({
   } | null>(null);
   const [confirmDeleteReportInfo, setConfirmDeleteReportInfo] = useState<{
     date: string;
+    campus: string;
+  } | null>(null);
+
+  const [confirmDeleteMonthlyInfo, setConfirmDeleteMonthlyInfo] = useState<{
+    month: string;
     campus: string;
   } | null>(null);
   const [confirmDeletePreviewRowIndex, setConfirmDeletePreviewRowIndex] =
@@ -1528,6 +1535,36 @@ export default function ManagerDashboard({
       postedCampuses.map((c) => `• ${c}`).join("\n");
     setImportSummary(summaryStr);
     setActiveTab("attendance-viewer");
+  };
+
+  const handlePreviewBulkAttendance = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBulkError("");
+    setImportSummary(null);
+
+    if (!bulkText.trim()) {
+      setBulkError("Please enter Report text");
+      return;
+    }
+
+    const { parsedList, unmatchedMembers } = parseAndMergeBulkText(bulkText);
+
+    if (parsedList.length === 0 && unmatchedMembers.length === 0) {
+      setBulkError(
+        "Something went wrong: No member data could be imported. Please check the format.",
+      );
+      return;
+    }
+
+    if (unmatchedMembers.length > 0) {
+      setBulkError(
+        `Warning: The following PINs/Members were not found: ${unmatchedMembers.map((m) => `${m.name} (${m.pin})`).join(", ")}`,
+      );
+      // We'll still allow previewing but warn
+    }
+
+    setParsedPreviewRows(parsedList);
+    toast.success(`${parsedList.length} records parsed for preview!`);
   };
 
   // Confirm and Publish the parsed bulk attendance
@@ -3060,6 +3097,22 @@ export default function ManagerDashboard({
           />
 
           <ConfirmModal
+            isOpen={!!confirmDeleteMonthlyInfo}
+            onClose={() => setConfirmDeleteMonthlyInfo(null)}
+            onConfirm={() => {
+              if (confirmDeleteMonthlyInfo) {
+                onDeleteMonthlyAttendance(
+                  confirmDeleteMonthlyInfo.month,
+                  confirmDeleteMonthlyInfo.campus,
+                );
+              }
+              setConfirmDeleteMonthlyInfo(null);
+            }}
+            title="Delete Monthly Attendance"
+            message={`Are you sure you want to delete ALL attendance reports for ${confirmDeleteMonthlyInfo?.month} (${confirmDeleteMonthlyInfo?.campus === "All" ? "All Campuses" : confirmDeleteMonthlyInfo?.campus})? This action cannot be undone.`}
+          />
+
+          <ConfirmModal
             isOpen={confirmDeletePreviewRowIndex !== null}
             onClose={() => setConfirmDeletePreviewRowIndex(null)}
             onConfirm={() => {
@@ -3930,7 +3983,108 @@ export default function ManagerDashboard({
                       <CheckCircle className="w-4 h-4" />
                       Publish Attendance Report
                     </button>
+                    <button
+                      type="button"
+                      onClick={handlePreviewBulkAttendance}
+                      className="px-6 py-3.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-2 border border-indigo-200/50"
+                    >
+                      <Search className="w-4 h-4" />
+                      Smart Preview & Edit
+                    </button>
+                    {parsedPreviewRows.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setParsedPreviewRows([])}
+                        className="px-6 py-3.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-2 border border-rose-200/50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Clear Preview
+                      </button>
+                    )}
                   </div>
+
+                  {parsedPreviewRows.length > 0 && (
+                    <div className="mt-8 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                          <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                          Import Preview ({parsedPreviewRows.length} Records)
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={handleConfirmPublishBulkAttendance}
+                          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-md transition-all flex items-center gap-2"
+                        >
+                          <Check className="w-4 h-4" />
+                          Confirm & Publish All
+                        </button>
+                      </div>
+                      <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-slate-50/20">
+                        <table className="w-full min-w-[1000px] text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                              <th className="p-4">PIN</th>
+                              <th className="p-4">Name</th>
+                              <th className="p-4">In Time</th>
+                              <th className="p-4">Out Time</th>
+                              <th className="p-4">Working Hour</th>
+                              <th className="p-4">Absent/Leave</th>
+                              <th className="p-4">Remarks</th>
+                              <th className="p-4 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-150 bg-white">
+                            {parsedPreviewRows.map((row, idx) => (
+                              <tr
+                                key={`preview-${idx}`}
+                                className="hover:bg-slate-50 transition-colors"
+                              >
+                                <td className="p-4 text-xs font-mono font-bold text-slate-700">
+                                  {row.memberPin}
+                                </td>
+                                <td className="p-4 text-xs font-bold text-slate-800">
+                                  {row.memberName}
+                                </td>
+                                <td className="p-4 text-xs font-mono text-slate-600">
+                                  {row.checkInTime || "-"}
+                                </td>
+                                <td className="p-4 text-xs font-mono text-slate-600">
+                                  {row.checkOutTime || "-"}
+                                </td>
+                                <td className="p-4 text-xs font-mono font-bold text-indigo-600">
+                                  {row.workingHour || "-"}
+                                </td>
+                                <td className="p-4 text-xs font-bold text-rose-600">
+                                  {row.absentOrLeave || "-"}
+                                </td>
+                                <td className="p-4 text-xs text-slate-500 max-w-[300px] truncate">
+                                  {row.remarks || "-"}
+                                </td>
+                                <td className="p-4 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingPreviewRow({ index: idx, record: row })}
+                                      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeletePreviewRowIndex(idx)}
+                                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                    >
+                                      <Trash className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </form>
               </div>
             </motion.div>
@@ -3955,7 +4109,7 @@ export default function ManagerDashboard({
               <div className="flex flex-wrap items-end gap-4 mb-6">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-Attendance Adjustmentsblack uppercase text-slate-500 tracking-wider mb-2">
-                    Select Month (For Export)
+                    Select Month (For Export & Delete)
                   </label>
                   <input
                     type="month"
@@ -4122,6 +4276,18 @@ export default function ManagerDashboard({
                     <Trash className="w-4 h-4" />
                     Delete Date
                   </button>
+                  <button
+                    onClick={() =>
+                      setConfirmDeleteMonthlyInfo({
+                        month: attendanceViewerDate.substring(0, 7),
+                        campus: attendanceViewerCampus,
+                      })
+                    }
+                    className="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Monthly Attendance
+                  </button>
                 </div>
               </div>
 
@@ -4155,17 +4321,11 @@ export default function ManagerDashboard({
                         </div>
                         <button
                           onClick={() => {
-                            setAddingRecord({
-                              date: m.date,
-                              campus: m.campus,
-                              record: {
-                                memberPin: m.memberPin,
-                                memberName: m.memberName,
-                                status: "Present",
-                                checkInTime: "",
-                                checkOutTime: "",
-                                notes: "",
-                              },
+                            setReportDate(m.date);
+                            setActiveTab("attendance");
+                            window.scrollTo({
+                              top: 300,
+                              behavior: "smooth",
                             });
                           }}
                           className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1"

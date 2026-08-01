@@ -1,31 +1,41 @@
 const API_BASE = '/api';
 
-async function request(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+async function request(path: string, options: RequestInit = {}, retries = 5) {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
 
-  const contentType = res.headers.get('content-type') || '';
-  const isJson = contentType.includes('application/json');
+    const contentType = res.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
 
-  if (!res.ok) {
-    if (isJson) {
-      const error = await res.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || `Request failed (${res.status})`);
-    } else {
-      throw new Error(`Server returned error status (${res.status})`);
+    if (!res.ok) {
+      if (isJson) {
+        const error = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || `Request failed (${res.status})`);
+      } else {
+        throw new Error(`Server returned error status (${res.status})`);
+      }
     }
-  }
 
-  if (!isJson) {
-    throw new Error('Expected JSON response from server');
-  }
+    if (!isJson) {
+      throw new Error('Expected JSON response from server');
+    }
 
-  return res.json();
+    return res.json();
+  } catch (err: any) {
+    if (retries > 0 && (err.name === 'TypeError' || err.message === 'Failed to fetch')) {
+      const delay = 2000 + (Math.random() * 1000); // Stagger retries
+      console.warn(`Fetch failed for ${path}, retrying in ${Math.round(delay)}ms... (${retries} left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return request(path, options, retries - 1);
+    }
+    throw err;
+  }
 }
 
 export const api = {
@@ -97,5 +107,9 @@ export const api = {
     update: (id: string, data: any) => request(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request(`/branches/${id}`, { method: 'DELETE' }),
   },
+  logo: {
+    get: () => request('/logo'),
+  },
+  health: () => request('/health'),
   seed: (data: any) => request('/seed', { method: 'POST', body: JSON.stringify(data) }),
 };
