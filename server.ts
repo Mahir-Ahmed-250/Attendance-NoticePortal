@@ -1,6 +1,7 @@
 import * as dotenv from "dotenv";
 import express from "express";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import cors from "cors";
@@ -164,6 +165,13 @@ const seedInitialData = async () => {
       await Branch.insertMany(branchesToInsert);
       console.log(`[SEED] Seeded ${branchesToInsert.length} branches.`);
     }
+
+    // Clean up logo from database configurations as requested
+    try {
+      await Configuration.deleteOne({ key: 'logo' });
+    } catch (e) {
+      // ignore
+    }
   } catch (err: any) {
     console.error("[SEED] Error seeding data:", err.message);
   }
@@ -198,14 +206,15 @@ app.use("/api", async (req, res, next) => {
 // Get Logo
 app.get("/api/logo", async (req, res) => {
   try {
-    const config = await Configuration.findOne({ key: 'logo' });
-    if (config) {
-      res.json({ logo: config.value });
-    } else {
-      res.status(404).json({ error: "Logo not found" });
+    const logoPath = path.join(process.cwd(), 'base64_logo.txt');
+    if (fs.existsSync(logoPath)) {
+      const logoData = fs.readFileSync(logoPath, 'utf8');
+      return res.json({ logo: logoData });
     }
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch logo" });
+    res.json({ logo: null });
+  } catch (err: any) {
+    console.error("Logo fetch error:", err.message);
+    res.json({ logo: null });
   }
 });
 

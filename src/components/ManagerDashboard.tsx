@@ -4109,7 +4109,7 @@ export default function ManagerDashboard({
               <div className="flex flex-wrap items-end gap-4 mb-6">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-Attendance Adjustmentsblack uppercase text-slate-500 tracking-wider mb-2">
-                    Select Month (For Export & Delete)
+                    Select Month (For Export)
                   </label>
                   <input
                     type="month"
