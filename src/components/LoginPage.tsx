@@ -72,7 +72,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
     e.preventDefault();
     setError('');
     setInfoMessage('');
-    setDevOtp('');
     const trimmedPin = forgotPin.trim();
 
     if (!trimmedPin) {
