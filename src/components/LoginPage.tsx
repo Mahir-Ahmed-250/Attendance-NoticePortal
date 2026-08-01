@@ -20,7 +20,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
-  const [devOtp, setDevOtp] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Password visibility states
@@ -73,7 +72,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
     e.preventDefault();
     setError('');
     setInfoMessage('');
-    setDevOtp('');
     const trimmedPin = forgotPin.trim();
 
     if (!trimmedPin) {
@@ -88,9 +86,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
       const res = await api.auth.forgotPassword(trimmedPin);
       toast.success(res.message || 'OTP sent to your email.');
       setInfoMessage(res.message || 'OTP sent successfully!');
-      if (res.devFallback && res.otp) {
-        setDevOtp(res.otp);
-      }
       setView('verify-otp');
     } catch (err: any) {
       setError(err.message || 'PIN not found or failed to send mail.');
