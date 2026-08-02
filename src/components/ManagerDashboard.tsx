@@ -148,6 +148,8 @@ interface ManagerDashboardProps {
   onDeleteAttendanceRecord: (reportPin: string, memberPin: string) => void;
   onDeleteReport: (date: string, campus: string) => void;
   onDeleteMonthlyAttendance: (month: string, campus: string) => void;
+  onDeleteMonthlyEditRequests?: (month: string) => void;
+  onDeleteMonthlyLeaveRequests?: (month: string) => void;
   onUpdateAttendanceRecord: (
     reportPin: string,
     memberPin: string,
@@ -236,6 +238,8 @@ export default function ManagerDashboard({
   onDeleteAttendanceRecord,
   onDeleteReport,
   onDeleteMonthlyAttendance,
+  onDeleteMonthlyEditRequests,
+  onDeleteMonthlyLeaveRequests,
   onUpdateAttendanceRecord,
   onUpdateAssignment,
   onResolveFeedback,
@@ -502,6 +506,45 @@ export default function ManagerDashboard({
     };
   }, [reports, trendsCampus, trendsMonth]);
 
+  const MANDATORY_DELETE_NOTIFICATION_ID = 'mandatory-month-end-delete';
+  const MANDATORY_DELETE_EDIT_REQS_NOTIFICATION_ID = 'mandatory-month-end-delete-edit-reqs';
+  const MANDATORY_DELETE_LEAVE_REQS_NOTIFICATION_ID = 'mandatory-month-end-delete-leave-reqs';
+  
+  const prevMonthStr = React.useMemo(() => {
+    const today = new Date();
+    const d = new Date(today.getFullYear(), today.getMonth(), 0); // Last day of previous month
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1; 
+    return `${year}-${String(month).padStart(2, "0")}`;
+  }, []);
+
+  const shouldShowMandatoryNotice = React.useMemo(() => {
+    const today = new Date();
+    const day = today.getDate();
+    const isEndOrStart = day >= 28 || day <= 5; // Show during last few days or first few days
+    const hasData = reports.some(r => r.date.startsWith(prevMonthStr));
+    return isEndOrStart && hasData;
+  }, [reports, prevMonthStr]);
+
+  const shouldShowMandatoryEditNotice = React.useMemo(() => {
+    const today = new Date();
+    const day = today.getDate();
+    const isEndOrStart = day >= 28 || day <= 5;
+    const hasData = attendanceEditRequests.some(r => r.date && r.date.startsWith(prevMonthStr));
+    return isEndOrStart && hasData;
+  }, [attendanceEditRequests, prevMonthStr]);
+
+  const shouldShowMandatoryLeaveNotice = React.useMemo(() => {
+    const today = new Date();
+    const day = today.getDate();
+    const isEndOrStart = day >= 28 || day <= 5;
+    const hasData = leaveRequests.some(r => 
+      (r.startDate && r.startDate.startsWith(prevMonthStr)) || 
+      (r.endDate && r.endDate.startsWith(prevMonthStr))
+    );
+    return isEndOrStart && hasData;
+  }, [leaveRequests, prevMonthStr]);
+
   // --- NOTIFICATION & REQUEST READ STATES ---
   const [readNotifications, setReadNotifications] = useState<string[]>(
     currentUser.readNotifications || [],
@@ -516,6 +559,21 @@ export default function ManagerDashboard({
   const handleDismissNotification = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (readNotifications.includes(id)) return;
+
+    if (id === MANDATORY_DELETE_NOTIFICATION_ID) {
+      toast.error("গত মাসের অ্যাটেনডেন্স ডেটা ডিলিট না করা পর্যন্ত এই নোটিফিকেশনটি সরানো যাবে না।");
+      return;
+    }
+
+    if (id === MANDATORY_DELETE_EDIT_REQS_NOTIFICATION_ID) {
+      toast.error("গত মাসের অ্যাটেনডেন্স অ্যাডজাস্টমেন্ট ডেটা ডিলিট না করা পর্যন্ত এই নোটিফিকেশনটি সরানো যাবে না।");
+      return;
+    }
+
+    if (id === MANDATORY_DELETE_LEAVE_REQS_NOTIFICATION_ID) {
+      toast.error("গত মাসের লিভ রিকোয়েস্ট ডেটা ডিলিট না করা পর্যন্ত এই নোটিফিকেশনটি সরানো যাবে না।");
+      return;
+    }
 
     const updated = [...readNotifications, id];
     setReadNotifications(updated);
@@ -603,6 +661,10 @@ export default function ManagerDashboard({
     month: string;
     campus: string;
   } | null>(null);
+  const [confirmDeleteMonthlyEditRequestsMonth, setConfirmDeleteMonthlyEditRequestsMonth] =
+    useState<string | null>(null);
+  const [confirmDeleteMonthlyLeaveRequestsMonth, setConfirmDeleteMonthlyLeaveRequestsMonth] =
+    useState<string | null>(null);
   const [confirmDeletePreviewRowIndex, setConfirmDeletePreviewRowIndex] =
     useState<number | null>(null);
   const [isAddCampusModalOpen, setIsAddCampusModalOpen] = useState(false);
@@ -2125,7 +2187,10 @@ export default function ManagerDashboard({
     notificationProblematicAttendances.length +
     notificationMissingAttendances.length +
     totalUnreadRequestsCount +
-    unreadEmailCount;
+    unreadEmailCount +
+    (shouldShowMandatoryNotice ? 1 : 0) +
+    (shouldShowMandatoryEditNotice ? 1 : 0) +
+    (shouldShowMandatoryLeaveNotice ? 1 : 0);
 
   const filteredAndSortedLeaveRequests = React.useMemo(() => {
     let result = [...leaveRequests];
@@ -2353,7 +2418,10 @@ export default function ManagerDashboard({
                     {
                       id: "notices",
                       label: "Notices ",
-                      count: unreadEmailCount,
+                      count: unreadEmailCount + 
+                        (shouldShowMandatoryNotice ? 1 : 0) + 
+                        (shouldShowMandatoryEditNotice ? 1 : 0) + 
+                        (shouldShowMandatoryLeaveNotice ? 1 : 0),
                     },
                   ].map((tab) => (
                     <button
@@ -2540,7 +2608,100 @@ export default function ManagerDashboard({
 
                   {notificationActiveTab === "notices" && (
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {unreadEmailCount === 0 ? (
+                      {shouldShowMandatoryNotice && (
+                        <div
+                          onClick={() => {
+                            setActiveTab("attendance-viewer");
+                            setAttendanceViewerDate(`${prevMonthStr}-01`);
+                            setIsNotificationsOpen(false);
+                            window.scrollTo({
+                              top: 300,
+                              behavior: "smooth",
+                            });
+                            toast.success(`Navigated to Team Member Attendance. Month ${prevMonthStr} has been selected for deletion.`);
+                          }}
+                          className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 shadow-sm mb-4 text-left cursor-pointer hover:bg-rose-100/50 hover:border-rose-300 transition-all"
+                        >
+                           <div className="flex items-start gap-3">
+                             <div className="p-2 bg-rose-100 rounded-lg text-rose-600">
+                               <AlertCircle className="w-5 h-5" />
+                             </div>
+                             <div className="flex-1">
+                               <div className="flex items-center justify-between">
+                                 <h4 className="text-sm font-bold text-rose-900">Month End Cleanup</h4>
+                                 <span className="px-1.5 py-0.5 bg-rose-200 text-rose-800 text-[8px] font-black uppercase rounded">Mandatory</span>
+                               </div>
+                               <p className="text-[11px] text-rose-700 mt-1 leading-relaxed">
+                                 Team member attendance data for {prevMonthStr} is still in the system. Click here to go to Team Member Attendance and select this month for deletion.
+                               </p>
+                             </div>
+                           </div>
+                        </div>
+                      )}
+
+                      {shouldShowMandatoryEditNotice && (
+                        <div
+                          onClick={() => {
+                            setActiveTab("edit_requests");
+                            setAttendanceEditMonthFilter(prevMonthStr);
+                            setIsNotificationsOpen(false);
+                            window.scrollTo({
+                              top: 300,
+                              behavior: "smooth",
+                            });
+                            toast.success(`Navigated to Attendance Adjustments. Month ${prevMonthStr} has been selected for deletion.`);
+                          }}
+                          className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 shadow-sm mb-4 text-left cursor-pointer hover:bg-rose-100/50 hover:border-rose-300 transition-all"
+                        >
+                           <div className="flex items-start gap-3">
+                             <div className="p-2 bg-rose-100 rounded-lg text-rose-600">
+                               <AlertCircle className="w-5 h-5" />
+                             </div>
+                             <div className="flex-1">
+                               <div className="flex items-center justify-between">
+                                 <h4 className="text-sm font-bold text-rose-900">Attendance Adjustments Cleanup</h4>
+                                 <span className="px-1.5 py-0.5 bg-rose-200 text-rose-800 text-[8px] font-black uppercase rounded">Mandatory</span>
+                               </div>
+                               <p className="text-[11px] text-rose-700 mt-1 leading-relaxed">
+                                 Attendance adjustments (Edit Requests) for {prevMonthStr} are still in the system. Click here to go to Attendance Adjustments and select this month for deletion.
+                               </p>
+                             </div>
+                           </div>
+                        </div>
+                      )}
+
+                      {shouldShowMandatoryLeaveNotice && (
+                        <div
+                          onClick={() => {
+                            setActiveTab("leave-requests");
+                            setLeaveFilterMonth(prevMonthStr);
+                            setIsNotificationsOpen(false);
+                            window.scrollTo({
+                              top: 300,
+                              behavior: "smooth",
+                            });
+                            toast.success(`Navigated to Leave Requests. Month ${prevMonthStr} has been selected for deletion.`);
+                          }}
+                          className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 shadow-sm mb-4 text-left cursor-pointer hover:bg-rose-100/50 hover:border-rose-300 transition-all"
+                        >
+                           <div className="flex items-start gap-3">
+                             <div className="p-2 bg-rose-100 rounded-lg text-rose-600">
+                               <AlertCircle className="w-5 h-5" />
+                             </div>
+                             <div className="flex-1">
+                               <div className="flex items-center justify-between">
+                                 <h4 className="text-sm font-bold text-rose-900">Leave Requests Cleanup</h4>
+                                 <span className="px-1.5 py-0.5 bg-rose-200 text-rose-800 text-[8px] font-black uppercase rounded">Mandatory</span>
+                               </div>
+                               <p className="text-[11px] text-rose-700 mt-1 leading-relaxed">
+                                 Leave Requests for {prevMonthStr} are still in the system. Click here to go to Leave Requests and select this month for deletion.
+                               </p>
+                             </div>
+                           </div>
+                        </div>
+                      )}
+
+                      {unreadEmailCount === 0 && !shouldShowMandatoryNotice && !shouldShowMandatoryEditNotice && !shouldShowMandatoryLeaveNotice ? (
                         <div className="py-12 text-center text-slate-400">
                           <Inbox className="w-12 h-12 mx-auto text-slate-200 mb-2" />
                           <p className="font-bold text-slate-500">
@@ -3110,6 +3271,32 @@ export default function ManagerDashboard({
             }}
             title="Delete Monthly Attendance"
             message={`Are you sure you want to delete ALL attendance reports for ${confirmDeleteMonthlyInfo?.month} (${confirmDeleteMonthlyInfo?.campus === "All" ? "All Campuses" : confirmDeleteMonthlyInfo?.campus})? This action cannot be undone.`}
+          />
+
+          <ConfirmModal
+            isOpen={!!confirmDeleteMonthlyEditRequestsMonth}
+            onClose={() => setConfirmDeleteMonthlyEditRequestsMonth(null)}
+            onConfirm={() => {
+              if (confirmDeleteMonthlyEditRequestsMonth && onDeleteMonthlyEditRequests) {
+                onDeleteMonthlyEditRequests(confirmDeleteMonthlyEditRequestsMonth);
+              }
+              setConfirmDeleteMonthlyEditRequestsMonth(null);
+            }}
+            title="Delete Monthly Attendance Adjustments"
+            message={`Are you sure you want to delete ALL attendance adjustments/edit requests for ${confirmDeleteMonthlyEditRequestsMonth}? This action cannot be undone.`}
+          />
+
+          <ConfirmModal
+            isOpen={!!confirmDeleteMonthlyLeaveRequestsMonth}
+            onClose={() => setConfirmDeleteMonthlyLeaveRequestsMonth(null)}
+            onConfirm={() => {
+              if (confirmDeleteMonthlyLeaveRequestsMonth && onDeleteMonthlyLeaveRequests) {
+                onDeleteMonthlyLeaveRequests(confirmDeleteMonthlyLeaveRequestsMonth);
+              }
+              setConfirmDeleteMonthlyLeaveRequestsMonth(null);
+            }}
+            title="Delete Monthly Leave Requests"
+            message={`Are you sure you want to delete ALL leave requests for ${confirmDeleteMonthlyLeaveRequestsMonth}? This action cannot be undone.`}
           />
 
           <ConfirmModal
@@ -4109,7 +4296,7 @@ export default function ManagerDashboard({
               <div className="flex flex-wrap items-end gap-4 mb-6">
                 <div className="flex-1 min-w-[200px]">
                   <label className="block text-xs font-Attendance Adjustmentsblack uppercase text-slate-500 tracking-wider mb-2">
-                    Select Month (For Export)
+                    Select Month (For Export & Delete)
                   </label>
                   <input
                     type="month"
@@ -7273,6 +7460,15 @@ export default function ManagerDashboard({
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                     </div>
+                    {attendanceEditMonthFilter !== "All" && (
+                      <button
+                        onClick={() => setConfirmDeleteMonthlyEditRequestsMonth(attendanceEditMonthFilter)}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <Trash className="w-3.5 h-3.5" />
+                        Delete Monthly Requests
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -7712,8 +7908,45 @@ export default function ManagerDashboard({
                   <p className="text-xs text-slate-400 mt-1"></p>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-4 mb-6 mt-4">
-                  <div className="flex-1 min-w-[200px]">
+                {/* Quick Metrics */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                  <div className="p-4 bg-indigo-50/45 rounded-2xl border border-indigo-100/50">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Pending Leave Requests
+                    </p>
+                    <p className="text-2xl font-black text-indigo-700 mt-1">
+                      {
+                        leaveRequests.filter((r) => r.status === "Pending")
+                          .length
+                      }
+                    </p>
+                  </div>
+                  <div className="p-4 bg-emerald-50/45 rounded-2xl border border-emerald-100/50">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Approved
+                    </p>
+                    <p className="text-2xl font-black text-emerald-700 mt-1">
+                      {
+                        leaveRequests.filter((r) => r.status === "Approved")
+                          .length
+                      }
+                    </p>
+                  </div>
+                  <div className="p-4 bg-rose-50/45 rounded-2xl border border-rose-100/50">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Rejected
+                    </p>
+                    <p className="text-2xl font-black text-rose-700 mt-1">
+                      {
+                        leaveRequests.filter((r) => r.status === "Rejected")
+                          .length
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-end gap-3 mb-6 mt-4">
+                  <div className="flex-1 min-w-[180px]">
                     <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
                       Search Member
                     </label>
@@ -7725,7 +7958,7 @@ export default function ManagerDashboard({
                       className="w-full px-4 py-3 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     />
                   </div>
-                  <div className="flex-1 min-w-[150px]">
+                  <div className="flex-1 min-w-[130px]">
                     <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
                       Filter Status
                     </label>
@@ -7740,7 +7973,7 @@ export default function ManagerDashboard({
                       <option value="Rejected">Rejected</option>
                     </select>
                   </div>
-                  <div className="flex-1 min-w-[150px]">
+                  <div className="flex-1 min-w-[140px]">
                     <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
                       Filter Leave Type
                     </label>
@@ -7765,7 +7998,26 @@ export default function ManagerDashboard({
                       <option value="Other Leave">Other Leave</option>
                     </select>
                   </div>
-                  <div className="flex-1 min-w-[150px]">
+                  <div className="flex-1 min-w-[130px]">
+                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                      Sort By
+                    </label>
+                    <select
+                      value={leaveSortBy}
+                      onChange={(e) => setLeaveSortBy(e.target.value)}
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="newest">Newest First</option>
+                      <option value="oldest">Oldest First</option>
+                      <option value="duration_desc">
+                        Duration (High to Low)
+                      </option>
+                      <option value="duration_asc">
+                        Duration (Low to High)
+                      </option>
+                    </select>
+                  </div>
+                  <div className="flex-1 min-w-[140px]">
                     <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
                       Filter Month
                     </label>
@@ -7806,25 +8058,17 @@ export default function ManagerDashboard({
                       })()}
                     </select>
                   </div>
-                  <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
-                      Sort By
-                    </label>
-                    <select
-                      value={leaveSortBy}
-                      onChange={(e) => setLeaveSortBy(e.target.value)}
-                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    >
-                      <option value="newest">Newest First</option>
-                      <option value="oldest">Oldest First</option>
-                      <option value="duration_desc">
-                        Duration (High to Low)
-                      </option>
-                      <option value="duration_asc">
-                        Duration (Low to High)
-                      </option>
-                    </select>
-                  </div>
+                  {leaveFilterMonth !== "All" && (
+                    <div className="flex-none">
+                      <button
+                        onClick={() => setConfirmDeleteMonthlyLeaveRequestsMonth(leaveFilterMonth)}
+                        className="px-4 py-3 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-1.5 whitespace-nowrap h-[42px] border border-rose-600"
+                      >
+                        <Trash className="w-3.5 h-3.5" />
+                        Delete Monthly Requests
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Bulk Actions Bar */}
@@ -7905,43 +8149,6 @@ export default function ManagerDashboard({
                     </motion.div>
                   )}
                 </AnimatePresence>
-
-                {/* Quick Metrics */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                  <div className="p-4 bg-indigo-50/45 rounded-2xl border border-indigo-100/50">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Pending Leave Requests
-                    </p>
-                    <p className="text-2xl font-black text-indigo-700 mt-1">
-                      {
-                        leaveRequests.filter((r) => r.status === "Pending")
-                          .length
-                      }
-                    </p>
-                  </div>
-                  <div className="p-4 bg-emerald-50/45 rounded-2xl border border-emerald-100/50">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Approved
-                    </p>
-                    <p className="text-2xl font-black text-emerald-700 mt-1">
-                      {
-                        leaveRequests.filter((r) => r.status === "Approved")
-                          .length
-                      }
-                    </p>
-                  </div>
-                  <div className="p-4 bg-rose-50/45 rounded-2xl border border-rose-100/50">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Rejected
-                    </p>
-                    <p className="text-2xl font-black text-rose-700 mt-1">
-                      {
-                        leaveRequests.filter((r) => r.status === "Rejected")
-                          .length
-                      }
-                    </p>
-                  </div>
-                </div>
 
                 {filteredAndSortedLeaveRequests.length === 0 ? (
                   <div className="bg-slate-50 border border-slate-150 rounded-2xl p-12 text-center text-slate-400">

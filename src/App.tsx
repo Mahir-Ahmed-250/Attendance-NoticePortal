@@ -644,6 +644,42 @@ export default function App() {
     }
   };
 
+  const handleDeleteMonthlyEditRequests = async (month: string) => {
+    try {
+      const toDelete = attendanceEditRequests.filter(r => r.date && r.date.startsWith(month));
+      if (toDelete.length === 0) {
+        toast.error('No attendance adjustments found for this month.');
+        return;
+      }
+      await Promise.all(toDelete.map(r => api.requests.edit.delete(r.pin)));
+      setAttendanceEditRequests(prev => (prev || []).filter(r => !(r.date && r.date.startsWith(month))));
+      toast.success(`All attendance adjustments for ${month} deleted.`);
+    } catch (err) {
+      toast.error('Failed to delete monthly adjustments.');
+    }
+  };
+
+  const handleDeleteMonthlyLeaveRequests = async (month: string) => {
+    try {
+      const toDelete = leaveRequests.filter(r => 
+        (r.startDate && r.startDate.startsWith(month)) || 
+        (r.endDate && r.endDate.startsWith(month))
+      );
+      if (toDelete.length === 0) {
+        toast.error('No leave requests found for this month.');
+        return;
+      }
+      await Promise.all(toDelete.map(r => api.requests.leave.delete(r.pin)));
+      setLeaveRequests(prev => (prev || []).filter(r => !(
+        (r.startDate && r.startDate.startsWith(month)) || 
+        (r.endDate && r.endDate.startsWith(month))
+      )));
+      toast.success(`All leave requests for ${month} deleted.`);
+    } catch (err) {
+      toast.error('Failed to delete monthly leave requests.');
+    }
+  };
+
   const handleUpdateAttendanceRecord = async (reportPin: string, memberPin: string, updatedRecord: MemberAttendance) => {
     try {
       const report = reports.find(r => r.pin === reportPin);
@@ -1347,6 +1383,8 @@ export default function App() {
                           onDeleteAttendanceRecord={handleDeleteAttendanceRecord}
                           onDeleteReport={handleDeleteReport}
                           onDeleteMonthlyAttendance={handleDeleteMonthlyAttendance}
+                          onDeleteMonthlyEditRequests={handleDeleteMonthlyEditRequests}
+                          onDeleteMonthlyLeaveRequests={handleDeleteMonthlyLeaveRequests}
                           onUpdateAttendanceRecord={handleUpdateAttendanceRecord}
                           onUpdateAssignment={handleUpdateAssignment}
                           onResolveFeedback={handleResolveFeedback}
