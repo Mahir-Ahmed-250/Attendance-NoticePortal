@@ -22,6 +22,8 @@ import {
   getEffectiveStatus,
   formatDateLong,
   parseTimeToMinutes,
+  getRecordWorkingMinutes,
+  formatMins,
 } from "../utils";
 import {
   Calendar,
@@ -74,9 +76,10 @@ import {
   TrendingUp,
   Award,
   Activity,
+  Building2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import ProfileSettings from "./ProfileSettings";
 import NoticeBoard from "./NoticeBoard";
 import CallManagement from "./CallManagement";
@@ -270,6 +273,7 @@ export default function ManagerDashboard({
   onRefreshEmails,
 }: ManagerDashboardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState<
     | "attendance"
     | "feedback"
@@ -286,6 +290,35 @@ export default function ManagerDashboard({
     | "call-management"
     | "permissions"
   >("attendance");
+
+  useEffect(() => {
+    const pathSegment = location.pathname.split("/").filter(Boolean)[0];
+    const validTabs = [
+      "attendance",
+      "feedback",
+      "roster",
+      "notices",
+      "verification",
+      "profile",
+      "campuses",
+      "attendance-viewer",
+      "attendance-trends",
+      "members",
+      "edit_requests",
+      "leave-requests",
+      "call-management",
+      "permissions",
+    ];
+    if (pathSegment && validTabs.includes(pathSegment as any)) {
+      setActiveTab(pathSegment as any);
+    }
+  }, [location.pathname]);
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    setViewedMemberPin(null);
+    navigate(`/${tab}`);
+  };
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [viewedMemberPin, setViewedMemberPin] = useState<string | null>(null);
   const [attendanceStartDate, setAttendanceStartDate] = useState(() => {
@@ -327,6 +360,15 @@ export default function ManagerDashboard({
     const m = String(today.getMonth() + 1).padStart(2, "0");
     return `${y}-${m}`;
   });
+  const [trendsSearchMember, setTrendsSearchMember] = useState("");
+  const [trendsMemberSortBy, setTrendsMemberSortBy] = useState<
+    "avg_desc" | "avg_asc" | "less_than_10" | "total_desc" | "name_asc" | "pin_asc"
+  >("avg_desc");
+  const [trendsMemberPage, setTrendsMemberPage] = useState(1);
+
+  useEffect(() => {
+    setTrendsMemberPage(1);
+  }, [trendsSearchMember, trendsMemberSortBy, trendsMonth, trendsCampus]);
   const [notificationActiveTab, setNotificationActiveTab] = useState<
     "requests" | "problematic" | "missing" | "notices"
   >("requests");
@@ -493,6 +535,110 @@ export default function ManagerDashboard({
       };
     }).sort((a, b) => b.rate - a.rate);
 
+    // 5. Compute Per-Member Monthly Average Working Hours & Statistics
+    const allPeople = [...members, ...mentors];
+    const memberHoursMap: Record<string, {
+      pin: string;
+      name: string;
+      campus: string;
+      designation: string;
+      role: string;
+      totalHours: number;
+      totalMinutes: number;
+      workDaysLogged: number;
+      presentDays: number;
+      absentDays: number;
+      leaveDays: number;
+      totalRecords: number;
+    }> = {};
+
+    allPeople.forEach(person => {
+      if (trendsCampus === "All" || !person.campus || person.campus === trendsCampus) {
+        memberHoursMap[person.pin] = {
+          pin: person.pin,
+          name: person.name,
+          campus: person.campus || "N/A",
+          designation: person.designation || (person.role === "mentor" ? "Mentor" : "Member"),
+          role: person.role,
+          totalHours: 0,
+          totalMinutes: 0,
+          workDaysLogged: 0,
+          presentDays: 0,
+          absentDays: 0,
+          leaveDays: 0,
+          totalRecords: 0,
+        };
+      }
+    });
+
+    filteredReports.forEach(report => {
+      report.records.forEach(rec => {
+        let personStat = memberHoursMap[rec.memberPin];
+        if (!personStat) {
+          const foundPerson = allPeople.find(p => p.pin === rec.memberPin);
+          personStat = {
+            pin: rec.memberPin,
+            name: rec.memberName || foundPerson?.name || "Unknown",
+            campus: report.campus || foundPerson?.campus || "N/A",
+            designation: foundPerson?.designation || "Member",
+            role: foundPerson?.role || "member",
+            totalHours: 0,
+            totalMinutes: 0,
+            workDaysLogged: 0,
+            presentDays: 0,
+            absentDays: 0,
+            leaveDays: 0,
+            totalRecords: 0,
+          };
+          memberHoursMap[rec.memberPin] = personStat;
+        }
+
+        personStat.totalRecords++;
+        const status = rec.status;
+        if (isPresentStatus(status)) {
+          personStat.presentDays++;
+        } else if (isAbsentStatus(status)) {
+          personStat.absentDays++;
+        } else if (isLeaveStatus(status)) {
+          personStat.leaveDays++;
+        }
+
+        // Calculate working hours for this record
+        const mins = getRecordWorkingMinutes(rec);
+        if (mins > 0) {
+          personStat.totalMinutes = (personStat.totalMinutes || 0) + mins;
+          personStat.workDaysLogged++;
+        }
+      });
+    });
+
+    const memberAvgList = Object.values(memberHoursMap).map(person => {
+      const totalMins = person.totalMinutes || 0;
+      const divisor = person.presentDays > 0 ? person.presentDays : person.workDaysLogged;
+      const avgMinutes = divisor > 0 ? Math.round(totalMins / divisor) : 0;
+      const totalHours = totalMins / 60;
+      const avgHours = avgMinutes / 60;
+      return {
+        ...person,
+        totalMinutes: totalMins,
+        avgMinutes,
+        totalHours,
+        avgHours,
+      };
+    });
+
+    const membersWithHours = memberAvgList.filter(m => m.avgHours > 0 || m.presentDays > 0);
+    const overallTeamAvgHours = membersWithHours.length > 0
+      ? membersWithHours.reduce((sum, m) => sum + m.avgHours, 0) / membersWithHours.length
+      : 0;
+
+    const totalTeamWorkHours = memberAvgList.reduce((sum, m) => sum + m.totalHours, 0);
+
+    const topPerformer =
+      [...memberAvgList]
+        .filter((m) => (m.avgMinutes || 0) > 0)
+        .sort((a, b) => (b.avgMinutes || 0) - (a.avgMinutes || 0) || (b.totalMinutes || 0) - (a.totalMinutes || 0))[0] || null;
+
     return {
       dailyTrends,
       monthlyTrends,
@@ -503,8 +649,103 @@ export default function ManagerDashboard({
         overallRate,
       },
       campusComparison,
+      memberAvgList,
+      overallTeamAvgHours,
+      totalTeamWorkHours,
+      topPerformer,
     };
-  }, [reports, trendsCampus, trendsMonth]);
+  }, [reports, trendsCampus, trendsMonth, members, mentors]);
+
+  const filteredMemberAvgList = React.useMemo(() => {
+    if (!attendanceTrendsData.memberAvgList) return [];
+    let list = [...attendanceTrendsData.memberAvgList];
+
+    if (trendsSearchMember.trim()) {
+      const query = trendsSearchMember.toLowerCase().trim();
+      list = list.filter((m) =>
+        m.name.toLowerCase().includes(query) ||
+        m.pin.toLowerCase().includes(query) ||
+        m.campus.toLowerCase().includes(query) ||
+        (m.designation && m.designation.toLowerCase().includes(query))
+      );
+    }
+
+    switch (trendsMemberSortBy) {
+      case "avg_desc":
+        list.sort((a, b) => b.avgHours - a.avgHours);
+        break;
+      case "avg_asc":
+        list.sort((a, b) => a.avgHours - b.avgHours);
+        break;
+      case "less_than_10":
+        list = list.filter((m) => m.avgHours < 10);
+        list.sort((a, b) => b.avgHours - a.avgHours);
+        break;
+      case "total_desc":
+        list.sort((a, b) => b.totalHours - a.totalHours);
+        break;
+      case "name_asc":
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "pin_asc":
+        list.sort((a, b) => a.pin.localeCompare(b.pin));
+        break;
+      default:
+        list.sort((a, b) => b.avgHours - a.avgHours);
+    }
+
+    return list;
+  }, [attendanceTrendsData.memberAvgList, trendsSearchMember, trendsMemberSortBy]);
+
+  const itemsPerPage = 10;
+  const totalTrendsPages = Math.ceil(filteredMemberAvgList.length / itemsPerPage) || 1;
+  const safeTrendsPage = Math.min(trendsMemberPage, totalTrendsPages);
+  const paginatedMemberAvgList = React.useMemo(() => {
+    const startIdx = (safeTrendsPage - 1) * itemsPerPage;
+    return filteredMemberAvgList.slice(startIdx, startIdx + itemsPerPage);
+  }, [filteredMemberAvgList, safeTrendsPage, itemsPerPage]);
+
+  const handleExportAverageWorkingHours = () => {
+    if (!attendanceTrendsData.memberAvgList || attendanceTrendsData.memberAvgList.length === 0) {
+      toast.error("No data available for export!");
+      return;
+    }
+
+    const headers = [
+      "PIN",
+      "Member Name",
+      "Designation",
+      "Campus",
+      "Month",
+      "Present Days",
+      "Logged Days",
+      "Total Working Hours",
+      "Average Working Hours/Day"
+    ];
+
+    const rows = attendanceTrendsData.memberAvgList.map((m) => [
+      `"${m.pin}"`,
+      `"${m.name.replace(/"/g, '""')}"`,
+      `"${(m.designation || 'Member').replace(/"/g, '""')}"`,
+      `"${(m.campus || 'N/A').replace(/"/g, '""')}"`,
+      `"${trendsMonth}"`,
+      m.presentDays,
+      m.workDaysLogged,
+      m.totalHours.toFixed(2),
+      m.avgHours.toFixed(2)
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Member_Average_Working_Hours_${trendsMonth}_${trendsCampus}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Exported team members average working hours successfully!");
+  };
 
   const MANDATORY_DELETE_NOTIFICATION_ID = 'mandatory-month-end-delete';
   const MANDATORY_DELETE_EDIT_REQS_NOTIFICATION_ID = 'mandatory-month-end-delete-edit-reqs';
@@ -3028,11 +3269,11 @@ export default function ManagerDashboard({
                   },
                   { id: "profile", icon: UserIcon, label: "Profile Settings" },
                 ].map((tab) => (
-                  <button
+                  <Link
                     key={tab.id}
+                    to={`/${tab.id}`}
                     onClick={() => {
-                      setActiveTab(tab.id as any);
-                      setViewedMemberPin(null);
+                      handleTabChange(tab.id as any);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                       activeTab === tab.id
@@ -3051,7 +3292,7 @@ export default function ManagerDashboard({
                         {tab.count}
                       </span>
                     )}
-                  </button>
+                  </Link>
                 ))}
               </div>
             </motion.div>
@@ -3136,11 +3377,11 @@ export default function ManagerDashboard({
                   },
                   { id: "profile", icon: UserIcon, label: "Profile Settings" },
                 ].map((tab) => (
-                  <button
+                  <Link
                     key={tab.id}
+                    to={`/${tab.id}`}
                     onClick={() => {
-                      setActiveTab(tab.id as any);
-                      setViewedMemberPin(null);
+                      handleTabChange(tab.id as any);
                       setIsMobileMenuOpen(false);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
@@ -3160,7 +3401,7 @@ export default function ManagerDashboard({
                         {tab.count}
                       </span>
                     )}
-                  </button>
+                  </Link>
                 ))}
               </div>
             </motion.div>
@@ -5744,6 +5985,235 @@ export default function ManagerDashboard({
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* Member Average Working Hours & Export Section */}
+              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs text-left space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-800 tracking-tight flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-indigo-600" />
+                      Monthly Member Average Working Hours
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium mt-1">
+                      Month: <span className="font-bold text-slate-700">{trendsMonth}</span> | Campus: <span className="font-bold text-slate-700">{trendsCampus === "All" ? "All Campuses" : trendsCampus}</span>
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleExportAverageWorkingHours}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-2 whitespace-nowrap h-[42px]"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export Avg Hours (CSV)
+                  </button>
+                </div>
+
+                {/* Sub-Summary Stats */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="text-[10px] font-bold text-indigo-900/70 uppercase">Top Campus Performer</p>
+                      <p className="text-sm font-black text-indigo-950 truncate">
+                        {attendanceTrendsData.campusComparison && attendanceTrendsData.campusComparison.length > 0 ? (
+                          `${attendanceTrendsData.campusComparison[0].name} (${attendanceTrendsData.campusComparison[0].rate}%)`
+                        ) : (
+                          "N/A"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+                      <Award className="w-5 h-5" />
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="text-[10px] font-bold text-emerald-900/70 uppercase">Top Avg Performer</p>
+                      <p className="text-sm font-black text-emerald-950 truncate">
+                        {attendanceTrendsData.topPerformer ? (
+                          `${attendanceTrendsData.topPerformer.name} (${formatMins(attendanceTrendsData.topPerformer.avgMinutes)}/day)`
+                        ) : (
+                          "N/A"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-100 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center font-bold">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-amber-900/70 uppercase">Tracked Team Members</p>
+                      <p className="text-lg font-black text-amber-950 font-mono">
+                        {attendanceTrendsData.memberAvgList ? attendanceTrendsData.memberAvgList.length : 0} Members
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filter and Search Bar for Member Hours */}
+                <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search member by name or PIN..."
+                      value={trendsSearchMember}
+                      onChange={(e) => setTrendsSearchMember(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <label className="text-xs font-bold text-slate-500 whitespace-nowrap">Sort By:</label>
+                    <select
+                      value={trendsMemberSortBy}
+                      onChange={(e: any) => setTrendsMemberSortBy(e.target.value)}
+                      className="w-full sm:w-auto px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                    >
+                      <option value="avg_desc">Highest Avg Hours (High to Low)</option>
+                      <option value="avg_asc">Lowest Avg Hours (Low to High)</option>
+                      <option value="less_than_10">&lt; 10 Hours Daily Avg (&lt;10Hrs)</option>
+                      <option value="total_desc">Total Work Hours (High to Low)</option>
+                      <option value="name_asc">By Name (A-Z)</option>
+                      <option value="pin_asc">By PIN</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Data Table */}
+                <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold text-[10px]">
+                        <th className="py-3 px-4">#</th>
+                        <th className="py-3 px-4">Team Member (Name & PIN)</th>
+                        <th className="py-3 px-4">Campus</th>
+                        <th className="py-3 px-4 text-center">Working Days</th>
+                        <th className="py-3 px-4 text-right">Total Hours</th>
+                        <th className="py-3 px-4 text-right">Daily Avg Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      {filteredMemberAvgList.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold">
+                            No average working hours data found for team members
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedMemberAvgList.map((m, idx) => (
+                          <tr key={m.pin} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="py-3 px-4 font-mono font-bold text-slate-400 text-[11px]">
+                              {(safeTrendsPage - 1) * itemsPerPage + idx + 1}
+                            </td>
+                            <td className="py-3 px-4">
+                              <Link
+                                to={`/attendance/${m.pin}?month=${trendsMonth}`}
+                                className="flex items-center gap-2.5 text-left group cursor-pointer hover:opacity-90 transition-opacity"
+                                title="Click to view member attendance details for this month"
+                              >
+                                <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                  {m.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-slate-800 text-xs group-hover:text-indigo-600 group-hover:underline transition-colors flex items-center gap-1">
+                                    {m.name}
+                                  </p>
+                                  <p className="text-[10px] font-mono text-slate-400">PIN: {m.pin} • {m.designation}</p>
+                                </div>
+                              </Link>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                {m.campus}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center font-mono font-bold text-emerald-600">
+                              {m.presentDays} days
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-extrabold text-slate-800">
+                              {formatMins(m.totalMinutes)}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black font-mono border ${
+                                  m.avgHours >= 8.5
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                    : m.avgHours >= 6.5
+                                    ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                    : m.avgHours >= 4.0
+                                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                                    : "bg-rose-50 text-rose-700 border-rose-200"
+                                }`}
+                              >
+                                <Clock className="w-3.5 h-3.5" />
+                                {formatMins(m.avgMinutes)} / day
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+
+                  {/* Pagination Bar */}
+                  {filteredMemberAvgList.length > 0 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 font-semibold">
+                      <div>
+                        Showing <span className="font-bold text-slate-900">{(safeTrendsPage - 1) * itemsPerPage + 1}</span> to{" "}
+                        <span className="font-bold text-slate-900">
+                          {Math.min(safeTrendsPage * itemsPerPage, filteredMemberAvgList.length)}
+                        </span>{" "}
+                        of <span className="font-bold text-slate-900">{filteredMemberAvgList.length}</span> members
+                      </div>
+
+                      {totalTrendsPages > 1 && (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setTrendsMemberPage((p) => Math.max(1, p - 1))}
+                            disabled={safeTrendsPage === 1}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                            title="Previous Page"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+
+                          {Array.from({ length: totalTrendsPages }, (_, i) => i + 1).map((pageNum) => (
+                            <button
+                              key={pageNum}
+                              type="button"
+                              onClick={() => setTrendsMemberPage(pageNum)}
+                              className={`px-3 py-1 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                                pageNum === safeTrendsPage
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          ))}
+
+                          <button
+                            type="button"
+                            onClick={() => setTrendsMemberPage((p) => Math.min(totalTrendsPages, p + 1))}
+                            disabled={safeTrendsPage === totalTrendsPages}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                            title="Next Page"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
@@ -8408,19 +8878,16 @@ export default function ManagerDashboard({
                                       className="w-full px-1 py-0.5 border border-indigo-300 rounded text-[11px] bg-white font-semibold"
                                     />
                                   ) : (
-                                    req.responsiblePersonName ||
-                                    req.coordinatorName
+                                    req.responsiblePersonName || "-"
                                   )}
                                 </td>
                                 <td className="p-2 text-[11px] font-mono font-bold text-slate-500 border border-[#e0e0e0]">
                                   {isEditing ? (
                                     <div className="w-full px-1 py-0.5 border border-slate-200 rounded text-[11px] bg-slate-50 font-mono font-bold text-slate-400 cursor-not-allowed">
-                                      {req.responsiblePersonPin ||
-                                        req.coordinatorPin}
+                                      {req.responsiblePersonPin || "-"}
                                     </div>
                                   ) : (
-                                    req.responsiblePersonPin ||
-                                    req.coordinatorPin
+                                    req.responsiblePersonPin || "-"
                                   )}
                                 </td>
                                 <td className="p-2 text-[11px] font-semibold border border-[#e0e0e0]">
@@ -8916,9 +9383,7 @@ export default function ManagerDashboard({
                       Responsible Person PIN
                     </label>
                     <div className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 font-semibold text-slate-400 cursor-not-allowed">
-                      {leaveEditForm.responsiblePersonPin ||
-                        leaveEditForm.coordinatorPin ||
-                        "N/A"}
+                      {leaveEditForm.responsiblePersonPin || "N/A"}
                     </div>
                   </div>
                 </div>

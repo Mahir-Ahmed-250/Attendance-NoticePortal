@@ -38,6 +38,63 @@ export function calculateWorkingHours(
   return diff / 60;
 }
 
+export function getRecordWorkingMinutes(record?: { checkInTime?: string; checkOutTime?: string; workingHour?: string }): number {
+  if (!record) return 0;
+
+  // 1. Try calculateWorkingHours first if checkInTime and checkOutTime exist
+  const hours = calculateWorkingHours(record.checkInTime, record.checkOutTime);
+  if (hours !== null && hours > 0) {
+    return Math.round(hours * 60);
+  }
+
+  // 2. Fallback to parsing workingHour string
+  if (record.workingHour && record.workingHour !== "-" && record.workingHour.trim() !== "") {
+    const clean = record.workingHour.trim();
+
+    // Check "X Hour Y Min" or "Xh Ym"
+    const hMatch = clean.match(/(\d+)\s*(?:h|hr|hrs|hour|hours)/i);
+    const mMatch = clean.match(/(\d+)\s*(?:m|min|mins|minute|minutes)/i);
+    if (hMatch || mMatch) {
+      const h = hMatch ? parseInt(hMatch[1], 10) : 0;
+      const m = mMatch ? parseInt(mMatch[1], 10) : 0;
+      const totalMins = h * 60 + m;
+      if (totalMins > 0) return totalMins;
+    }
+
+    // Check "HH:MM" e.g. "09:35" or "19:10"
+    const hhmmMatch = clean.match(/(\d{1,2}):(\d{2})/);
+    if (hhmmMatch) {
+      const h = parseInt(hhmmMatch[1], 10);
+      const m = parseInt(hhmmMatch[2], 10);
+      return h * 60 + m;
+    }
+
+    // Check standalone number, e.g. "9.5" or "19.16"
+    const numMatch = clean.match(/(\d+(?:\.\d+)?)/);
+    if (numMatch) {
+      const val = parseFloat(numMatch[1]);
+      if (!isNaN(val) && val > 0) {
+        if (val <= 24) {
+          return Math.round(val * 60);
+        } else {
+          return Math.round(val);
+        }
+      }
+    }
+  }
+
+  return 0;
+}
+
+export function formatMins(totalMinutes: number): string {
+  if (!totalMinutes || totalMinutes <= 0) return '-';
+  const hrs = Math.floor(totalMinutes / 60);
+  const mins = Math.round(totalMinutes % 60);
+  if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+  if (hrs > 0) return `${hrs}h`;
+  return `${mins}m`;
+}
+
 export function getEffectiveStatus(record: any, dateStr?: string): string {
     const hasIn = record.checkInTime && record.checkInTime !== "-" && record.checkInTime.trim() !== "";
     const hasOut = record.checkOutTime && record.checkOutTime !== "-" && record.checkOutTime.trim() !== "";

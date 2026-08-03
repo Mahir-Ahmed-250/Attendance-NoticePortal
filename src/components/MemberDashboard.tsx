@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { motion, AnimatePresence } from "motion/react";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import ProfileSettings from "./ProfileSettings";
 import NoticeBoard from "./NoticeBoard";
 import CallManagement from "./CallManagement";
@@ -125,6 +126,8 @@ export default function MemberDashboard({
   onDeleteMentor,
   onRefreshEmails,
 }: MemberDashboardProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const allowedPerms =
     currentMember.permissions ?? ["member_attendance", "member_notices", "member_emails", "call_management"];
 
@@ -153,6 +156,29 @@ export default function MemberDashboard({
     
     return "profile"; // Default to profile if others are restricted
   });
+
+  useEffect(() => {
+    const pathSegment = location.pathname.split("/").filter(Boolean)[0];
+    const validTabs = [
+      "attendance",
+      "notices",
+      "profile",
+      "leave_requests",
+      "emails",
+      "campus_settings",
+      "call-management",
+      "permissions",
+      "members",
+    ];
+    if (pathSegment && validTabs.includes(pathSegment as any)) {
+      setActiveTab(pathSegment as any);
+    }
+  }, [location.pathname]);
+
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    navigate(`/${tab}`);
+  };
   const [memberSearch, setMemberSearch] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(
     () => window.innerWidth > 1024,
@@ -687,7 +713,7 @@ export default function MemberDashboard({
                                   className="cursor-pointer flex-1 min-w-0"
                                   onClick={() => {
                                     handleMarkNoticeRead(notice.pin);
-                                    setActiveTab("notices");
+                                    handleTabChange("notices");
                                     setIsNotificationsOpen(false);
                                   }}
                                 >
@@ -760,10 +786,11 @@ export default function MemberDashboard({
               </div>
               <div className="flex flex-col gap-1">
                 {visibleTabs.map((t) => (
-                  <button
+                  <Link
                     key={t.id}
+                    to={`/${t.id}`}
                     onClick={() => {
-                      setActiveTab(t.id as any);
+                      handleTabChange(t.id as any);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                       activeTab === t.id
@@ -775,12 +802,13 @@ export default function MemberDashboard({
                     <span className="whitespace-normal text-left leading-tight break-words pr-5">
                       {t.label}
                     </span>
-                  </button>
+                  </Link>
                 ))}
 
-                <button
+                <Link
+                  to="/profile"
                   onClick={() => {
-                    setActiveTab("profile");
+                    handleTabChange("profile");
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                     activeTab === "profile"
@@ -790,12 +818,13 @@ export default function MemberDashboard({
                 >
                   <User className="w-4 h-4 shrink-0" />
                   <span className="whitespace-nowrap">Profile Settings</span>
-                </button>
+                </Link>
 
                 {allowedPerms.includes("call_management") && (
-                  <button
+                  <Link
+                    to="/call-management"
                     onClick={() => {
-                      setActiveTab("call-management");
+                      handleTabChange("call-management");
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
                       activeTab === "call-management"
@@ -809,7 +838,7 @@ export default function MemberDashboard({
                         ? "Call Management"
                         : "Assigned Calls"}
                     </span>
-                  </button>
+                  </Link>
                 )}
               </div>
             </motion.div>
@@ -842,10 +871,11 @@ export default function MemberDashboard({
               </div>
               <div className="flex flex-col gap-1 overflow-y-auto">
                 {visibleTabs.map((t) => (
-                  <button
+                  <Link
                     key={t.id}
+                    to={`/${t.id}`}
                     onClick={() => {
-                      setActiveTab(t.id as any);
+                      handleTabChange(t.id as any);
                       setIsMobileMenuOpen(false);
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
@@ -858,12 +888,13 @@ export default function MemberDashboard({
                     <span className="whitespace-normal text-left leading-tight break-words pr-5">
                       {t.label}
                     </span>
-                  </button>
+                  </Link>
                 ))}
 
-                <button
+                <Link
+                  to="/profile"
                   onClick={() => {
-                    setActiveTab("profile");
+                    handleTabChange("profile");
                     setIsMobileMenuOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
@@ -874,11 +905,12 @@ export default function MemberDashboard({
                 >
                   <User className="w-4 h-4 shrink-0" />
                   <span className="whitespace-nowrap">Profile Settings</span>
-                </button>
+                </Link>
 
-                <button
+                <Link
+                  to="/call-management"
                   onClick={() => {
-                    setActiveTab("call-management");
+                    handleTabChange("call-management");
                     setIsMobileMenuOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-xs font-bold rounded-xl transition-all relative cursor-pointer shrink-0 ${
@@ -893,7 +925,7 @@ export default function MemberDashboard({
                       ? "Call Management"
                       : "Assigned Calls"}
                   </span>
-                </button>
+                </Link>
               </div>
             </motion.div>
           )}

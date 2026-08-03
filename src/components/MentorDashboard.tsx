@@ -60,7 +60,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { motion, AnimatePresence } from "motion/react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import NoticeBoard from "./NoticeBoard";
 import ProfileSettings from "./ProfileSettings";
 import CallManagement from "./CallManagement";
@@ -153,6 +153,7 @@ export default function MentorDashboard({
   onRefreshEmails,
 }: MentorDashboardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const allowedPerms = currentMentor.permissions ?? [
     "mentor_attendance",
     "mentor_notices",
@@ -186,6 +187,26 @@ export default function MentorDashboard({
     if (allowedPerms.includes("mentor_members") || allowedPerms.includes("manage_members")) return "members";
     return "profile";
   });
+
+  useEffect(() => {
+    const pathSegment = location.pathname.split("/").filter(Boolean)[0];
+    const validTabs = [
+      "attendance",
+      "notices",
+      "edit_requests",
+      "profile",
+      "members",
+      "campus_directory",
+      "leaves",
+      "emails",
+      "campus_settings",
+      "call-management",
+      "permissions",
+    ];
+    if (pathSegment && validTabs.includes(pathSegment as any)) {
+      setActiveTab(pathSegment as any);
+    }
+  }, [location.pathname]);
   const [confirmDeleteLeavePin, setConfirmDeleteLeavePin] = useState<
     string | null
   >(null);
@@ -563,6 +584,7 @@ export default function MentorDashboard({
       | "permissions",
   ) => {
     setActiveTab(tab);
+    navigate(`/${tab}`);
     setViewedMemberPin(null);
     setLeaveSearchPin("");
     setLeaveFilterStatus("All");
@@ -1182,7 +1204,7 @@ export default function MentorDashboard({
                                     className="cursor-pointer"
                                     onClick={() => {
                                       onMarkEmailAsRead(msg.pin);
-                                      setActiveTab("emails");
+                                      handleTabChange("emails");
                                       setIsNotificationsOpen(false);
                                     }}
                                   >
@@ -1226,7 +1248,7 @@ export default function MentorDashboard({
                           onClick={() => {
                             setFilterDate("");
                             setFilterStatus("All");
-                            setActiveTab("attendance");
+                            handleTabChange("attendance");
                             setIsNotificationsOpen(false);
                           }}
                           className="w-full py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shadow-3xs"
@@ -1277,8 +1299,9 @@ export default function MentorDashboard({
               </div>
               <div className="flex flex-col gap-1">
                 {visibleTabs.map((t) => (
-                  <button
+                  <Link
                     key={t.id}
+                    to={`/${t.id}`}
                     onClick={() => {
                       handleTabChange(t.id);
                     }}
@@ -1292,10 +1315,11 @@ export default function MentorDashboard({
                     <span className="whitespace-normal text-left leading-tight break-words pr-5">
                       {t.label}
                     </span>
-                  </button>
+                  </Link>
                 ))}
 
-                <button
+                <Link
+                  to="/profile"
                   onClick={() => {
                     handleTabChange("profile");
                   }}
@@ -1307,7 +1331,7 @@ export default function MentorDashboard({
                 >
                   <User className="w-4 h-4" />
                   <span className="whitespace-nowrap">Profile Settings</span>
-                </button>
+                </Link>
               </div>
             </motion.div>
           )}
@@ -1339,8 +1363,9 @@ export default function MentorDashboard({
               </div>
               <div className="flex flex-col gap-1 overflow-y-auto">
                 {visibleTabs.map((t) => (
-                  <button
+                  <Link
                     key={t.id}
+                    to={`/${t.id}`}
                     onClick={() => {
                       handleTabChange(t.id);
                       setIsMobileMenuOpen(false);
@@ -1355,10 +1380,11 @@ export default function MentorDashboard({
                     <span className="whitespace-normal text-left leading-tight break-words pr-5">
                       {t.label}
                     </span>
-                  </button>
+                  </Link>
                 ))}
 
-                <button
+                <Link
+                  to="/profile"
                   onClick={() => {
                     handleTabChange("profile");
                     setIsMobileMenuOpen(false);
@@ -1371,7 +1397,7 @@ export default function MentorDashboard({
                 >
                   <User className="w-4 h-4" />
                   <span className="whitespace-nowrap">Profile Settings</span>
-                </button>
+                </Link>
               </div>
             </motion.div>
           )}

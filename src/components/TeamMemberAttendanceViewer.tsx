@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ArrowLeft, Calendar, Clock, MapPin, User as UserIcon, Sparkles, CheckCircle2, AlertCircle, HelpCircle, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import { AttendanceReport, TeamMember, Mentor } from '../types';
 import { UserAvatar } from './UserAvatar';
-import { getEffectiveStatus } from '../utils';
+import { getEffectiveStatus, getRecordWorkingMinutes } from '../utils';
 
 interface Props {
   reports: AttendanceReport[];
@@ -17,18 +17,30 @@ interface Props {
 export default function TeamMemberAttendanceViewer({ reports, members, mentors }: Props) {
   const { pin } = useParams<{ pin: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const monthParam = searchParams.get('month');
 
   // Find the selected member or mentor
   const targetUser = members.find(m => m.pin === pin) || mentors.find(m => m.pin === pin);
 
-  // Default date ranges (current month)
+  // Default date ranges (current month or monthParam from URL)
   const [attendanceStartDate, setAttendanceStartDate] = useState(() => {
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      return `${monthParam}-01`;
+    }
     const today = new Date();
     const y = today.getFullYear();
     const m = String(today.getMonth() + 1).padStart(2, '0');
     return `${y}-${m}-01`;
   });
   const [attendanceEndDate, setAttendanceEndDate] = useState(() => {
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      const [yStr, mStr] = monthParam.split('-');
+      const y = parseInt(yStr, 10);
+      const m = parseInt(mStr, 10);
+      const lastDay = new Date(y, m, 0).getDate();
+      return `${monthParam}-${String(lastDay).padStart(2, '0')}`;
+    }
     const today = new Date();
     const y = today.getFullYear();
     const m = today.getMonth() + 1;
@@ -39,6 +51,21 @@ export default function TeamMemberAttendanceViewer({ reports, members, mentors }
 
   const [tempStartDate, setTempStartDate] = useState(attendanceStartDate);
   const [tempEndDate, setTempEndDate] = useState(attendanceEndDate);
+
+  useEffect(() => {
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      const start = `${monthParam}-01`;
+      const [yStr, mStr] = monthParam.split('-');
+      const y = parseInt(yStr, 10);
+      const m = parseInt(mStr, 10);
+      const lastDay = new Date(y, m, 0).getDate();
+      const end = `${monthParam}-${String(lastDay).padStart(2, '0')}`;
+      setAttendanceStartDate(start);
+      setAttendanceEndDate(end);
+      setTempStartDate(start);
+      setTempEndDate(end);
+    }
+  }, [monthParam]);
 
   if (!targetUser) {
     return (
@@ -152,20 +179,10 @@ export default function TeamMemberAttendanceViewer({ reports, members, mentors }
       }
 
       // Sum working hours
-      if (memberRecord.workingHour) {
-        const clean = memberRecord.workingHour.trim();
-        const matchHHMM = clean.match(/^(\d+):(\d+)$/);
-        let dayWorkingMins = 0;
-        if (matchHHMM) {
-          dayWorkingMins = parseInt(matchHHMM[1], 10) * 60 + parseInt(matchHHMM[2], 10);
-        } else {
-          const parsed = parseInt(clean, 10);
-          if (!isNaN(parsed)) dayWorkingMins = parsed;
-        }
-        if (dayWorkingMins > 0) {
-          totalWorkingMinutes += dayWorkingMins;
-          daysWithWorkingHours++;
-        }
+      const dayWorkingMins = getRecordWorkingMinutes(memberRecord);
+      if (dayWorkingMins > 0) {
+        totalWorkingMinutes += dayWorkingMins;
+        daysWithWorkingHours++;
       }
     } else {
       if (!isFriday && !isFuture) {
@@ -341,7 +358,7 @@ export default function TeamMemberAttendanceViewer({ reports, members, mentors }
         {/* Dynamic Summary Cards before table */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-5 bg-slate-50/50 border-b border-slate-100">
           <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-2xs text-center space-y-1">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Present Days</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Working Days</span>
             <span className="text-sm font-black text-emerald-600 block">{presentDays} Days</span>
           </div>
           <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-2xs text-center space-y-1">
