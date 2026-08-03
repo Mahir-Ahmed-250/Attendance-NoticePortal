@@ -6010,23 +6010,7 @@ export default function ManagerDashboard({
                 </div>
 
                 {/* Sub-Summary Stats */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold">
-                      <Building2 className="w-5 h-5" />
-                    </div>
-                    <div className="overflow-hidden">
-                      <p className="text-[10px] font-bold text-indigo-900/70 uppercase">Top Campus Performer</p>
-                      <p className="text-sm font-black text-indigo-950 truncate">
-                        {attendanceTrendsData.campusComparison && attendanceTrendsData.campusComparison.length > 0 ? (
-                          `${attendanceTrendsData.campusComparison[0].name} (${attendanceTrendsData.campusComparison[0].rate}%)`
-                        ) : (
-                          "N/A"
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
                       <Award className="w-5 h-5" />
@@ -6094,7 +6078,7 @@ export default function ManagerDashboard({
                         <th className="py-3 px-4">#</th>
                         <th className="py-3 px-4">Team Member (Name & PIN)</th>
                         <th className="py-3 px-4">Campus</th>
-                        <th className="py-3 px-4 text-center">Working Days</th>
+                        <th className="py-3 px-4 text-center">Present Days</th>
                         <th className="py-3 px-4 text-right">Total Hours</th>
                         <th className="py-3 px-4 text-right">Daily Avg Hours</th>
                       </tr>

@@ -358,7 +358,7 @@ export default function TeamMemberAttendanceViewer({ reports, members, mentors }
         {/* Dynamic Summary Cards before table */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-5 bg-slate-50/50 border-b border-slate-100">
           <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-2xs text-center space-y-1">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Working Days</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Present Days</span>
             <span className="text-sm font-black text-emerald-600 block">{presentDays} Days</span>
           </div>
           <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-2xs text-center space-y-1">
