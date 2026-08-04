@@ -558,6 +558,38 @@ app.get("/api/imgbb-config", (req, res) => {
   res.json({ apiKey });
 });
 
+app.post("/api/db-compact", async (req, res) => {
+  try {
+    await connectDB();
+    const db = mongoose.connection.db;
+    const collections = await db.listCollections().toArray();
+    const results: any = {};
+    for (const col of collections) {
+      try {
+        const result = await db.command({ compact: col.name });
+        results[col.name] = result;
+      } catch (err: any) {
+        results[col.name] = { error: err.message };
+      }
+    }
+    const stats = await db.stats();
+    res.json({ success: true, message: "Database compaction completed successfully.", results, stats });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to compact database" });
+  }
+});
+
+app.get("/api/db-stats", async (req, res) => {
+  try {
+    await connectDB();
+    const db = mongoose.connection.db;
+    const stats = await db.stats();
+    res.json({ success: true, stats });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch database stats" });
+  }
+});
+
 
 // Middleware for DB connection on all other API routes
 app.use("/api", async (req, res, next) => {
