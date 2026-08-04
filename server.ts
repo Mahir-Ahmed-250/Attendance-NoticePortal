@@ -553,6 +553,11 @@ app.get("/api/test-imgbb", async (req, res) => {
   });
 });
 
+app.get("/api/imgbb-config", (req, res) => {
+  const apiKey = getImgBBApiKey();
+  res.json({ apiKey });
+});
+
 
 // Middleware for DB connection on all other API routes
 app.use("/api", async (req, res, next) => {
