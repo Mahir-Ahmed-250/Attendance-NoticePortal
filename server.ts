@@ -269,6 +269,40 @@ const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
 
   console.log(`[IMGBB] Attempting upload to ImgBB using API key (length: ${apiKey.length}, preview: ${apiKey.substring(0,4)}...)`);
 
+  // Method 1: FormData with Blob (file-like)
+  try {
+    const buffer = Buffer.from(base64Clean, 'base64');
+    const blob = new Blob([buffer], { type: 'image/jpeg' });
+    const formData = new FormData();
+    formData.append('key', apiKey);
+    formData.append('image', blob, 'image.jpg');
+
+    const res = await fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      }
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error('[IMGBB] Non-JSON response from ImgBB (Method 1):', text);
+    }
+    
+    if (data && data.success && data.data && data.data.url) {
+      console.log('[IMGBB] Uploaded successfully to ImgBB (Method 1):', data.data.url);
+      return data.data.url;
+    } else {
+      console.error('[IMGBB] Upload failed response (Method 1):', JSON.stringify(data));
+    }
+  } catch (err: any) {
+    console.error('[IMGBB] Server ImgBB upload error (Method 1):', err?.message || err);
+  }
+
+  // Method 2: FormData with string base64
   try {
     const formData = new FormData();
     formData.append('key', apiKey);
@@ -277,42 +311,61 @@ const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
     const res = await fetch('https://api.imgbb.com/1/upload', {
       method: 'POST',
       body: formData,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      }
     });
     const text = await res.text();
     let data: any;
     try {
       data = JSON.parse(text);
     } catch (e) {
-      console.error('[IMGBB] Non-JSON response from ImgBB:', text);
+      console.error('[IMGBB] Non-JSON response from ImgBB (Method 2):', text);
     }
     
     if (data && data.success && data.data && data.data.url) {
-      console.log('[IMGBB] Uploaded successfully to ImgBB:', data.data.url);
+      console.log('[IMGBB] Uploaded successfully to ImgBB (Method 2):', data.data.url);
       return data.data.url;
     } else {
-      console.error('[IMGBB] Upload failed response from ImgBB:', JSON.stringify(data));
+      console.error('[IMGBB] Upload failed response (Method 2):', JSON.stringify(data));
     }
   } catch (err: any) {
-    console.error('[IMGBB] Server ImgBB upload network error:', err?.message || err);
+    console.error('[IMGBB] Server ImgBB upload error (Method 2):', err?.message || err);
   }
 
-  // Fallback 1: Telegra.ph
-  console.log('[UPLOAD] Trying Telegra.ph fallback...');
-  const telegraphUrl = await uploadToTelegraph(base64OrUrl);
-  if (telegraphUrl) {
-    console.log('[TELEGRAPH] Uploaded successfully:', telegraphUrl);
-    return telegraphUrl;
+  // Method 3: URLSearchParams with x-www-form-urlencoded
+  try {
+    const params = new URLSearchParams();
+    params.append('key', apiKey);
+    params.append('image', base64Clean);
+
+    const res = await fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      body: params.toString(),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error('[IMGBB] Non-JSON response from ImgBB (Method 3):', text);
+    }
+    
+    if (data && data.success && data.data && data.data.url) {
+      console.log('[IMGBB] Uploaded successfully to ImgBB (Method 3):', data.data.url);
+      return data.data.url;
+    } else {
+      console.error('[IMGBB] Upload failed response (Method 3):', JSON.stringify(data));
+    }
+  } catch (err: any) {
+    console.error('[IMGBB] Server ImgBB upload error (Method 3):', err?.message || err);
   }
 
-  // Fallback 2: Catbox.moe
-  console.log('[UPLOAD] Trying Catbox fallback...');
-  const catboxUrl = await uploadToCatbox(base64OrUrl);
-  if (catboxUrl) {
-    console.log('[CATBOX] Uploaded successfully:', catboxUrl);
-    return catboxUrl;
-  }
-
-  console.warn('[UPLOAD] All cloud uploads failed, keeping base64.');
+  console.warn('[IMGBB] All ImgBB upload methods failed, keeping base64.');
   return base64OrUrl;
 };
 
