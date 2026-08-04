@@ -195,19 +195,34 @@ const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
   const base64Clean = base64OrUrl.includes(',') ? base64OrUrl.split(',')[1] : base64OrUrl;
 
   try {
-    const formData = new FormData();
-    formData.append('image', base64Clean);
-    
-    const res = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+    const params = new URLSearchParams();
+    params.append('key', apiKey);
+    params.append('image', base64Clean);
+
+    const res = await fetch('https://api.imgbb.com/1/upload', {
       method: 'POST',
-      body: formData as any,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error('ImgBB non-JSON response:', text);
+      return base64OrUrl;
+    }
+    
     if (data && data.success && data.data && data.data.url) {
+      console.log('[IMGBB] Uploaded successfully to ImgBB:', data.data.url);
       return data.data.url;
+    } else {
+      console.error('[IMGBB] Upload failed response:', data);
     }
   } catch (err) {
-    console.error('Migration ImgBB error:', err);
+    console.error('Server ImgBB upload error:', err);
   }
   return base64OrUrl;
 };
