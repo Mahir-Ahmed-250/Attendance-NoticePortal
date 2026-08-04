@@ -198,46 +198,121 @@ const getImgBBApiKey = (): string => {
   return String(raw || '').trim().replace(/^['"]|['"]$/g, '');
 };
 
-const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
-  if (!base64OrUrl) return base64OrUrl;
-  if (base64OrUrl.startsWith('http://') || base64OrUrl.startsWith('https://')) {
-    if (base64OrUrl.includes('ibb.co') || base64OrUrl.includes('imagebb')) return base64OrUrl;
-  }
-  if (!base64OrUrl.startsWith('data:image')) return base64OrUrl;
-
-  const apiKey = getImgBBApiKey();
-  const base64Clean = base64OrUrl.includes(',') ? base64OrUrl.split(',')[1] : base64OrUrl;
-
+const uploadToTelegraph = async (base64OrUrl: string): Promise<string | null> => {
   try {
-    const params = new URLSearchParams();
-    params.append('key', apiKey);
-    params.append('image', base64Clean);
+    const matches = base64OrUrl.match(/^data:(image\/[a-zA-Z+-]+);base64,(.+)$/);
+    if (!matches) return null;
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
 
-    const res = await fetch('https://api.imgbb.com/1/upload', {
+    const formData = new FormData();
+    const blob = new Blob([buffer], { type: mimeType });
+    formData.append('file', blob, 'image.jpg');
+
+    const res = await fetch('https://telegra.ph/upload', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
+      body: formData,
     });
     const text = await res.text();
     let data: any;
     try {
       data = JSON.parse(text);
     } catch (e) {
-      console.error('ImgBB non-JSON response:', text);
-      return base64OrUrl;
+      return null;
+    }
+    if (Array.isArray(data) && data[0] && data[0].src) {
+      return `https://telegra.ph${data[0].src}`;
+    }
+  } catch (err) {
+    console.error('Telegra.ph upload error:', err);
+  }
+  return null;
+};
+
+const uploadToCatbox = async (base64OrUrl: string): Promise<string | null> => {
+  try {
+    const matches = base64OrUrl.match(/^data:(image\/[a-zA-Z+-]+);base64,(.+)$/);
+    if (!matches) return null;
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const formData = new FormData();
+    const blob = new Blob([buffer], { type: mimeType });
+    formData.append('reqtype', 'fileupload');
+    formData.append('fileToUpload', blob, 'image.jpg');
+
+    const res = await fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      body: formData,
+    });
+    const text = await res.text();
+    if (text && text.startsWith('http')) {
+      return text.trim();
+    }
+  } catch (err) {
+    console.error('Catbox upload error:', err);
+  }
+  return null;
+};
+
+const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
+  if (!base64OrUrl) return base64OrUrl;
+  if (base64OrUrl.startsWith('http://') || base64OrUrl.startsWith('https://')) {
+    if (base64OrUrl.includes('ibb.co') || base64OrUrl.includes('imagebb') || base64OrUrl.includes('telegra.ph') || base64OrUrl.includes('catbox.moe')) return base64OrUrl;
+  }
+  if (!base64OrUrl.startsWith('data:image')) return base64OrUrl;
+
+  const apiKey = getImgBBApiKey();
+  const base64Clean = base64OrUrl.includes(',') ? base64OrUrl.split(',')[1] : base64OrUrl;
+
+  console.log(`[IMGBB] Attempting upload to ImgBB using API key (length: ${apiKey.length}, preview: ${apiKey.substring(0,4)}...)`);
+
+  try {
+    const formData = new FormData();
+    formData.append('key', apiKey);
+    formData.append('image', base64Clean);
+
+    const res = await fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error('[IMGBB] Non-JSON response from ImgBB:', text);
     }
     
     if (data && data.success && data.data && data.data.url) {
       console.log('[IMGBB] Uploaded successfully to ImgBB:', data.data.url);
       return data.data.url;
     } else {
-      console.error('[IMGBB] Upload failed response:', data);
+      console.error('[IMGBB] Upload failed response from ImgBB:', JSON.stringify(data));
     }
-  } catch (err) {
-    console.error('Server ImgBB upload error:', err);
+  } catch (err: any) {
+    console.error('[IMGBB] Server ImgBB upload network error:', err?.message || err);
   }
+
+  // Fallback 1: Telegra.ph
+  console.log('[UPLOAD] Trying Telegra.ph fallback...');
+  const telegraphUrl = await uploadToTelegraph(base64OrUrl);
+  if (telegraphUrl) {
+    console.log('[TELEGRAPH] Uploaded successfully:', telegraphUrl);
+    return telegraphUrl;
+  }
+
+  // Fallback 2: Catbox.moe
+  console.log('[UPLOAD] Trying Catbox fallback...');
+  const catboxUrl = await uploadToCatbox(base64OrUrl);
+  if (catboxUrl) {
+    console.log('[CATBOX] Uploaded successfully:', catboxUrl);
+    return catboxUrl;
+  }
+
+  console.warn('[UPLOAD] All cloud uploads failed, keeping base64.');
   return base64OrUrl;
 };
 
