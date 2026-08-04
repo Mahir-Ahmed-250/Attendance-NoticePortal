@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { optimizeImage } from "../utils/imageUtils";
+import { uploadImageToImgBB } from "../utils/imageUtils";
 import { User, ProfileRequest, Role } from '../types';
 import { ShieldCheck, Lock, UserCheck, Image as ImageIcon, Save, AlertCircle, Clock, Eye, EyeOff, Upload, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -235,10 +235,10 @@ export default function ProfileSettings({
                     const file = e.dataTransfer.files?.[0];
                     if (file) {
                       try {
-                        const optimized = await optimizeImage(file);
-                        setAvatarUrl(optimized);
+                        const imgUrl = await uploadImageToImgBB(file);
+                        setAvatarUrl(imgUrl);
                       } catch (err) {
-                        console.error("Image optimization failed:", err);
+                        console.error("ImgBB upload failed:", err);
                       }
                     }
                   }}
@@ -252,10 +252,10 @@ export default function ProfileSettings({
                       const file = e.target.files?.[0];
                       if (file) {
                         try {
-                          const optimized = await optimizeImage(file);
-                          setAvatarUrl(optimized);
+                          const imgUrl = await uploadImageToImgBB(file);
+                          setAvatarUrl(imgUrl);
                         } catch (err) {
-                          console.error("Image optimization failed:", err);
+                          console.error("ImgBB upload failed:", err);
                         }
                       }
                     }}

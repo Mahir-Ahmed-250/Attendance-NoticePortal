@@ -61,3 +61,40 @@ export const optimizeImage = (file: File): Promise<string> => {
     reader.onerror = (err) => reject(err);
   });
 };
+
+/**
+ * Uploads an image file or base64 string to ImgBB and returns the hosted URL.
+ * Falls back to optimized base64 if upload fails.
+ */
+export const uploadImageToImgBB = async (fileOrBase64: File | string): Promise<string> => {
+  let base64Data = '';
+  if (fileOrBase64 instanceof File) {
+    base64Data = await optimizeImage(fileOrBase64);
+  } else if (typeof fileOrBase64 === 'string') {
+    if (fileOrBase64.startsWith('http://') || fileOrBase64.startsWith('https://')) {
+      if (fileOrBase64.includes('ibb.co') || fileOrBase64.includes('imagebb')) return fileOrBase64;
+    }
+    base64Data = await optimizeBase64(fileOrBase64);
+  }
+
+  try {
+    const res = await fetch('/api/upload-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ image: base64Data }),
+    });
+    const data = await res.json();
+    if (data && data.url) {
+      return data.url;
+    } else {
+      console.warn('Server ImgBB upload response error, falling back to base64:', data);
+      return base64Data;
+    }
+  } catch (err) {
+    console.error('Server ImgBB upload network error, falling back to base64:', err);
+    return base64Data;
+  }
+};
+

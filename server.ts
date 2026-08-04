@@ -176,10 +176,150 @@ const seedInitialData = async () => {
 
     // Run database optimization & compaction
     await optimizeDatabase();
+
+    // Migrate existing base64 images to ImgBB
+    await migrateExistingImagesToImgBB();
   } catch (err: any) {
     console.error("[SEED] Error seeding data:", err.message);
   }
 };
+
+const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
+  if (!base64OrUrl) return base64OrUrl;
+  if (base64OrUrl.startsWith('http://') || base64OrUrl.startsWith('https://')) {
+    if (base64OrUrl.includes('ibb.co') || base64OrUrl.includes('imagebb')) return base64OrUrl;
+  }
+  if (!base64OrUrl.startsWith('data:image')) return base64OrUrl;
+
+  const apiKey = process.env.IMGBB_API_KEY || '2d5471413a9412f1f51086055bc7aa47';
+  const base64Clean = base64OrUrl.includes(',') ? base64OrUrl.split(',')[1] : base64OrUrl;
+
+  try {
+    const formData = new FormData();
+    formData.append('image', base64Clean);
+    
+    const res = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+      method: 'POST',
+      body: formData as any,
+    });
+    const data = await res.json();
+    if (data && data.success && data.data && data.data.url) {
+      return data.data.url;
+    }
+  } catch (err) {
+    console.error('Migration ImgBB error:', err);
+  }
+  return base64OrUrl;
+};
+
+const processLiveInstructionImages = async (imgField: any): Promise<any> => {
+  if (!imgField) return imgField;
+  if (typeof imgField === 'string') {
+    let trimmed = imgField.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr)) {
+          const newArr = [];
+          for (const item of arr) {
+            if (typeof item === 'string') {
+              const uploaded = await uploadToImgBBNode(item);
+              newArr.push(uploaded);
+            } else {
+              newArr.push(item);
+            }
+          }
+          return JSON.stringify(newArr);
+        }
+      } catch (e) {
+        // not valid json array
+      }
+    }
+    return await uploadToImgBBNode(imgField);
+  } else if (Array.isArray(imgField)) {
+    const newArr = [];
+    for (const item of imgField) {
+      if (typeof item === 'string') {
+        const uploaded = await uploadToImgBBNode(item);
+        newArr.push(uploaded);
+      } else {
+        newArr.push(item);
+      }
+    }
+    return newArr;
+  }
+  return imgField;
+};
+
+const migrateExistingImagesToImgBB = async () => {
+  try {
+    console.log("[MIGRATE] Checking for base64 images to migrate to ImgBB...");
+    
+    // 1. Migrate Users avatarUrl
+    const users = await User.find({ avatarUrl: { $regex: /^data:image/ } });
+    for (const user of users) {
+      const newUrl = await uploadToImgBBNode(user.avatarUrl);
+      if (newUrl !== user.avatarUrl) {
+        user.avatarUrl = newUrl;
+        await user.save();
+        console.log(`[MIGRATE] Migrated avatar for user ${user.name} to ImgBB: ${newUrl}`);
+      }
+    }
+
+    // 2. Migrate Notices content / banner
+    const notices = await Notice.find({ 
+      $or: [
+        { banner: { $regex: /^data:image/ } },
+        { content: { $regex: /data:image/ } }
+      ]
+    });
+    for (const notice of notices) {
+      let updated = false;
+      if (notice.banner && notice.banner.startsWith('data:image')) {
+        const newBanner = await uploadToImgBBNode(notice.banner);
+        if (newBanner !== notice.banner) {
+          notice.banner = newBanner;
+          updated = true;
+        }
+      }
+      if (notice.content && notice.content.includes('data:image')) {
+        const matches = notice.content.match(/src="(data:image[^"]+)"/g);
+        if (matches) {
+          for (const match of matches) {
+            const base64Str = match.match(/src="([^"]+)"/)?.[1];
+            if (base64Str && base64Str.startsWith('data:image')) {
+              const newUrl = await uploadToImgBBNode(base64Str);
+              if (newUrl !== base64Str) {
+                notice.content = notice.content.replace(base64Str, newUrl);
+                updated = true;
+              }
+            }
+          }
+        }
+      }
+      if (updated) {
+        await notice.save();
+        console.log(`[MIGRATE] Migrated images in notice to ImgBB`);
+      }
+    }
+
+    // 3. Migrate CallTask liveInstructionImage
+    const callTasks = await CallTask.find({ liveInstructionImage: { $regex: /data:image/ } });
+    for (const task of callTasks) {
+      const processed = await processLiveInstructionImages(task.liveInstructionImage);
+      if (processed !== task.liveInstructionImage) {
+        task.liveInstructionImage = processed;
+        await task.save();
+        console.log(`[MIGRATE] Migrated images in call task ${task.id} to ImgBB`);
+      }
+    }
+
+    console.log("[MIGRATE] Image migration to ImgBB completed.");
+  } catch (err) {
+    console.error("[MIGRATE] Error migrating images to ImgBB:", err);
+  }
+};
+
 
 const optimizeDatabase = async () => {
   try {
@@ -212,6 +352,31 @@ app.get("/api/health", (req, res) => {
     time: new Date().toISOString()
   });
 });
+
+app.post("/api/migrate-images", async (req, res) => {
+  try {
+    await connectDB();
+    await migrateExistingImagesToImgBB();
+    res.json({ success: true, message: "All existing images successfully migrated to ImgBB." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to migrate images to ImgBB" });
+  }
+});
+
+app.post("/api/upload-image", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "No image provided" });
+    }
+    const uploadedUrl = await uploadToImgBBNode(image);
+    res.json({ url: uploadedUrl });
+  } catch (err: any) {
+    console.error("Upload image error:", err);
+    res.status(500).json({ error: err.message || "Failed to upload image" });
+  }
+});
+
 
 // Middleware for DB connection on all other API routes
 app.use("/api", async (req, res, next) => {
@@ -1338,9 +1503,13 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
 
   app.put("/api/call-tasks/:id", async (req, res) => {
     try {
+      const updateData = { ...req.body };
+      if (updateData.liveInstructionImage) {
+        updateData.liveInstructionImage = await processLiveInstructionImages(updateData.liveInstructionImage);
+      }
       const task = await CallTask.findOneAndUpdate(
         { id: req.params.id },
-        { $set: req.body },
+        { $set: updateData },
         { new: true }
       );
       if (task) {

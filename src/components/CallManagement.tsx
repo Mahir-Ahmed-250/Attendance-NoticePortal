@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
-import { optimizeImage, optimizeBase64 } from "../utils/imageUtils";
+import { optimizeImage, optimizeBase64, uploadImageToImgBB } from "../utils/imageUtils";
 import CameraModal from "./CameraModal";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -189,11 +189,11 @@ export default function CallManagement({
         const file = items[i].getAsFile();
         if (file) {
           try {
-            const optimized = await optimizeImage(file);
-            callback(optimized);
-            toast.success("Image pasted & optimized");
+            const imgUrl = await uploadImageToImgBB(file);
+            callback(imgUrl);
+            toast.success("Image pasted & uploaded to ImgBB");
           } catch (err) {
-            console.error("Paste optimization failed:", err);
+            console.error("Paste ImgBB upload failed:", err);
           }
         }
         return;
@@ -2805,14 +2805,14 @@ export default function CallManagement({
                               if (files && files.length > 0) {
                                 for (const file of Array.from(files) as File[]) {
                                   try {
-                                    const optimized = await optimizeImage(file);
+                                    const imgUrl = await uploadImageToImgBB(file);
                                     setLiveInstructionImages((prev) => [
                                       ...prev,
-                                      optimized,
+                                      imgUrl,
                                     ]);
                                   } catch (err) {
                                     console.error(
-                                      "Image optimization failed:",
+                                      "ImgBB upload failed:",
                                       err,
                                     );
                                   }
@@ -4298,11 +4298,11 @@ export default function CallManagement({
                               if (files && files.length > 0) {
                                 for (const file of Array.from(files) as File[]) {
                                   try {
-                                    const optimized = await optimizeImage(file);
+                                    const imgUrl = await uploadImageToImgBB(file);
                                     const current = parseMultipleImages(
                                       modalFormData.liveInstructionImage,
                                     );
-                                    const updated = [...current, optimized];
+                                    const updated = [...current, imgUrl];
                                     setModalFormData((prev) => ({
                                       ...prev,
                                       liveInstructionImage:
@@ -6440,23 +6440,23 @@ export default function CallManagement({
         onClose={() => setIsCameraOpen(false)}
         onCapture={async (base64) => {
           try {
-            const optimized = await optimizeBase64(base64);
+            const imgUrl = await uploadImageToImgBB(base64);
             if (cameraTarget === "live") {
-              setLiveInstructionImages((prev) => [...prev, optimized]);
+              setLiveInstructionImages((prev) => [...prev, imgUrl]);
             } else {
               const current = parseMultipleImages(
                 modalFormData.liveInstructionImage,
               );
-              const updated = [...current, optimized];
+              const updated = [...current, imgUrl];
               setModalFormData((prev) => ({
                 ...prev,
                 liveInstructionImage: JSON.stringify(updated),
               }));
             }
-            toast.success("Image captured & optimized");
+            toast.success("Image captured & uploaded to ImgBB");
           } catch (err) {
-            console.error("Camera optimization failed:", err);
-            toast.error("Failed to process image");
+            console.error("Camera ImgBB upload failed:", err);
+            toast.error("Failed to upload image to ImgBB");
           }
         }}
       />

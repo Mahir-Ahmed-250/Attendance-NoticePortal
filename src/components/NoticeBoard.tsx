@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import { optimizeImage } from "../utils/imageUtils";
+import { uploadImageToImgBB } from "../utils/imageUtils";
 import { Notice, NoticeCategory } from '../types';
 import { 
   Megaphone, 
@@ -123,8 +123,8 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
     if (e?.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       try {
-        const base64 = await optimizeImage(file);
-        quill.insertEmbed(range.index, "image", base64);
+        const imgUrl = await uploadImageToImgBB(file);
+        quill.insertEmbed(range.index, "image", imgUrl);
         if (imageCaption) {
           quill.insertText(range.index + 1, `\n${imageCaption}`, {
             align: "center",
