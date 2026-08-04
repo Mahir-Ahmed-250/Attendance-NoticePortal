@@ -184,6 +184,20 @@ const seedInitialData = async () => {
   }
 };
 
+const getImgBBApiKey = (): string => {
+  const raw = process.env.IMGBB_API_KEY || 
+              process.env.VITE_IMGBB_API_KEY || 
+              process.env.IMGBB_KEY || 
+              process.env.IMG_BB_API_KEY || 
+              process.env.IMGBB_APIKEY || 
+              process.env.IMGBB_TOKEN || 
+              process.env.IMGBB ||
+              process.env.IMG_BB_KEY ||
+              process.env.VITE_IMGBB_KEY ||
+              '2d5471413a9412f1f51086055bc7aa47';
+  return String(raw || '').trim().replace(/^['"]|['"]$/g, '');
+};
+
 const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
   if (!base64OrUrl) return base64OrUrl;
   if (base64OrUrl.startsWith('http://') || base64OrUrl.startsWith('https://')) {
@@ -191,7 +205,7 @@ const uploadToImgBBNode = async (base64OrUrl: string): Promise<string> => {
   }
   if (!base64OrUrl.startsWith('data:image')) return base64OrUrl;
 
-  const apiKey = process.env.IMGBB_API_KEY || '2d5471413a9412f1f51086055bc7aa47';
+  const apiKey = getImgBBApiKey();
   const base64Clean = base64OrUrl.includes(',') ? base64OrUrl.split(',')[1] : base64OrUrl;
 
   try {
@@ -390,6 +404,25 @@ app.post("/api/upload-image", async (req, res) => {
     console.error("Upload image error:", err);
     res.status(500).json({ error: err.message || "Failed to upload image" });
   }
+});
+
+app.get("/api/test-imgbb", async (req, res) => {
+  const apiKey = getImgBBApiKey();
+  res.json({
+    hasCustomKey: !!apiKey && apiKey !== '2d5471413a9412f1f51086055bc7aa47',
+    keyPreview: apiKey ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}` : null,
+    envVarsChecked: [
+      'IMGBB_API_KEY',
+      'VITE_IMGBB_API_KEY',
+      'IMGBB_KEY',
+      'IMG_BB_API_KEY',
+      'IMGBB_APIKEY',
+      'IMGBB_TOKEN',
+      'IMGBB',
+      'IMG_BB_KEY',
+      'VITE_IMGBB_KEY'
+    ]
+  });
 });
 
 
