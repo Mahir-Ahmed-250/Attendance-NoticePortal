@@ -130,11 +130,15 @@ export default function CallManagement({
   const [toDateFilter, setToDateFilter] = useState<string>("");
   const [feedbackStatusFilter, setFeedbackStatusFilter] =
     useState<string>("all");
+  const [feedbackDetailFilter, setFeedbackDetailFilter] =
+    useState<string>("all");
   const [classFilter, setClassFilter] = useState<string>("all");
   const [campusFilter, setCampusFilter] = useState<string>("all");
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [branchSearchQuery, setBranchSearchQuery] = useState<string>("");
   const [isBranchFilterOpen, setIsBranchFilterOpen] = useState<boolean>(false);
+  const [dashboardCampusFilter, setDashboardCampusFilter] =
+    useState<string>("all");
   const [dashboardClassFilter, setDashboardClassFilter] =
     useState<string>("all");
   const [assignFilter, setAssignFilter] = useState<string>("all");
@@ -1452,20 +1456,49 @@ export default function CallManagement({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  const getTaskCampus = (task: CallTask): string => {
-    if (task.branch) {
-      const branchObj = branches.find(
-        (b) =>
-          b.name === task.branch ||
-          b.name?.toLowerCase() === task.branch?.toLowerCase(),
-      );
-      if (branchObj && branchObj.campusId) {
-        const campusObj = campuses.find((c) => c.id === branchObj.campusId);
-        if (campusObj && campusObj.name) return campusObj.name;
+  const getTaskCampus = useCallback(
+    (task: CallTask): string => {
+      if (task.campus && task.campus.trim()) {
+        const directCampus = task.campus.trim();
+        const official = campuses.find(
+          (c) => c.name?.trim().toLowerCase() === directCampus.toLowerCase() || c.id === directCampus,
+        );
+        if (official && official.name) return official.name.trim();
+        return directCampus;
       }
-    }
-    return "";
-  };
+
+      if (task.branch) {
+        const cleanBranch = task.branch.trim();
+        const branchObj = branches.find(
+          (b) =>
+            b.name?.trim() === cleanBranch ||
+            b.name?.trim().toLowerCase() === cleanBranch.toLowerCase(),
+        );
+        if (branchObj && branchObj.campusId) {
+          const campusObj = campuses.find(
+            (c) => c.id === branchObj.campusId || c.name === branchObj.campusId,
+          );
+          if (campusObj && campusObj.name) return campusObj.name.trim();
+        }
+        const cleanBranchKeyword = cleanBranch
+          .toLowerCase()
+          .replace(/udvash|unmesh|branch|\(.*\)/gi, "")
+          .trim();
+
+        const matchedCampus = campuses.find((c) => {
+          if (!c.name) return false;
+          const cleanCampus = c.name.toLowerCase().replace("campus", "").trim();
+          return (
+            cleanBranch.toLowerCase().includes(cleanCampus) ||
+            (cleanBranchKeyword.length > 2 && cleanCampus.includes(cleanBranchKeyword))
+          );
+        });
+        if (matchedCampus && matchedCampus.name) return matchedCampus.name.trim();
+      }
+      return "";
+    },
+    [branches, campuses],
+  );
 
   const isOnlineTask = useCallback((task: CallTask | Partial<CallTask>) => {
     const cn = (task.className || "").toLowerCase();
@@ -1536,28 +1569,16 @@ export default function CallManagement({
       const isOnline = isOnlineTask(task);
 
       // Campus matching
-      let matchesCampus = false;
-      if (isAssignedToSelf || isAssignedToOther) {
-        matchesCampus = true;
-      } else if (!isOnline) {
-        matchesCampus =
-          campusFilter === "all" || getTaskCampus(task) === campusFilter;
-      } else if (canUpload) {
-        matchesCampus =
-          campusFilter === "all" || getTaskCampus(task) === campusFilter;
-      }
+      const taskCampus = getTaskCampus(task);
+      const matchesCampus =
+        campusFilter === "all" ||
+        taskCampus === campusFilter ||
+        task.campus === campusFilter;
 
       // Branch matching
-      let matchesBranch = false;
-      if (isAssignedToSelf || isAssignedToOther) {
-        matchesBranch = true;
-      } else if (!isOnline) {
-        matchesBranch =
-          selectedBranches.length === 0 || selectedBranches.includes(task.branch);
-      } else if (canUpload) {
-        matchesBranch =
-          selectedBranches.length === 0 || selectedBranches.includes(task.branch);
-      }
+      const matchesBranch =
+        selectedBranches.length === 0 ||
+        selectedBranches.includes(task.branch);
 
       const matchesLiveStatus =
         liveStatusFilter === "all" ||
@@ -1565,6 +1586,12 @@ export default function CallManagement({
       const matchesFeedbackStatus =
         feedbackStatusFilter === "all" ||
         task.feedbackStatus === feedbackStatusFilter;
+      const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"];
+      const matchesFeedbackDetail =
+        feedbackDetailFilter === "all" ||
+        (feedbackDetailFilter === "Others"
+          ? !standardFeedbackOptions.includes(task.feedbackComment || "") && Boolean(task.feedbackComment)
+          : task.feedbackComment === feedbackDetailFilter);
       const matchesClass =
         classFilter === "all" || task.className === classFilter;
       const matchesAssign =
@@ -1612,6 +1639,7 @@ export default function CallManagement({
         matchesCampus &&
         matchesLiveStatus &&
         matchesFeedbackStatus &&
+        matchesFeedbackDetail &&
         matchesClass &&
         matchesAssign &&
         matchesLiveAssign &&
@@ -1909,6 +1937,7 @@ export default function CallManagement({
     fromDateFilter,
     toDateFilter,
     feedbackStatusFilter,
+    feedbackDetailFilter,
     classFilter,
     assignFilter,
     selectedBranches,
@@ -1971,18 +2000,32 @@ export default function CallManagement({
         return true;
       });
     }
-    return dashboardClassFilter === "all"
-      ? baseTasks
-      : baseTasks.filter((t) => t.className === dashboardClassFilter);
+    let filtered = baseTasks;
+
+    if (dashboardClassFilter !== "all") {
+      filtered = filtered.filter((t) => t.className === dashboardClassFilter);
+    }
+
+    if (dashboardCampusFilter !== "all") {
+      filtered = filtered.filter(
+        (t) =>
+          getTaskCampus(t) === dashboardCampusFilter ||
+          t.campus === dashboardCampusFilter,
+      );
+    }
+
+    return filtered;
   }, [
     tasks,
     isCoordinator,
     canUpload,
     dashboardClassFilter,
+    dashboardCampusFilter,
     currentUser.role,
     currentUser.pin,
     isAssignedSolelyToSelf,
     isOnlineTask,
+    getTaskCampus,
   ]);
 
   const totalTasks = filteredDashboardTasks.length;
@@ -2017,6 +2060,32 @@ export default function CallManagement({
     { name: "Completed", value: feedbackCompleted },
     { name: "Pending", value: feedbackPending },
   ];
+
+  const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"];
+  const feedbackDetailCounts: Record<string, number> = {
+    "N/R": 0,
+    "Off": 0,
+    "Busy": 0,
+    "Irregular": 0,
+    "Satisfied": 0,
+    "Class Problem": 0,
+    "Notify Later": 0,
+    "Others": 0,
+  };
+
+  filteredDashboardTasks.forEach((t) => {
+    const comment = t.feedbackComment || "";
+    if (standardFeedbackOptions.includes(comment)) {
+      feedbackDetailCounts[comment]++;
+    } else if (comment.trim()) {
+      feedbackDetailCounts["Others"]++;
+    }
+  });
+
+  const feedbackDetailChartData = Object.keys(feedbackDetailCounts).map((key) => ({
+    name: key,
+    value: feedbackDetailCounts[key],
+  }));
 
   const memberPerformanceData = useMemo(() => {
     const data: Record<
@@ -2071,6 +2140,24 @@ export default function CallManagement({
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
   }, [filteredDashboardTasks]);
+
+  const tasksByCampusData = useMemo(() => {
+    const data: Record<string, { name: string; completed: number; pending: number; total: number }> = {};
+    filteredDashboardTasks.forEach((t) => {
+      const resolved = getTaskCampus(t) || t.campus;
+      const campusName = resolved && resolved.trim() ? resolved.trim() : "Unassigned Campus";
+      if (!data[campusName]) {
+        data[campusName] = { name: campusName, completed: 0, pending: 0, total: 0 };
+      }
+      data[campusName].total++;
+      if (t.feedbackStatus === "Completed" || t.liveInstructionStatus === "Completed") {
+        data[campusName].completed++;
+      } else {
+        data[campusName].pending++;
+      }
+    });
+    return Object.values(data).sort((a, b) => b.total - a.total);
+  }, [filteredDashboardTasks, getTaskCampus]);
 
   const COLORS = ["#10b981", "#f59e0b"];
 
@@ -2173,32 +2260,49 @@ export default function CallManagement({
               </div>
             ) : (
               <>
-                {/* Dashboard Class Filter */}
+                {/* Dashboard Campus & Class Filters */}
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                  Dashboard Overview
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  Filter statistics and analytics by class
-                </p>
-              </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <span className="text-xs font-bold text-slate-600">Class:</span>
-                <select
-                  value={dashboardClassFilter}
-                  onChange={(e) => setDashboardClassFilter(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-48"
-                >
-                  <option value="all">All Classes</option>
-                  {uniqueClasses.map((cls) => (
-                    <option key={cls} value={cls}>
-                      {cls}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+                  <div>
+                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                      Dashboard Overview
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Filter statistics and analytics by campus and class
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <span className="text-xs font-bold text-slate-600">Campus:</span>
+                      <select
+                        value={dashboardCampusFilter}
+                        onChange={(e) => setDashboardCampusFilter(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-48 cursor-pointer"
+                      >
+                        <option value="all">All Campuses</option>
+                        {availableCampuses.map((camp) => (
+                          <option key={camp} value={camp}>
+                       {camp}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <span className="text-xs font-bold text-slate-600">Class:</span>
+                      <select
+                        value={dashboardClassFilter}
+                        onChange={(e) => setDashboardClassFilter(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-48 cursor-pointer"
+                      >
+                        <option value="all">All Classes</option>
+                        {uniqueClasses.map((cls) => (
+                          <option key={cls} value={cls}>
+                            {cls}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
 
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
@@ -2345,15 +2449,15 @@ export default function CallManagement({
                 <h4 className="text-sm font-black text-slate-800 mb-4">
                   Live Instruction Status Distribution
                 </h4>
-                <div className="h-64">
+                <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={liveData}
                         cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
+                        cy="42%"
+                        innerRadius={55}
+                        outerRadius={78}
                         paddingAngle={5}
                         dataKey="value"
                         label={({ name, percent }) =>
@@ -2368,7 +2472,7 @@ export default function CallManagement({
                         ))}
                       </Pie>
                       <Tooltip />
-                      <Legend />
+                      <Legend wrapperStyle={{ paddingTop: "12px", fontSize: "12px", fontWeight: "bold" }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -2378,15 +2482,15 @@ export default function CallManagement({
                 <h4 className="text-sm font-black text-slate-800 mb-4">
                   Feedback Status Distribution
                 </h4>
-                <div className="h-64">
+                <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={feedbackData}
                         cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
+                        cy="42%"
+                        innerRadius={55}
+                        outerRadius={78}
                         paddingAngle={5}
                         dataKey="value"
                         label={({ name, percent }) =>
@@ -2401,7 +2505,7 @@ export default function CallManagement({
                         ))}
                       </Pie>
                       <Tooltip />
-                      <Legend />
+                      <Legend wrapperStyle={{ paddingTop: "12px", fontSize: "12px", fontWeight: "bold" }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -2412,13 +2516,13 @@ export default function CallManagement({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                 <h4 className="text-sm font-black text-slate-800 mb-4">
-                  Top 10 Members by Performance
+                  Feedback Details Distribution
                 </h4>
-                <div className="h-64">
+                <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={memberPerformanceData}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                      data={feedbackDetailChartData}
+                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -2427,17 +2531,69 @@ export default function CallManagement({
                       />
                       <XAxis
                         dataKey="name"
-                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tick={{ fontSize: 10, fill: "#475569", fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
                         interval={0}
-                        angle={-45}
+                        angle={-35}
                         textAnchor="end"
+                        height={60}
                       />
                       <YAxis
                         tick={{ fontSize: 10, fill: "#64748b" }}
                         axisLine={false}
                         tickLine={false}
+                        width={35}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        }}
+                        itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
+                      />
+                      <Bar
+                        dataKey="value"
+                        name="Count"
+                        fill="#6366f1"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <h4 className="text-sm font-black text-slate-800 mb-4">
+                  Top 10 Members by Performance
+                </h4>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={memberPerformanceData}
+                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f1f5f9"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 10, fill: "#475569", fontWeight: 600 }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        angle={-35}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={35}
                       />
                       <Tooltip
                         contentStyle={{
@@ -2451,7 +2607,7 @@ export default function CallManagement({
                         wrapperStyle={{
                           fontSize: "12px",
                           fontWeight: "bold",
-                          paddingTop: "10px",
+                          paddingTop: "5px",
                         }}
                       />
                       <Bar
@@ -2477,11 +2633,11 @@ export default function CallManagement({
                 <h4 className="text-sm font-black text-slate-800 mb-4">
                   Top 10 Branches by Task Volume
                 </h4>
-                <div className="h-64">
+                <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={tasksByBranchData}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -2490,17 +2646,19 @@ export default function CallManagement({
                       />
                       <XAxis
                         dataKey="name"
-                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tick={{ fontSize: 10, fill: "#475569", fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
                         interval={0}
-                        angle={-45}
+                        angle={-35}
                         textAnchor="end"
+                        height={60}
                       />
                       <YAxis
                         tick={{ fontSize: 10, fill: "#64748b" }}
                         axisLine={false}
                         tickLine={false}
+                        width={35}
                       />
                       <Tooltip
                         contentStyle={{
@@ -2514,6 +2672,71 @@ export default function CallManagement({
                         dataKey="total"
                         name="Total Tasks"
                         fill="#6366f1"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <h4 className="text-sm font-black text-slate-800 mb-4">
+                  Task Volume by Campus
+                </h4>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={tasksByCampusData}
+                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="#f1f5f9"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 10, fill: "#475569", fontWeight: 600 }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        angle={-35}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={35}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "12px",
+                          border: "none",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        }}
+                        itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
+                      />
+                      <Legend
+                        wrapperStyle={{
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                          paddingTop: "5px",
+                        }}
+                      />
+                      <Bar
+                        dataKey="completed"
+                        name="Completed"
+                        stackId="a"
+                        fill="#06b6d4"
+                        radius={[0, 0, 4, 4]}
+                      />
+                      <Bar
+                        dataKey="pending"
+                        name="Pending"
+                        stackId="a"
+                        fill="#8b5cf6"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>
@@ -3168,7 +3391,7 @@ export default function CallManagement({
               </div>
 
               {/* Row 2: Status & Assignment Filters */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-center pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-center pt-1">
                 <select
                   value={liveAssignFilter}
                   onChange={(e) => setLiveAssignFilter(e.target.value)}
@@ -3205,6 +3428,21 @@ export default function CallManagement({
                   <option value="all">Feedback Status: All</option>
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
+                </select>
+                <select
+                  value={feedbackDetailFilter}
+                  onChange={(e) => setFeedbackDetailFilter(e.target.value)}
+                  className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                >
+                  <option value="all">Feedback Detail: All</option>
+                  <option value="N/R">N/R</option>
+                  <option value="Off">Off</option>
+                  <option value="Busy">Busy</option>
+                  <option value="Irregular">Irregular</option>
+                  <option value="Satisfied">Satisfied</option>
+                  <option value="Class Problem">Class Problem</option>
+                  <option value="Notify Later">Notify Later</option>
+                  <option value="Others">Others</option>
                 </select>
               </div>
 
@@ -3265,6 +3503,7 @@ export default function CallManagement({
                     campusFilter !== "all" ||
                     liveStatusFilter !== "all" ||
                     feedbackStatusFilter !== "all" ||
+                    feedbackDetailFilter !== "all" ||
                     classFilter !== "all" ||
                     assignFilter !== "all" ||
                     liveAssignFilter !== "all" ||
@@ -3278,6 +3517,7 @@ export default function CallManagement({
                         setCampusFilter("all");
                         setLiveStatusFilter("all");
                         setFeedbackStatusFilter("all");
+                        setFeedbackDetailFilter("all");
                         setClassFilter("all");
                         setAssignFilter("all");
                         setLiveAssignFilter("all");
@@ -4558,21 +4798,60 @@ export default function CallManagement({
 
                     <div className="sm:col-span-2">
                       <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
-                        Feedback Comment
+                        Feedback Detail / Option
                       </label>
-                      <textarea
-                        value={modalFormData.feedbackComment || ""}
-                        onChange={(e) =>
-                          setModalFormData({
-                            ...modalFormData,
-                            feedbackComment: e.target.value,
-                          })
+                      <select
+                        value={
+                          ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"].includes(modalFormData.feedbackComment || "")
+                            ? modalFormData.feedbackComment
+                            : "Others"
                         }
-                        rows={3}
-                        className="w-full bg-white border border-indigo-200 text-xs font-bold p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 resize-none"
-                        placeholder="Enter feedback comments..."
-                      />
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "Others") {
+                            setModalFormData({
+                              ...modalFormData,
+                              feedbackComment: ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"].includes(modalFormData.feedbackComment || "") ? "" : modalFormData.feedbackComment,
+                            });
+                          } else {
+                            setModalFormData({
+                              ...modalFormData,
+                              feedbackComment: val,
+                            });
+                          }
+                        }}
+                        className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
+                      >
+                        <option value="N/R">🟢 N/R</option>
+                        <option value="Off">🔴 Off</option>
+                        <option value="Busy">🟤 Busy</option>
+                        <option value="Irregular">🟣 Irregular</option>
+                        <option value="Satisfied">🟢 Satisfied</option>
+                        <option value="Class Problem">🟠 Class Problem</option>
+                        <option value="Notify Later">🟡 Notify Later</option>
+                        <option value="Others">✏️ Others (Custom Comment)</option>
+                      </select>
                     </div>
+
+                    {(!["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"].includes(modalFormData.feedbackComment || "")) && (
+                      <div className="sm:col-span-2">
+                        <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
+                          Feedback Comment (Others)
+                        </label>
+                        <textarea
+                          value={modalFormData.feedbackComment || ""}
+                          onChange={(e) =>
+                            setModalFormData({
+                              ...modalFormData,
+                              feedbackComment: e.target.value,
+                            })
+                          }
+                          rows={3}
+                          className="w-full bg-white border border-indigo-200 text-xs font-bold p-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 resize-none"
+                          placeholder="Enter feedback comments..."
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -4847,14 +5126,18 @@ export default function CallManagement({
                       }
 
                       if (modalTab === "feedback") {
-                        if (
-                          newFeedbackStatus === "Pending" ||
-                          newFeedbackStatus !== "Completed"
-                        ) {
-                          toast.error(
-                            "Cannot save while Feedback Status is Pending. Please change status to 'Completed'.",
-                          );
-                          return;
+                        const comment = modalFormData.feedbackComment || "";
+                        const isExempt = ["N/R", "Off", "Busy"].includes(comment);
+                        if (!isExempt) {
+                          if (
+                            newFeedbackStatus === "Pending" ||
+                            newFeedbackStatus !== "Completed"
+                          ) {
+                            toast.error(
+                              "Cannot save while Feedback Status is Pending. Please change status to 'Completed' (unless comment is N/R, Off, or Busy).",
+                            );
+                            return;
+                          }
                         }
                       }
 
