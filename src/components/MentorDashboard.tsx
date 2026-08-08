@@ -4086,7 +4086,15 @@ export default function MentorDashboard({
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs">
-                              {(campuses || []).map((campus, idx) => (
+                              {(campuses || [])
+                                .filter((campus) => {
+                                  if (!currentMentor.campus || currentMentor.campus === "All") return true;
+                                  return campus.name?.trim().toLowerCase() === currentMentor.campus?.trim().toLowerCase() ||
+                                         campus.coordinatorPins?.includes(currentMentor.pin) ||
+                                         campus.headCoordinatorPin === currentMentor.pin ||
+                                         campus.deputyCoordinatorPins?.includes(currentMentor.pin);
+                                })
+                                .map((campus, idx) => (
                                 <tr
                                   key={campus.id}
                                   className="hover:bg-slate-50/30 transition-colors"

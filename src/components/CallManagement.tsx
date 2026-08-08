@@ -1454,7 +1454,7 @@ export default function CallManagement({
   };
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(10);
 
   const getTaskCampus = useCallback(
     (task: CallTask): string => {
@@ -1557,6 +1557,30 @@ export default function CallManagement({
           // Hide calls assigned solely to coordinator self until assigned to a team member
           if (isAssignedSolelyToSelf(task, currentUser.pin)) {
             return false;
+          }
+        }
+      }
+
+      const isUserCoordinator =
+        currentUser.role === "mentor" || (isCoordinator && !canUpload);
+      if (isUserCoordinator && activeSubTab !== "my-tasks") {
+        // Exclude unassigned online class tasks
+        if (isOnlineTask(task)) {
+          const isAssigned = Boolean(
+            task.assignedToPin || task.liveAssignedToPin || task.liveInstructorPin,
+          );
+          if (!isAssigned) return false;
+        } else {
+          // Non-online tasks must belong to coordinator's campus branches
+          const taskCampus = getTaskCampus(task);
+          const userCampus = currentUser.campus;
+          if (userCampus && userCampus !== "All") {
+            const b = branches.find((br) => br.name === task.branch);
+            const isMyBranch = b && b.campusId && campuses.find((c) => c.id === b.campusId)?.name === userCampus;
+            const isMyCampus = taskCampus === userCampus || task.campus === userCampus;
+            if (!isMyBranch && !isMyCampus) {
+              return false;
+            }
           }
         }
       }
@@ -1783,7 +1807,7 @@ export default function CallManagement({
 
     // Check if task subset belongs to an Online class
     const isOnlineTaskSet = taskSubset.some((t) =>
-      /online/i.test(t.className || ""),
+      /online/i.test(t.className || "") || isOnlineTask(t)
     );
 
     if (isOnlineTaskSet) {
@@ -1793,21 +1817,21 @@ export default function CallManagement({
     const taskBranches = [...new Set(taskSubset.map((t) => t.branch))];
 
     if (taskBranches.length > 1 && currentUser.role !== "mentor") return []; // If range has students from multiple branches, assignment not allowed
-    const isAllowed = taskSubset.every((t) => {
-      const b = branches.find((br) => br.name === t.branch);
-      const cId = b?.campusId;
-      const cName = campuses.find((c) => c.id === cId)?.name;
+    const campusId = branches.find((b) => b.name === taskBranches[0])?.campusId;
+    if (!campusId) return myCampusMembers;
+    const campusObj = campuses.find((c) => c.id === campusId);
+    if (!campusObj) return myCampusMembers;
 
-      const isMyCampus = cName === currentUser.campus || !cName;
-      const isAssignedToMe =
-        t.assignedToPin === currentUser.pin ||
-        t.liveAssignedToPin === currentUser.pin;
-
-      return isMyCampus || isAssignedToMe;
-    });
-
-    if (!isAllowed) {
-      return []; // Coordinator cannot assign tasks from another campus unless assigned to them
+    // Intersect task campus with user campus
+    if (campusObj.name !== currentUser.campus) {
+      const isAssignedToCurrentUser = taskSubset.every(
+        (t) =>
+          t.assignedToPin === currentUser.pin ||
+          t.liveAssignedToPin === currentUser.pin
+      );
+      if (!isAssignedToCurrentUser) {
+        return []; // Coordinator cannot assign tasks from another campus unless assigned to them
+      }
     }
 
     return myCampusMembers;
@@ -1963,22 +1987,57 @@ export default function CallManagement({
   }, [campuses, members, tasks, branches]);
 
   const availableBranches = useMemo(() => {
-    const fromTasks = tasks
+    let fromTasks = tasks
       .map((t) => t.branch)
       .filter((b): b is string => Boolean(b && b.trim()));
+
+    const userCampusName = currentUser.campus;
+    if (userCampusName && userCampusName !== "All" && !canUpload) {
+      const userCampusObj = campuses.find(
+        (c) => c.name?.trim().toLowerCase() === userCampusName.trim().toLowerCase()
+      );
+      if (userCampusObj) {
+        const campusBranchesSet = new Set(
+          branches
+            .filter((b) => b.campusId === userCampusObj.id)
+            .map((b) => b.name?.trim().toLowerCase())
+        );
+
+        tasks.forEach((t) => {
+          const tCamp = getTaskCampus(t);
+          if (tCamp && tCamp.toLowerCase() === userCampusName.trim().toLowerCase() && t.branch) {
+            campusBranchesSet.add(t.branch.trim().toLowerCase());
+          }
+        });
+
+        fromTasks = fromTasks.filter((b) => campusBranchesSet.has(b.trim().toLowerCase()));
+      }
+    }
     return Array.from(new Set(fromTasks)).sort();
-  }, [tasks]);
+  }, [tasks, campuses, branches, currentUser.campus, canUpload, getTaskCampus]);
 
   const mergedBranches = useMemo(() => {
     const set = new Set<string>();
-    branches.forEach((b) => {
+    
+    let filteredBranches = branches;
+    const userCampusName = currentUser.campus;
+    if (userCampusName && userCampusName !== "All" && !canUpload) {
+      const userCampusObj = campuses.find(
+        (c) => c.name?.trim().toLowerCase() === userCampusName.trim().toLowerCase()
+      );
+      if (userCampusObj) {
+        filteredBranches = branches.filter((b) => b.campusId === userCampusObj.id);
+      }
+    }
+
+    filteredBranches.forEach((b) => {
       if (b.name) set.add(b.name.trim());
     });
     availableBranches.forEach((b) => {
       if (b) set.add(b.trim());
     });
     return Array.from(set).sort();
-  }, [branches, availableBranches]);
+  }, [branches, availableBranches, campuses, currentUser.campus, canUpload]);
 
   const filteredDashboardTasks = useMemo(() => {
     let baseTasks = tasks;
@@ -1995,6 +2054,18 @@ export default function CallManagement({
             task.assignedToPin || task.liveAssignedToPin || task.liveInstructorPin,
           );
           if (!isAssigned) return false;
+        } else {
+          // Non-online tasks must belong to coordinator's campus branches
+          const taskCampus = getTaskCampus(task);
+          const userCampus = currentUser.campus;
+          if (userCampus && userCampus !== "All") {
+            const b = branches.find((br) => br.name === task.branch);
+            const isMyBranch = b && b.campusId && campuses.find((c) => c.id === b.campusId)?.name === userCampus;
+            const isMyCampus = taskCampus === userCampus || task.campus === userCampus;
+            if (!isMyBranch && !isMyCampus) {
+              return false;
+            }
+          }
         }
 
         return true;
@@ -2281,7 +2352,7 @@ export default function CallManagement({
                         <option value="all">All Campuses</option>
                         {availableCampuses.map((camp) => (
                           <option key={camp} value={camp}>
-                       {camp}
+                            📍 {camp}
                           </option>
                         ))}
                       </select>
@@ -2516,7 +2587,7 @@ export default function CallManagement({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                 <h4 className="text-sm font-black text-slate-800 mb-4">
-                  Feedback Details Distribution
+                  Feedback Details Distribution (N/R, Off, Busy, etc.)
                 </h4>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
@@ -4011,6 +4082,8 @@ export default function CallManagement({
                     }}
                     className="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-2 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                   >
+                    <option value="10">10</option>
+                    <option value="25">25</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
                     <option value="200">200</option>

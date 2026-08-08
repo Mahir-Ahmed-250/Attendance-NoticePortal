@@ -17,6 +17,8 @@ const UserSchema = new mongoose.Schema({
   otpExpiry: Date,
 });
 
+UserSchema.index({ campus: 1 });
+
 const EmailSchema = new mongoose.Schema({
   pin: { type: String, required: true, unique: true },
   toEmail: String,
@@ -90,6 +92,8 @@ const CampusSchema = new mongoose.Schema({
   coordinatorPins: [String],
 });
 
+CampusSchema.index({ name: 1 });
+
 const ProfileRequestSchema = new mongoose.Schema({
   pin: { type: String, required: true, unique: true },
   userPin: String,
@@ -145,6 +149,9 @@ const BranchSchema = new mongoose.Schema({
   campusId: { type: String, default: null }, // ID of the campus it belongs to
 });
 
+BranchSchema.index({ campusId: 1 });
+BranchSchema.index({ name: 1 });
+
 const CallTaskSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   sl: String,
@@ -160,6 +167,7 @@ const CallTaskSchema = new mongoose.Schema({
   mobileFather: String,
   mobileMother: String,
   branch: String,
+  campus: String,
   className: String,
   assignedToPin: String,
   assignedToName: String,
@@ -180,6 +188,17 @@ const CallTaskSchema = new mongoose.Schema({
   createdAt: { type: String, default: () => new Date().toISOString() },
   completedAt: String,
 });
+
+CallTaskSchema.index({ registrationNo: 1 });
+CallTaskSchema.index({ assignedToPin: 1 });
+CallTaskSchema.index({ liveAssignedToPin: 1 });
+CallTaskSchema.index({ liveInstructorPin: 1 });
+CallTaskSchema.index({ campus: 1 });
+CallTaskSchema.index({ branch: 1 });
+CallTaskSchema.index({ className: 1 });
+CallTaskSchema.index({ createdAt: -1 });
+CallTaskSchema.index({ liveInstructionStatus: 1 });
+CallTaskSchema.index({ feedbackStatus: 1 });
 
 export const User: Model<any> =
   mongoose.models.User || mongoose.model("User", UserSchema);

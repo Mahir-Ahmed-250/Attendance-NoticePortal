@@ -81,14 +81,14 @@ const connectDB = async () => {
     }
 
     const opts = {
-      dbName: process.env.MONGODB_DB_NAME || 'Attendance_NoticePortal_Dev',
+      dbName: 'Attendance_NoticePortal',
       bufferCommands: false,
       serverSelectionTimeoutMS: 8000,
       connectTimeoutMS: 8000,
     };
 
     cached.promise = mongoose.connect(uri, opts).then((mongooseInstance) => {
-      console.log("MongoDB Connected");
+      console.log("MongoDB Connected to database:", mongooseInstance.connection.name);
       return mongooseInstance;
     });
   }
@@ -1410,6 +1410,15 @@ app.post("/api/campuses", async (req, res) => {
   });
 
   // Call Tasks
+  const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  const campusResolutionCache = new Map<string, {
+    timestamp: number;
+    campusNames: string[];
+    branchNames: string[];
+    campusUserPins: string[];
+  }>();
+
   app.get("/api/call-tasks", async (req, res) => {
     try {
       const { assignedToPin, liveAssignedToPin, liveInstructionStatus, feedbackStatus, className, campus, branch, userPin } = req.query;
@@ -1446,26 +1455,54 @@ app.post("/api/campuses", async (req, res) => {
       
       if (campus && campus !== 'All') {
         const campusStr = (campus as string).trim();
-        // Find all branches that belong to this campus name (case-insensitive and partial match)
-        const campuses = await Campus.find({ name: { $regex: new RegExp(campusStr, "i") } });
-        const campusIds = campuses.map(c => c.id);
-        const campusNames = campuses.map(c => c.name);
-        
-        const campusBranches = await Branch.find({ campusId: { $in: campusIds } });
-        const branchNames = campusBranches.map(b => b.name);
+        let campusNames: string[] = [];
+        let branchNames: string[] = [];
+        let campusUserPins: string[] = [];
 
-        const campusUsers = await User.find({ campus: { $regex: new RegExp(campusStr, "i") } }, { pin: 1 });
-        const campusUserPins = campusUsers.map(u => String(u.pin));
+        const cacheKey = campusStr.toLowerCase();
+        const cached = campusResolutionCache.get(cacheKey);
+        const now = Date.now();
+
+        if (cached && (now - cached.timestamp < 30000)) {
+          campusNames = cached.campusNames;
+          branchNames = cached.branchNames;
+          campusUserPins = cached.campusUserPins;
+        } else {
+          const campuses = await Campus.find({ name: { $regex: new RegExp(escapeRegExp(campusStr), "i") } }).lean();
+          const campusIds = campuses.map(c => c.id);
+          campusNames = campuses.map(c => c.name);
+
+          const campusBranches = await Branch.find({ campusId: { $in: campusIds } }).lean();
+          branchNames = campusBranches.map(b => b.name);
+
+          const campusUsers = await User.find({ campus: { $regex: new RegExp(escapeRegExp(campusStr), "i") } }, { pin: 1 }).lean();
+          campusUserPins = campusUsers.map(u => String(u.pin));
+
+          campusResolutionCache.set(cacheKey, {
+            timestamp: now,
+            campusNames,
+            branchNames,
+            campusUserPins
+          });
+        }
         
         // Automatic campus/branch match applies ONLY to non-online classes
+        const branchMatch: any[] = [];
+        if (branchNames.length > 0) {
+          const escapedBranches = branchNames.map(b => escapeRegExp(b.trim())).filter(Boolean);
+          if (escapedBranches.length > 0) {
+            branchMatch.push({ branch: { $regex: new RegExp(`^(${escapedBranches.join('|')})$`, "i") } });
+          }
+        }
+
         const autoCampusBranch = {
           $and: [
             { className: { $not: { $regex: /online|অনলাইন/i } } },
             {
               $or: [
-                { campus: { $regex: new RegExp(campusStr, "i") } },
+                { campus: { $regex: new RegExp(escapeRegExp(campusStr), "i") } },
                 { campus: { $in: campusNames } },
-                { branch: { $in: branchNames.map(name => new RegExp(`^${name.trim()}$`, "i")) } }
+                ...branchMatch
               ]
             }
           ]
@@ -1498,7 +1535,7 @@ app.post("/api/campuses", async (req, res) => {
       }
       
       if (branch && branch !== 'all' && branch !== 'All') {
-        andConditions.push({ branch: { $regex: new RegExp(`^${(branch as string).trim()}$`, "i") } });
+        andConditions.push({ branch: { $regex: new RegExp(`^${escapeRegExp((branch as string).trim())}$`, "i") } });
       }
       
       const query = andConditions.length > 0 ? { $and: andConditions } : {};
