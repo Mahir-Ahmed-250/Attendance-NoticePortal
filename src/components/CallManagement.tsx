@@ -46,6 +46,7 @@ import {
   Eye,
   Calendar,
   RotateCcw,
+  RotateCw,
   SlidersHorizontal,
   Sparkles,
   Globe,
@@ -60,6 +61,8 @@ import {
   Copy,
   Camera,
   Image as ImageIcon,
+  Loader2,
+  Edit3,
 } from "lucide-react";
 import {
   CallTask,
@@ -230,6 +233,12 @@ export default function CallManagement({
   const [deleteAllTargetClass, setDeleteAllTargetClass] =
     useState<string>("all");
   const [deletePassword, setDeletePassword] = useState("");
+
+  // Delete & Unassign Spinner States
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
+  const [isDeletingClass, setIsDeletingClass] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [isUnassigning, setIsUnassigning] = useState(false);
 
   // Merit List Comparison State
   const [isMeritListModalOpen, setIsMeritListModalOpen] = useState(false);
@@ -435,12 +444,17 @@ export default function CallManagement({
     }
   };
 
+  const tasksLoadedRef = useRef(false);
+
   useEffect(() => {
-    fetchTasks();
+    const showLoader = !tasksLoadedRef.current;
+    fetchTasks(showLoader);
   }, [activeSubTab, currentUser.pin]);
 
-  const fetchTasks = async () => {
-    setLoading(true);
+  const fetchTasks = async (showLoader = true) => {
+    if (showLoader) {
+      setLoading(true);
+    }
     try {
       const params = new URLSearchParams();
       if (activeSubTab === "my-tasks") {
@@ -467,6 +481,7 @@ export default function CallManagement({
         const data = await res.json();
         if (Array.isArray(data)) {
           setTasks(data);
+          tasksLoadedRef.current = true;
         }
       }
     } catch (err) {
@@ -1154,6 +1169,7 @@ export default function CallManagement({
       return;
     }
 
+    setIsUnassigning(true);
     try {
       const payload: any = {
         taskIds: targetIds,
@@ -1176,7 +1192,21 @@ export default function CallManagement({
       });
 
       if (res.ok) {
-        fetchTasks();
+        setTasks((prev) =>
+          prev.map((t) => {
+            if (!targetIds.includes(t.id)) return t;
+            const updated = { ...t };
+            if (choice === "feedback" || choice === "both") {
+              updated.assignedToPin = undefined;
+              updated.assignedToName = undefined;
+            }
+            if (choice === "live" || choice === "both") {
+              updated.liveAssignedToPin = undefined;
+              updated.liveAssignedToName = undefined;
+            }
+            return updated;
+          })
+        );
         if (unassignTarget.type === "bulk") setSelectedTasks([]);
         if (unassignTarget.type === "range") setIsRangeModalOpen(false);
         setIsUnassignModalOpen(false);
@@ -1187,10 +1217,14 @@ export default function CallManagement({
               ? "Feedback"
               : "Both (Live & Feedback)";
         toast.success(`Unassigned ${targetIds.length} tasks (${choiceText})`);
+      } else {
+        toast.error("Failed to unassign task(s)");
       }
     } catch (err) {
       console.error("Unassignment error:", err);
       toast.error("Failed to unassign task(s)");
+    } finally {
+      setIsUnassigning(false);
     }
   };
 
@@ -1257,6 +1291,7 @@ export default function CallManagement({
 
   const confirmDeleteTask = async () => {
     if (!taskToDelete) return;
+    setIsDeletingTask(true);
     try {
       const res = await fetch(`/api/call-tasks/${taskToDelete}`, {
         method: "DELETE",
@@ -1265,10 +1300,16 @@ export default function CallManagement({
         setTasks((prev) => prev.filter((t) => t.id !== taskToDelete));
         setSelectedTasks((prev) => prev.filter((id) => id !== taskToDelete));
         setTaskToDelete(null);
-        setTaskModalOpen(false); // also close task modal if open
+        setTaskModalOpen(false);
+        toast.success("Task deleted successfully");
+      } else {
+        toast.error("Failed to delete task");
       }
     } catch (err) {
       console.error("Delete task error:", err);
+      toast.error("Failed to delete task");
+    } finally {
+      setIsDeletingTask(false);
     }
   };
 
@@ -1285,6 +1326,7 @@ export default function CallManagement({
       toast.error("Password is required to delete class records");
       return;
     }
+    setIsDeletingClass(true);
     try {
       const authRes = await fetch("/api/auth/login", {
         method: "POST",
@@ -1298,13 +1340,7 @@ export default function CallManagement({
         toast.error("Incorrect password!");
         return;
       }
-    } catch (err) {
-      console.error("Auth error:", err);
-      toast.error("Verification failed");
-      return;
-    }
 
-    try {
       const res = await fetch(
         `/api/call-tasks/class/${encodeURIComponent(selectedClassForUpload)}`,
         { method: "DELETE" },
@@ -1318,10 +1354,14 @@ export default function CallManagement({
         setIsDeleteClassModalOpen(false);
         setDeletePassword("");
         toast.success(`Tasks for class ${selectedClassForUpload} deleted successfully`);
+      } else {
+        toast.error("Failed to delete class tasks");
       }
     } catch (err) {
       console.error("Delete class error:", err);
       toast.error("Failed to delete class tasks");
+    } finally {
+      setIsDeletingClass(false);
     }
   };
 
@@ -1330,6 +1370,7 @@ export default function CallManagement({
       toast.error("Password is required to delete records");
       return;
     }
+    setIsDeletingAll(true);
     try {
       const authRes = await fetch("/api/auth/login", {
         method: "POST",
@@ -1343,13 +1384,7 @@ export default function CallManagement({
         toast.error("Incorrect password!");
         return;
       }
-    } catch (err) {
-      console.error("Auth error:", err);
-      toast.error("Verification failed");
-      return;
-    }
 
-    try {
       const url =
         deleteAllTargetClass === "all"
           ? "/api/call-tasks"
@@ -1367,15 +1402,15 @@ export default function CallManagement({
         setIsDeleteAllModalOpen(false);
         setDeleteAllTargetClass("all");
         setDeletePassword("");
-        toast.success(
-          deleteAllTargetClass === "all"
-            ? "All call tasks deleted successfully"
-            : `Tasks for class ${deleteAllTargetClass} deleted successfully`,
-        );
+        toast.success("Tasks deleted successfully");
+      } else {
+        toast.error("Failed to delete records");
       }
     } catch (err) {
-      console.error("Delete tasks error:", err);
-      toast.error("Failed to delete tasks");
+      console.error("Delete error:", err);
+      toast.error("Failed to delete records");
+    } finally {
+      setIsDeletingAll(false);
     }
   };
 
@@ -1454,34 +1489,51 @@ export default function CallManagement({
   };
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(10);
+
+  const campusAndBranchMaps = useMemo(() => {
+    const campusNameMap = new Map<string, string>();
+    const branchToCampusMap = new Map<string, string>();
+
+    campuses.forEach((c) => {
+      if (!c.name) return;
+      const officialName = c.name.trim();
+      campusNameMap.set(officialName.toLowerCase(), officialName);
+      if (c.id) campusNameMap.set(c.id.toLowerCase(), officialName);
+    });
+
+    const campusIdToOfficialMap = new Map<string, string>();
+    campuses.forEach((c) => {
+      if (c.id && c.name) campusIdToOfficialMap.set(c.id, c.name.trim());
+      if (c.name) campusIdToOfficialMap.set(c.name.trim(), c.name.trim());
+    });
+
+    branches.forEach((b) => {
+      if (!b.name) return;
+      const cleanBranch = b.name.trim().toLowerCase();
+      if (b.campusId && campusIdToOfficialMap.has(b.campusId)) {
+        branchToCampusMap.set(cleanBranch, campusIdToOfficialMap.get(b.campusId)!);
+      }
+    });
+
+    return { campusNameMap, branchToCampusMap };
+  }, [branches, campuses]);
 
   const getTaskCampus = useCallback(
     (task: CallTask): string => {
       if (task.campus && task.campus.trim()) {
-        const directCampus = task.campus.trim();
-        const official = campuses.find(
-          (c) => c.name?.trim().toLowerCase() === directCampus.toLowerCase() || c.id === directCampus,
-        );
-        if (official && official.name) return official.name.trim();
-        return directCampus;
+        const direct = task.campus.trim();
+        const official = campusAndBranchMaps.campusNameMap.get(direct.toLowerCase());
+        if (official) return official;
+        return direct;
       }
 
       if (task.branch) {
-        const cleanBranch = task.branch.trim();
-        const branchObj = branches.find(
-          (b) =>
-            b.name?.trim() === cleanBranch ||
-            b.name?.trim().toLowerCase() === cleanBranch.toLowerCase(),
-        );
-        if (branchObj && branchObj.campusId) {
-          const campusObj = campuses.find(
-            (c) => c.id === branchObj.campusId || c.name === branchObj.campusId,
-          );
-          if (campusObj && campusObj.name) return campusObj.name.trim();
-        }
+        const cleanBranch = task.branch.trim().toLowerCase();
+        const mappedCampus = campusAndBranchMaps.branchToCampusMap.get(cleanBranch);
+        if (mappedCampus) return mappedCampus;
+
         const cleanBranchKeyword = cleanBranch
-          .toLowerCase()
           .replace(/udvash|unmesh|branch|\(.*\)/gi, "")
           .trim();
 
@@ -1489,7 +1541,7 @@ export default function CallManagement({
           if (!c.name) return false;
           const cleanCampus = c.name.toLowerCase().replace("campus", "").trim();
           return (
-            cleanBranch.toLowerCase().includes(cleanCampus) ||
+            cleanBranch.includes(cleanCampus) ||
             (cleanBranchKeyword.length > 2 && cleanCampus.includes(cleanBranchKeyword))
           );
         });
@@ -1497,7 +1549,7 @@ export default function CallManagement({
       }
       return "";
     },
-    [branches, campuses],
+    [campusAndBranchMaps, campuses],
   );
 
   const isOnlineTask = useCallback((task: CallTask | Partial<CallTask>) => {
@@ -1534,157 +1586,212 @@ export default function CallManagement({
     [isAssignedToOtherMember],
   );
 
-  const filteredTasks = tasks
-    .filter((task) => {
-      const isAssignedToSelf = Boolean(
-        task.assignedToPin === currentUser.pin ||
-          task.liveAssignedToPin === currentUser.pin ||
-          task.liveInstructorPin === currentUser.pin,
-      );
+  const filteredTasks = useMemo(() => {
+    return tasks
+      .filter((task) => {
+        const isAssignedToSelf = Boolean(
+          task.assignedToPin === currentUser.pin ||
+            task.liveAssignedToPin === currentUser.pin ||
+            task.liveInstructorPin === currentUser.pin,
+        );
 
-      const isAssignedToOther = isAssignedToOtherMember(task, currentUser.pin);
+        const isAssignedToOther = isAssignedToOtherMember(task, currentUser.pin);
 
-      // SubTab Specific Rule 1: My Assigned Calls tab
-      if (activeSubTab === "my-tasks") {
-        if (!isAssignedToSelf) return false;
-      }
+        // SubTab Specific Rule 1: My Assigned Calls tab
+        if (activeSubTab === "my-tasks") {
+          if (!isAssignedToSelf) return false;
+        }
 
-      // SubTab Specific Rule 2: Call Management tab
-      if (activeSubTab === "management") {
-        const isUserCoordinator =
-          currentUser.role === "mentor" || (isCoordinator && !canUpload);
-        if (isUserCoordinator) {
-          // Hide calls assigned solely to coordinator self until assigned to a team member
-          if (isAssignedSolelyToSelf(task, currentUser.pin)) {
-            return false;
+        // SubTab Specific Rule 2: Call Management tab
+        if (activeSubTab === "management") {
+          const isUserCoordinator =
+            currentUser.role === "mentor" || (isCoordinator && !canUpload);
+          if (isUserCoordinator) {
+            // Hide calls assigned solely to coordinator self until assigned to a team member
+            if (isAssignedSolelyToSelf(task, currentUser.pin)) {
+              return false;
+            }
           }
         }
-      }
 
-      const matchesSearch =
-        task.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.registrationNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        task.mobilePersonal.includes(searchQuery);
-
-      const isOnline = isOnlineTask(task);
-
-      // Campus matching
-      const taskCampus = getTaskCampus(task);
-      const matchesCampus =
-        campusFilter === "all" ||
-        taskCampus === campusFilter ||
-        task.campus === campusFilter;
-
-      // Branch matching
-      const matchesBranch =
-        selectedBranches.length === 0 ||
-        selectedBranches.includes(task.branch);
-
-      const matchesLiveStatus =
-        liveStatusFilter === "all" ||
-        task.liveInstructionStatus === liveStatusFilter;
-      const matchesFeedbackStatus =
-        feedbackStatusFilter === "all" ||
-        task.feedbackStatus === feedbackStatusFilter;
-      const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"];
-      const matchesFeedbackDetail =
-        feedbackDetailFilter === "all" ||
-        (feedbackDetailFilter === "Others"
-          ? !standardFeedbackOptions.includes(task.feedbackComment || "") && Boolean(task.feedbackComment)
-          : task.feedbackComment === feedbackDetailFilter);
-      const matchesClass =
-        classFilter === "all" || task.className === classFilter;
-      const matchesAssign =
-        assignFilter === "all" ||
-        (assignFilter === "Assigned"
-          ? !!task.assignedToPin
-          : !task.assignedToPin);
-      const matchesLiveAssign =
-        liveAssignFilter === "all" ||
-        (liveAssignFilter === "Assigned"
-          ? !!task.liveAssignedToPin || !!task.liveInstructorPin
-          : !task.liveAssignedToPin && !task.liveInstructorPin);
-
-      const matchesImageFilter =
-        !showOnlyWithImages ||
-        (task.liveInstructionImage &&
-          parseMultipleImages(task.liveInstructionImage).length > 0);
-
-      // Date Filtering Logic
-      const checkDateInRange = (dStr?: string) => {
-        if (!dStr) return false;
-        const dateOnly = dStr.split("T")[0];
-        if (fromDateFilter && dateOnly < fromDateFilter) return false;
-        if (toDateFilter && dateOnly > toDateFilter) return false;
-        return true;
-      };
-
-      let matchesDate = true;
-      if (fromDateFilter || toDateFilter) {
-        if (dateTypeFilter === "live") {
-          matchesDate = checkDateInRange(task.liveInstructionSubmitDate);
-        } else if (dateTypeFilter === "feedback") {
-          matchesDate = checkDateInRange(task.feedbackSubmitDate);
-        } else {
-          matchesDate =
-            checkDateInRange(task.liveInstructionSubmitDate) ||
-            checkDateInRange(task.feedbackSubmitDate);
+        const isUserCoordinator =
+          currentUser.role === "mentor" || (isCoordinator && !canUpload);
+        if (isUserCoordinator && activeSubTab !== "my-tasks") {
+          // Exclude unassigned online class tasks
+          if (isOnlineTask(task)) {
+            const isAssigned = Boolean(
+              task.assignedToPin || task.liveAssignedToPin || task.liveInstructorPin,
+            );
+            if (!isAssigned) return false;
+          } else {
+            // Non-online tasks must belong to coordinator's campus branches
+            const taskCampus = getTaskCampus(task);
+            const userCampus = currentUser.campus;
+            if (userCampus && userCampus !== "All") {
+              const b = branches.find((br) => br.name === task.branch);
+              const isMyBranch = b && b.campusId && campuses.find((c) => c.id === b.campusId)?.name === userCampus;
+              const isMyCampus = taskCampus === userCampus || task.campus === userCampus;
+              if (!isMyBranch && !isMyCampus) {
+                return false;
+              }
+            }
+          }
         }
-      }
 
-      if (!matchesImageFilter) return false;
+        const matchesSearch =
+          task.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          task.registrationNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          task.mobilePersonal.includes(searchQuery);
 
-      return (
-        matchesSearch &&
-        matchesCampus &&
-        matchesLiveStatus &&
-        matchesFeedbackStatus &&
-        matchesFeedbackDetail &&
-        matchesClass &&
-        matchesAssign &&
-        matchesLiveAssign &&
-        matchesDate &&
-        matchesBranch
-      );
-    })
-    .sort((a, b) => {
-      const isUserCoordinator = currentUser.role === "manager" || currentUser.role === "mentor";
-      if (isUserCoordinator) {
-        const isLiveUnassignedA = !a.liveAssignedToPin && !a.liveInstructorPin;
-        const isFeedbackUnassignedA = !a.assignedToPin;
-        const isLiveUnassignedB = !b.liveAssignedToPin && !b.liveInstructorPin;
-        const isFeedbackUnassignedB = !b.assignedToPin;
+        const isOnline = isOnlineTask(task);
 
-        // Score 0: Both live and feedback are unassigned
-        // Score 1: Only one of them is unassigned
-        // Score 2: Both are assigned
-        const getScore = (isLiveUn: boolean, isFeedUn: boolean) => {
-          if (isLiveUn && isFeedUn) return 0;
-          if (isLiveUn || isFeedUn) return 1;
-          return 2;
+        // Campus matching
+        const taskCampus = getTaskCampus(task);
+        const matchesCampus =
+          campusFilter === "all" ||
+          taskCampus === campusFilter ||
+          task.campus === campusFilter;
+
+        // Branch matching
+        const matchesBranch =
+          selectedBranches.length === 0 ||
+          selectedBranches.includes(task.branch);
+
+        const matchesLiveStatus =
+          liveStatusFilter === "all" ||
+          task.liveInstructionStatus === liveStatusFilter;
+        const matchesFeedbackStatus =
+          feedbackStatusFilter === "all" ||
+          task.feedbackStatus === feedbackStatusFilter;
+        const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"];
+        const matchesFeedbackDetail =
+          feedbackDetailFilter === "all" ||
+          (feedbackDetailFilter === "Others"
+            ? !standardFeedbackOptions.includes(task.feedbackComment || "") && Boolean(task.feedbackComment)
+            : task.feedbackComment === feedbackDetailFilter);
+        const matchesClass =
+          classFilter === "all" || task.className === classFilter;
+        const matchesAssign =
+          assignFilter === "all" ||
+          (assignFilter === "Assigned"
+            ? !!task.assignedToPin
+            : !task.assignedToPin);
+        const matchesLiveAssign =
+          liveAssignFilter === "all" ||
+          (liveAssignFilter === "Assigned"
+            ? !!task.liveAssignedToPin || !!task.liveInstructorPin
+            : !task.liveAssignedToPin && !task.liveInstructorPin);
+
+        const matchesImageFilter =
+          !showOnlyWithImages ||
+          (task.liveInstructionImage &&
+            parseMultipleImages(task.liveInstructionImage).length > 0);
+
+        // Date Filtering Logic
+        const checkDateInRange = (dStr?: string) => {
+          if (!dStr) return false;
+          const dateOnly = dStr.split("T")[0];
+          if (fromDateFilter && dateOnly < fromDateFilter) return false;
+          if (toDateFilter && dateOnly > toDateFilter) return false;
+          return true;
         };
 
-        const scoreA = getScore(isLiveUnassignedA, isFeedbackUnassignedA);
-        const scoreB = getScore(isLiveUnassignedB, isFeedbackUnassignedB);
-
-        if (scoreA !== scoreB) {
-          return scoreA - scoreB;
+        let matchesDate = true;
+        if (fromDateFilter || toDateFilter) {
+          if (dateTypeFilter === "live") {
+            matchesDate = checkDateInRange(task.liveInstructionSubmitDate);
+          } else if (dateTypeFilter === "feedback") {
+            matchesDate = checkDateInRange(task.feedbackSubmitDate);
+          } else {
+            matchesDate =
+              checkDateInRange(task.liveInstructionSubmitDate) ||
+              checkDateInRange(task.feedbackSubmitDate);
+          }
         }
-      }
 
-      const numA = parseInt(a.sl);
-      const numB = parseInt(b.sl);
-      if (!isNaN(numA) && !isNaN(numB)) {
-        return numA - numB;
-      }
-      return a.sl.localeCompare(b.sl);
-    });
+        if (!matchesImageFilter) return false;
+
+        return (
+          matchesSearch &&
+          matchesCampus &&
+          matchesLiveStatus &&
+          matchesFeedbackStatus &&
+          matchesFeedbackDetail &&
+          matchesClass &&
+          matchesAssign &&
+          matchesLiveAssign &&
+          matchesDate &&
+          matchesBranch
+        );
+      })
+      .sort((a, b) => {
+        const isUserCoordinator = currentUser.role === "manager" || currentUser.role === "mentor";
+        if (isUserCoordinator) {
+          const isLiveUnassignedA = !a.liveAssignedToPin && !a.liveInstructorPin;
+          const isFeedbackUnassignedA = !a.assignedToPin;
+          const isLiveUnassignedB = !b.liveAssignedToPin && !b.liveInstructorPin;
+          const isFeedbackUnassignedB = !b.assignedToPin;
+
+          // Score 0: Both live and feedback are unassigned
+          // Score 1: Only one of them is unassigned
+          // Score 2: Both are assigned
+          const getScore = (isLiveUn: boolean, isFeedUn: boolean) => {
+            if (isLiveUn && isFeedUn) return 0;
+            if (isLiveUn || isFeedUn) return 1;
+            return 2;
+          };
+
+          const scoreA = getScore(isLiveUnassignedA, isFeedbackUnassignedA);
+          const scoreB = getScore(isLiveUnassignedB, isFeedbackUnassignedB);
+
+          if (scoreA !== scoreB) {
+            return scoreA - scoreB;
+          }
+        }
+
+        const numA = parseInt(a.sl);
+        const numB = parseInt(b.sl);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        return a.sl.localeCompare(b.sl);
+      });
+  }, [
+    tasks,
+    currentUser.pin,
+    currentUser.role,
+    currentUser.campus,
+    activeSubTab,
+    isCoordinator,
+    canUpload,
+    branches,
+    campuses,
+    searchQuery,
+    campusFilter,
+    selectedBranches,
+    liveStatusFilter,
+    feedbackStatusFilter,
+    feedbackDetailFilter,
+    classFilter,
+    assignFilter,
+    liveAssignFilter,
+    showOnlyWithImages,
+    fromDateFilter,
+    toDateFilter,
+    dateTypeFilter,
+    isAssignedToOtherMember,
+    isAssignedSolelyToSelf,
+    isOnlineTask,
+    getTaskCampus,
+  ]);
 
   const totalPages = Math.ceil(filteredTasks.length / pageSize);
-  const paginatedTasks = filteredTasks.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
+  const paginatedTasks = useMemo(() => {
+    return filteredTasks.slice(
+      (currentPage - 1) * pageSize,
+      currentPage * pageSize,
+    );
+  }, [filteredTasks, currentPage, pageSize]);
 
   const [jumpPageInput, setJumpPageInput] = useState<string>("");
 
@@ -1783,7 +1890,7 @@ export default function CallManagement({
 
     // Check if task subset belongs to an Online class
     const isOnlineTaskSet = taskSubset.some((t) =>
-      /online/i.test(t.className || ""),
+      /online/i.test(t.className || "") || isOnlineTask(t)
     );
 
     if (isOnlineTaskSet) {
@@ -1793,21 +1900,21 @@ export default function CallManagement({
     const taskBranches = [...new Set(taskSubset.map((t) => t.branch))];
 
     if (taskBranches.length > 1 && currentUser.role !== "mentor") return []; // If range has students from multiple branches, assignment not allowed
-    const isAllowed = taskSubset.every((t) => {
-      const b = branches.find((br) => br.name === t.branch);
-      const cId = b?.campusId;
-      const cName = campuses.find((c) => c.id === cId)?.name;
+    const campusId = branches.find((b) => b.name === taskBranches[0])?.campusId;
+    if (!campusId) return myCampusMembers;
+    const campusObj = campuses.find((c) => c.id === campusId);
+    if (!campusObj) return myCampusMembers;
 
-      const isMyCampus = cName === currentUser.campus || !cName;
-      const isAssignedToMe =
-        t.assignedToPin === currentUser.pin ||
-        t.liveAssignedToPin === currentUser.pin;
-
-      return isMyCampus || isAssignedToMe;
-    });
-
-    if (!isAllowed) {
-      return []; // Coordinator cannot assign tasks from another campus unless assigned to them
+    // Intersect task campus with user campus
+    if (campusObj.name !== currentUser.campus) {
+      const isAssignedToCurrentUser = taskSubset.every(
+        (t) =>
+          t.assignedToPin === currentUser.pin ||
+          t.liveAssignedToPin === currentUser.pin
+      );
+      if (!isAssignedToCurrentUser) {
+        return []; // Coordinator cannot assign tasks from another campus unless assigned to them
+      }
     }
 
     return myCampusMembers;
@@ -1963,22 +2070,57 @@ export default function CallManagement({
   }, [campuses, members, tasks, branches]);
 
   const availableBranches = useMemo(() => {
-    const fromTasks = tasks
+    let fromTasks = tasks
       .map((t) => t.branch)
       .filter((b): b is string => Boolean(b && b.trim()));
+
+    const userCampusName = currentUser.campus;
+    if (userCampusName && userCampusName !== "All" && !canUpload) {
+      const userCampusObj = campuses.find(
+        (c) => c.name?.trim().toLowerCase() === userCampusName.trim().toLowerCase()
+      );
+      if (userCampusObj) {
+        const campusBranchesSet = new Set(
+          branches
+            .filter((b) => b.campusId === userCampusObj.id)
+            .map((b) => b.name?.trim().toLowerCase())
+        );
+
+        tasks.forEach((t) => {
+          const tCamp = getTaskCampus(t);
+          if (tCamp && tCamp.toLowerCase() === userCampusName.trim().toLowerCase() && t.branch) {
+            campusBranchesSet.add(t.branch.trim().toLowerCase());
+          }
+        });
+
+        fromTasks = fromTasks.filter((b) => campusBranchesSet.has(b.trim().toLowerCase()));
+      }
+    }
     return Array.from(new Set(fromTasks)).sort();
-  }, [tasks]);
+  }, [tasks, campuses, branches, currentUser.campus, canUpload, getTaskCampus]);
 
   const mergedBranches = useMemo(() => {
     const set = new Set<string>();
-    branches.forEach((b) => {
+    
+    let filteredBranches = branches;
+    const userCampusName = currentUser.campus;
+    if (userCampusName && userCampusName !== "All" && !canUpload) {
+      const userCampusObj = campuses.find(
+        (c) => c.name?.trim().toLowerCase() === userCampusName.trim().toLowerCase()
+      );
+      if (userCampusObj) {
+        filteredBranches = branches.filter((b) => b.campusId === userCampusObj.id);
+      }
+    }
+
+    filteredBranches.forEach((b) => {
       if (b.name) set.add(b.name.trim());
     });
     availableBranches.forEach((b) => {
       if (b) set.add(b.trim());
     });
     return Array.from(set).sort();
-  }, [branches, availableBranches]);
+  }, [branches, availableBranches, campuses, currentUser.campus, canUpload]);
 
   const filteredDashboardTasks = useMemo(() => {
     let baseTasks = tasks;
@@ -1995,6 +2137,18 @@ export default function CallManagement({
             task.assignedToPin || task.liveAssignedToPin || task.liveInstructorPin,
           );
           if (!isAssigned) return false;
+        } else {
+          // Non-online tasks must belong to coordinator's campus branches
+          const taskCampus = getTaskCampus(task);
+          const userCampus = currentUser.campus;
+          if (userCampus && userCampus !== "All") {
+            const b = branches.find((br) => br.name === task.branch);
+            const isMyBranch = b && b.campusId && campuses.find((c) => c.id === b.campusId)?.name === userCampus;
+            const isMyCampus = taskCampus === userCampus || task.campus === userCampus;
+            if (!isMyBranch && !isMyCampus) {
+              return false;
+            }
+          }
         }
 
         return true;
@@ -2226,6 +2380,13 @@ export default function CallManagement({
                 Delete All
               </button>
             )}
+            <button
+              onClick={() => fetchTasks(true)}
+              title="Refresh Server Data"
+              className="p-2 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center cursor-pointer"
+            >
+              <RotateCw className="w-4 h-4" />
+            </button>
           </div>
         )}
       </div>
@@ -2281,7 +2442,7 @@ export default function CallManagement({
                         <option value="all">All Campuses</option>
                         {availableCampuses.map((camp) => (
                           <option key={camp} value={camp}>
-                       {camp}
+                            📍 {camp}
                           </option>
                         ))}
                       </select>
@@ -2516,7 +2677,7 @@ export default function CallManagement({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                 <h4 className="text-sm font-black text-slate-800 mb-4">
-                  Feedback Details Distribution
+                  Feedback Details Distribution (N/R, Off, Busy, etc.)
                 </h4>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
@@ -4011,6 +4172,8 @@ export default function CallManagement({
                     }}
                     className="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-2 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
                   >
+                    <option value="10">10</option>
+                    <option value="25">25</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
                     <option value="200">200</option>
@@ -5448,9 +5611,17 @@ export default function CallManagement({
                 </button>
                 <button
                   onClick={() => confirmUnassign(unassignChoice)}
-                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-100"
+                  disabled={isUnassigning}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-100 flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Confirm Unassign
+                  {isUnassigning ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Unassigning...</span>
+                    </>
+                  ) : (
+                    <span>Confirm Unassign</span>
+                  )}
                 </button>
               </div>
             </motion.div>
@@ -5797,9 +5968,17 @@ export default function CallManagement({
                 <div className="flex flex-col w-full gap-2 pt-4">
                   <button
                     onClick={confirmDeleteClass}
-                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                    disabled={isDeletingClass}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    Confirm Delete Class
+                    {isDeletingClass ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span>Deleting Class...</span>
+                      </>
+                    ) : (
+                      <span>Confirm Delete Class</span>
+                    )}
                   </button>
                   <button
                     onClick={() => {
@@ -5884,9 +6063,17 @@ export default function CallManagement({
                 <div className="flex flex-col w-full gap-2 pt-4">
                   <button
                     onClick={handleDeleteAllTasks}
-                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                    disabled={isDeletingAll}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    Confirm Delete All
+                    {isDeletingAll ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span>Deleting...</span>
+                      </>
+                    ) : (
+                      <span>Confirm Delete All</span>
+                    )}
                   </button>
                   <button
                     onClick={() => {
@@ -6302,20 +6489,32 @@ export default function CallManagement({
                 <div className="flex flex-col sm:flex-row justify-end items-center gap-3 pt-4 border-t border-slate-100 flex-shrink-0">
                   <button
                     onClick={() => {
+                      if (isUploading) return;
                       setExcelPreviewTasks(null);
                       setExcelPreviewStats(null);
                       setExcelPreviewClassName("");
                     }}
-                    className="w-full sm:w-auto px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                    disabled={isUploading}
+                    className="w-full sm:w-auto px-6 py-3 bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleConfirmExcelUpload}
-                    className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2"
+                    disabled={isUploading}
+                    className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    <CheckSquare className="w-4 h-4" />
-                    Confirm & Add Student Info
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Adding Student Info...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="w-4 h-4" />
+                        <span>Confirm & Add Student Info</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -6349,9 +6548,17 @@ export default function CallManagement({
                 <div className="flex flex-col w-full gap-2 pt-4">
                   <button
                     onClick={confirmDeleteTask}
-                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all"
+                    disabled={isDeletingTask}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg hover:shadow-rose-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
                   >
-                    Confirm Delete
+                    {isDeletingTask ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span>Deleting...</span>
+                      </>
+                    ) : (
+                      <span>Confirm Delete</span>
+                    )}
                   </button>
                   <button
                     onClick={() => setTaskToDelete(null)}
