@@ -2677,7 +2677,7 @@ export default function CallManagement({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                 <h4 className="text-sm font-black text-slate-800 mb-4">
-                  Feedback Details Distribution (N/R, Off, Busy, etc.)
+                  Feedback Details Distribution
                 </h4>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
