@@ -4185,14 +4185,6 @@ export default function MentorDashboard({
                             <tbody className="divide-y divide-slate-100 text-xs">
                               {(campuses || [])
                                 .filter((campus) => {
-                                  if (currentMentor.campus && currentMentor.campus !== "All") {
-                                    const matchesMentor =
-                                      campus.name?.trim().toLowerCase() === currentMentor.campus?.trim().toLowerCase() ||
-                                      campus.coordinatorPins?.includes(currentMentor.pin) ||
-                                      campus.headCoordinatorPin === currentMentor.pin ||
-                                      campus.deputyCoordinatorPins?.includes(currentMentor.pin);
-                                    if (!matchesMentor) return false;
-                                  }
                                   const query = campusSettingsSearchQuery.trim().toLowerCase();
                                   if (!query) return true;
                                   if (campus.name?.toLowerCase().includes(query)) return true;
