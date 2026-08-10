@@ -965,6 +965,9 @@ app.get("/api/users", async (req, res) => {
 app.post("/api/users", async (req, res) => {
   try {
     const userData = { ...req.body };
+    if (!userData.permissions || !Array.isArray(userData.permissions) || userData.permissions.length === 0) {
+      userData.permissions = ["call_management"];
+    }
     if (userData.password) {
       // User requested plain text passwords instead of bcrypt
       // userData.password = await bcrypt.hash(userData.password, 10);
@@ -1748,6 +1751,31 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       res.json({ message: "Tasks assigned successfully" });
     } catch (err) {
       res.status(500).json({ error: "Failed to assign tasks" });
+    }
+  });
+
+  app.put("/api/call-tasks/rename-class", async (req, res) => {
+    try {
+      const { oldClassName, newClassName } = req.body;
+      if (!oldClassName || !newClassName || !oldClassName.trim() || !newClassName.trim()) {
+        return res.status(400).json({ error: "Old class name and new class name are required" });
+      }
+      const trimmedOld = oldClassName.trim();
+      const trimmedNew = newClassName.trim();
+
+      const result = await CallTask.updateMany(
+        { className: trimmedOld },
+        { $set: { className: trimmedNew } }
+      );
+
+      res.json({
+        success: true,
+        modifiedCount: result.modifiedCount,
+        message: `Class "${trimmedOld}" renamed to "${trimmedNew}" successfully`,
+      });
+    } catch (err) {
+      console.error("Rename class error:", err);
+      res.status(500).json({ error: "Failed to rename class" });
     }
   });
 

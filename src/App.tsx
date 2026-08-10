@@ -837,7 +837,12 @@ export default function App() {
       throw new Error('Campus selection is mandatory');
     }
     try {
-      const saved = await api.users.create({ ...newMember, role: 'member' });
+      const memberToCreate = {
+        ...newMember,
+        role: 'member' as const,
+        permissions: (newMember.permissions && newMember.permissions.length > 0) ? newMember.permissions : ['call_management'],
+      };
+      const saved = await api.users.create(memberToCreate);
       setMembers(prev => [...(prev || []), saved]);
       toast.success('Team member added successfully!');
     } catch (err: any) {
@@ -883,7 +888,8 @@ export default function App() {
       const finalMentor: Mentor = {
         ...newMentor,
         role: 'mentor',
-        mentorPin: newMentor.mentorPin || (existingCoord ? existingCoord.pin : managerPin)
+        mentorPin: newMentor.mentorPin || (existingCoord ? existingCoord.pin : managerPin),
+        permissions: (newMentor.permissions && newMentor.permissions.length > 0) ? newMentor.permissions : ['call_management'],
       };
       const saved = await api.users.create(finalMentor);
       setMentors(prev => [...(prev || []), saved]);

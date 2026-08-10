@@ -57,6 +57,8 @@ import {
   Trash2,
   Phone,
   UserMinus,
+  Building2,
+  MapPin,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { motion, AnimatePresence } from "motion/react";
@@ -218,6 +220,7 @@ export default function MentorDashboard({
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [selectedCampusForBranches, setSelectedCampusForBranches] =
     useState<Campus | null>(null);
+  const [campusSettingsSearchQuery, setCampusSettingsSearchQuery] = useState("");
   const [isAddBranchModalOpen, setIsAddBranchModalOpen] = useState(false);
   const [branchSearch, setBranchSearch] = useState("");
 
@@ -4075,6 +4078,100 @@ export default function MentorDashboard({
                       </div>
 
                       <div className="p-6">
+                        {/* Search Input Bar */}
+                        <div className="relative mb-6">
+                          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Search branch or campus name "
+                            value={campusSettingsSearchQuery}
+                            onChange={(e) => setCampusSettingsSearchQuery(e.target.value)}
+                            className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-slate-800"
+                          />
+                          {campusSettingsSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setCampusSettingsSearchQuery("")}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Search Lookup Card */}
+                        {campusSettingsSearchQuery.trim() !== "" && (() => {
+                          const query = campusSettingsSearchQuery.trim().toLowerCase();
+                          const matchingBranches = branches.filter((b) =>
+                            b.name.toLowerCase().includes(query)
+                          );
+                          return (
+                            <div className="mb-6 p-4 bg-indigo-50/40 border border-indigo-100 rounded-2xl space-y-3 text-left">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-xs font-black uppercase tracking-wider text-indigo-900 flex items-center gap-2">
+                                  <Building2 className="w-4 h-4 text-indigo-600" />
+                                  <span>Branch & Campus Lookup ({matchingBranches.length} branches found)</span>
+                                </h4>
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  Search term: "{campusSettingsSearchQuery}"
+                                </span>
+                              </div>
+
+                              {matchingBranches.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                                  {matchingBranches.map((branch) => {
+                                    const parentCampus = campuses.find((c) => c.id === branch.campusId);
+                                    return (
+                                      <div
+                                        key={branch.id}
+                                        className="p-3 bg-white border border-slate-200/80 rounded-xl flex items-center justify-between shadow-2xs hover:border-indigo-300 transition-all"
+                                      >
+                                        <div className="space-y-1">
+                                          <p className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                            <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                                            <span>{branch.name}</span>
+                                          </p>
+                                          <div className="flex items-center gap-1.5 text-[11px]">
+                                            <span className="text-slate-400 font-medium">Belongs to Campus:</span>
+                                            {parentCampus ? (
+                                              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 font-extrabold rounded-md flex items-center gap-1">
+                                                <MapPin className="w-3 h-3 text-indigo-600" />
+                                                {parentCampus.name}
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 font-extrabold rounded-md">
+                                                Unassigned (No Campus)
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {parentCampus && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedCampusForBranches(parentCampus);
+                                              setIsBranchModalOpen(true);
+                                            }}
+                                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                                          >
+                                            <Edit3 className="w-3 h-3" />
+                                            <span>Manage</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500 italic py-2">
+                                  No branches found matching "{campusSettingsSearchQuery}".
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         <div className="overflow-x-auto">
                           <table className="w-full text-left border-collapse">
                             <thead>
@@ -4088,57 +4185,68 @@ export default function MentorDashboard({
                             <tbody className="divide-y divide-slate-100 text-xs">
                               {(campuses || [])
                                 .filter((campus) => {
-                                  if (!currentMentor.campus || currentMentor.campus === "All") return true;
-                                  return campus.name?.trim().toLowerCase() === currentMentor.campus?.trim().toLowerCase() ||
-                                         campus.coordinatorPins?.includes(currentMentor.pin) ||
-                                         campus.headCoordinatorPin === currentMentor.pin ||
-                                         campus.deputyCoordinatorPins?.includes(currentMentor.pin);
+                                  const query = campusSettingsSearchQuery.trim().toLowerCase();
+                                  if (!query) return true;
+                                  if (campus.name?.toLowerCase().includes(query)) return true;
+                                  const campusBranches = branches.filter((b) => b.campusId === campus.id);
+                                  return campusBranches.some((b) => b.name.toLowerCase().includes(query));
                                 })
-                                .map((campus, idx) => (
-                                <tr
-                                  key={campus.id}
-                                  className="hover:bg-slate-50/30 transition-colors"
-                                >
-                                  <td className="p-4 text-center font-mono text-slate-400">
-                                    {idx + 1}
-                                  </td>
-                                  <td className="p-4 font-bold text-slate-800">
-                                    {campus.name}
-                                  </td>
-                                  <td className="p-4">
-                                    <div className="flex flex-wrap gap-1 max-w-[400px]">
-                                      {branches
-                                        .filter((b) => b.campusId === campus.id)
-                                        .map((b) => (
-                                          <span
-                                            key={b.id}
-                                            className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md border border-slate-200 text-[10px] font-medium"
-                                          >
-                                            {b.name}
-                                          </span>
-                                        ))}
-                                      {branches.filter(
-                                        (b) => b.campusId === campus.id,
-                                      ).length === 0 && (
-                                        <span className="text-slate-400 italic text-[10px]">
-                                          No branches assigned
+                                .map((campus, idx) => {
+                                  const campusBranches = branches.filter((b) => b.campusId === campus.id);
+                                  const udvashUnmeshCount = campusBranches.filter((b) =>
+                                    b.name.toLowerCase().includes("unmesh")
+                                  ).length;
+                                  const udvashCount = campusBranches.filter((b) =>
+                                    !b.name.toLowerCase().includes("unmesh")
+                                  ).length;
+
+                                  return (
+                                  <tr
+                                    key={campus.id}
+                                    className="hover:bg-slate-50/30 transition-colors"
+                                  >
+                                    <td className="p-4 text-center font-mono text-slate-400">
+                                      {idx + 1}
+                                    </td>
+                                    <td className="p-4 font-bold text-slate-800">
+                                      {campus.name}
+                                    </td>
+                                    <td className="p-4">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span
+                                          className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md text-[11px] font-black border border-slate-200"
+                                          title="Total Branches"
+                                        >
+                                          Total: {campusBranches.length}
                                         </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="p-4 text-right">
-                                    <button
-                                      onClick={() => {
-                                        setSelectedCampusForBranches(campus);
-                                        setIsBranchModalOpen(true);
-                                      }}
-                                      className="px-4 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl text-[10px] font-black uppercase tracking-wider border border-indigo-100 transition-all cursor-pointer"
-                                    >
-                                      Manage Branches
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
+                                        <span
+                                          className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md text-[11px] font-bold border border-emerald-200/60"
+                                          title="Udvash Branches"
+                                        >
+                                          Udvash: {udvashCount}
+                                        </span>
+                                        <span
+                                          className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[11px] font-bold border border-blue-200/60"
+                                          title="Udvash-Unmesh Branches"
+                                        >
+                                          Udvash-Unmesh: {udvashUnmeshCount}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="p-4 text-right">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedCampusForBranches(campus);
+                                          setIsBranchModalOpen(true);
+                                        }}
+                                        className="px-4 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl text-[10px] font-black uppercase tracking-wider border border-indigo-100 transition-all cursor-pointer"
+                                      >
+                                        Edit / Manage Branches
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                                })}
                             </tbody>
                           </table>
                         </div>
@@ -4160,6 +4268,7 @@ export default function MentorDashboard({
         }}
         campus={selectedCampusForBranches}
         branches={branches}
+        campuses={campuses}
         onAssign={onAssignBranchesToCampus}
         onUnassign={onUnassignBranch}
         onUpdateBranch={onUpdateBranch}
@@ -4207,6 +4316,7 @@ function BranchManagementModal({
   onClose,
   campus,
   branches,
+  campuses = [],
   onAssign,
   onUnassign,
   onUpdateBranch,
@@ -4217,6 +4327,7 @@ function BranchManagementModal({
   onClose: () => void;
   campus: Campus | null;
   branches: Branch[];
+  campuses?: Campus[];
   onAssign: (campusId: string, branchIds: string[]) => void;
   onUnassign: (branchId: string) => void;
   onUpdateBranch: (id: string, data: Partial<Branch>) => void;
@@ -4229,9 +4340,44 @@ function BranchManagementModal({
   const [editName, setEditName] = useState("");
   const [deletingBranch, setDeletingBranch] = useState<Branch | null>(null);
 
-  const assignedBranches = branches.filter((b) => b.campusId === campus.id);
+  const rawAssignedBranches = branches.filter((b) => b.campusId === campus.id);
+  const assignedUdvashUnmesh = rawAssignedBranches.filter((b) =>
+    b.name.toLowerCase().includes("unmesh")
+  ).length;
+  const assignedUdvash = rawAssignedBranches.filter((b) =>
+    !b.name.toLowerCase().includes("unmesh")
+  ).length;
+
+  const getBaseName = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/udvash[-_ ]*unmesh|udvash|unmesh|branch|উদ্ভাস[-_ ]*উন্মেষ|উদ্ভাস|উন্মেষ|ব্রাঞ্চ/gi, "")
+      .replace(/[()]/g, "")
+      .trim();
+  };
+
+  const assignedBranches = [...rawAssignedBranches].sort((a, b) => {
+    const baseA = getBaseName(a.name);
+    const baseB = getBaseName(b.name);
+    if (baseA !== baseB) {
+      return baseA.localeCompare(baseB);
+    }
+    const aIsUnmesh = a.name.toLowerCase().includes("unmesh");
+    const bIsUnmesh = b.name.toLowerCase().includes("unmesh");
+    if (aIsUnmesh && !bIsUnmesh) return 1;
+    if (!aIsUnmesh && bIsUnmesh) return -1;
+    return a.name.localeCompare(b.name);
+  });
+
   const unassignedBranches = branches.filter(
     (b) => !b.campusId && b.name.toLowerCase().includes(search.toLowerCase()),
+  );
+  const otherCampusBranches = branches.filter(
+    (b) =>
+      b.campusId &&
+      b.campusId !== campus.id &&
+      search.trim() !== "" &&
+      b.name.toLowerCase().includes(search.toLowerCase()),
   );
 
   const handleStartEdit = (branch: Branch) => {
@@ -4290,10 +4436,20 @@ function BranchManagementModal({
         <div className="flex-1 overflow-y-auto p-6 space-y-8 text-left">
           {/* Assigned Branches */}
           <section>
-            <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Currently Assigned ({assignedBranches.length})
-            </h4>
+            <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+              <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Currently Assigned ({assignedBranches.length})
+              </h4>
+              <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded border border-emerald-200/60">
+                  Udvash: {assignedUdvash}
+                </span>
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200/60">
+                  Udvash-Unmesh: {assignedUdvashUnmesh}
+                </span>
+              </div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {assignedBranches.map((branch) => (
                 <div
@@ -4361,6 +4517,42 @@ function BranchManagementModal({
                 className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold shadow-sm"
               />
             </div>
+
+            {otherCampusBranches.length > 0 && (
+              <div className="mb-4 p-3 bg-amber-50/60 border border-amber-200 rounded-2xl">
+                <h5 className="text-[10px] font-black text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" />
+                  Assigned to Other Campuses ({otherCampusBranches.length})
+                </h5>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {otherCampusBranches.map((branch) => {
+                    const otherCampus = campuses.find((c) => c.id === branch.campusId);
+                    return (
+                      <div
+                        key={branch.id}
+                        className="flex items-center justify-between p-2.5 bg-white border border-amber-200 rounded-xl text-left"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <span className="text-xs font-bold text-slate-800 block truncate">
+                            {branch.name}
+                          </span>
+                          <span className="text-[10px] text-amber-700 font-extrabold block">
+                            In: {otherCampus ? otherCampus.name : "Other Campus"}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onAssign(campus.id, [branch.id])}
+                          className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[10px] font-black transition-colors cursor-pointer shrink-0"
+                        >
+                          Transfer Here
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto p-1">
               {unassignedBranches.map((branch) => (

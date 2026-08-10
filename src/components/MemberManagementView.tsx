@@ -68,7 +68,7 @@ export default function MemberManagementView({
     password: "password",
     campus: campuses[0]?.name || "",
     mentorPin: "",
-    permissions: ["member_attendance", "member_notices", "member_post_notice"],
+    permissions: ["call_management"],
     role: "member" as "member" | "mentor",
   });
 
@@ -88,7 +88,7 @@ export default function MemberManagementView({
     const finalPassword = memberForm.password.trim() ? memberForm.password.trim() : (crudMode === "create" ? "password" : (existingUser?.password || "password"));
 
     const campusObj = campuses.find((c) => c.name === memberForm.campus);
-    const headCoordinatorPin = campusObj?.coordinatorPins?.[0];
+    const headCoordinatorPin = campusObj?.coordinatorPins?.[0] || mentors.find((m) => m.campus === memberForm.campus)?.pin || "";
 
     const payload = {
       ...memberForm,
@@ -97,6 +97,12 @@ export default function MemberManagementView({
       email: memberForm.email.trim(),
       designation: memberForm.designation.trim(),
       campus: memberForm.campus,
+      mentorPin:
+        crudMode === "create"
+          ? (memberForm.role === "member"
+              ? (headCoordinatorPin || "")
+              : ((managers && managers[0]?.pin) || currentUser.pin || ""))
+          : memberForm.mentorPin,
       password: finalPassword,
     };
 
@@ -113,13 +119,7 @@ export default function MemberManagementView({
               ...payload,
               role: "mentor",
               permissions: payload.permissions.length > 0 ? payload.permissions : [
-                "mentor_attendance",
-                "mentor_history",
-                "mentor_leave",
-                "mentor_notices",
-                "mentor_post_notice",
-                "mentor_members",
-                "manage_members",
+                "call_management",
               ],
             } as Mentor);
           }
@@ -128,9 +128,7 @@ export default function MemberManagementView({
             ...payload,
             role: "member",
             permissions: payload.permissions.length > 0 ? payload.permissions : [
-              "member_attendance",
-              "member_notices",
-              "member_post_notice",
+              "call_management",
             ],
           } as TeamMember);
         }
@@ -201,6 +199,8 @@ export default function MemberManagementView({
                         const campusName = String(row.campus || "").trim();
 
                         if (pin && name && email && campusName) {
+                          const targetCampusObj = campuses.find((c) => c.name.toLowerCase() === campusName.toLowerCase());
+                          const coordPin = targetCampusObj?.coordinatorPins?.[0] || mentors.find((m) => m.campus.toLowerCase() === campusName.toLowerCase())?.pin || "";
                           onAddMember({
                             pin,
                             name,
@@ -208,9 +208,9 @@ export default function MemberManagementView({
                             email,
                             designation: String(row.designation || "").trim(),
                             password: "password",
-                            campus: campusName,
-                            mentorPin: "",
-                            permissions: ["member_attendance", "member_notices", "member_post_notice"],
+                            campus: targetCampusObj?.name || campusName,
+                            mentorPin: coordPin,
+                            permissions: ["call_management"],
                             avatarUrl: "",
                           });
                           successCount++;
@@ -253,7 +253,7 @@ export default function MemberManagementView({
                     campus: campuses[0]?.name || "",
                     mentorPin: "",
                     designation: "",
-                    permissions: ["member_attendance", "member_notices", "member_post_notice"],
+                    permissions: ["call_management"],
                     role: "member",
                   });
                   setIsRosterModalOpen(true);
@@ -383,7 +383,6 @@ export default function MemberManagementView({
                 });
                 return Array.from(mergedMap.values());
               })()
-                .filter((m) => m.isActive !== false)
                 .filter((m) => {
                   const matchesSearch =
                     (m.name?.toLowerCase() || "").includes(rosterSearch.toLowerCase()) ||
@@ -499,6 +498,51 @@ export default function MemberManagementView({
                               <Shield className="w-3.5 h-3.5" />
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            disabled={isOwnAccount}
+                            onClick={async () => {
+                              if (isOwnAccount) {
+                                toast.error("For security reasons, you cannot deactivate your own account!");
+                                return;
+                              }
+                              const updatedUser = {
+                                ...member,
+                                isActive: member.isActive === false ? true : false,
+                              };
+                              if (member.role === "mentor" && onUpdateMentor) {
+                                await onUpdateMentor(member.pin, updatedUser as Mentor);
+                              } else {
+                                await onUpdateMember(member.pin, updatedUser as TeamMember);
+                              }
+                              toast.success(
+                                updatedUser.isActive
+                                  ? `Member ${member.name} activated!`
+                                  : `Member ${member.name} deactivated!`
+                              );
+                            }}
+                            className={`w-8 h-4 rounded-full transition-colors flex items-center p-0.5 shrink-0 ${
+                              isOwnAccount
+                                ? "opacity-50 cursor-not-allowed bg-indigo-600"
+                                : member.isActive === false
+                                ? "bg-slate-300 cursor-pointer"
+                                : "bg-indigo-600 cursor-pointer"
+                            }`}
+                            title={
+                              isOwnAccount
+                                ? "Cannot deactivate own account"
+                                : member.isActive === false
+                                ? "Activate Member ID"
+                                : "Deactivate Member ID"
+                            }
+                          >
+                            <div
+                              className={`w-3 h-3 bg-white rounded-full transition-transform ${
+                                member.isActive === false ? "" : "translate-x-4"
+                              }`}
+                            />
+                          </button>
 
                           <button
                             type="button"
