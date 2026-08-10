@@ -847,16 +847,12 @@ export default function MemberManagementView({
                         toast.error("Members with Member Management permission cannot delete their own info!");
                         return;
                       }
-                      // Instead of full deletion, mark as inactive to preserve in records
-                      const userToUpdate = [...members, ...mentors].find(m => m.pin === deletingMember.pin);
-                      if (userToUpdate) {
-                        const updatedUser = { ...userToUpdate, isActive: false };
-                        if (deletingMember.role === "mentor" && onUpdateMentor) {
-                          await onUpdateMentor(deletingMember.pin, updatedUser as Mentor);
-                        } else {
-                          await onUpdateMember(deletingMember.pin, updatedUser as TeamMember);
-                        }
-                        toast.success("User deactivated successfully!");
+                      if (deletingMember.role === "mentor" && onDeleteMentor) {
+                        await onDeleteMentor(deletingMember.pin);
+                        toast.success("Coordinator deleted successfully!");
+                      } else {
+                        await onDeleteMember(deletingMember.pin);
+                        toast.success("Member deleted successfully!");
                       }
                       setDeletingMember(null);
                     }}
