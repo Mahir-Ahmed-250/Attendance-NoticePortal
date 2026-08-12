@@ -1729,29 +1729,50 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       } = req.body;
       if (!Array.isArray(taskIds)) return res.status(400).json({ error: "Invalid task IDs" });
 
-      const setObj: any = {};
-      
-      if (!assignType || assignType === 'feedback' || assignType === 'both') {
-        setObj.assignedToPin = assignedToPin !== undefined ? assignedToPin : null;
-        setObj.assignedToName = assignedToName !== undefined ? assignedToName : null;
-      }
-      
-      if (assignType === 'live' || assignType === 'both') {
-        setObj.liveAssignedToPin = liveAssignedToPin !== undefined ? liveAssignedToPin : null;
-        setObj.liveAssignedToName = liveAssignedToName !== undefined ? liveAssignedToName : null;
-        if (liveAssignedToPin) {
-          setObj.liveInstructorPin = liveAssignedToPin;
-          setObj.liveInstructorName = liveAssignedToName;
-        } else if (liveAssignedToPin === null) {
-          setObj.liveInstructorPin = null;
-          setObj.liveInstructorName = null;
+      const existingTasks = await CallTask.find({ id: { $in: taskIds } });
+      const bulkOps = [];
+
+      for (const task of existingTasks) {
+        const setObj: any = {};
+
+        if (!assignType || assignType === 'feedback' || assignType === 'both') {
+          if (task.feedbackStatus === "Completed") {
+            // No changes to assignment data for completed feedback tasks
+          } else {
+            setObj.assignedToPin = assignedToPin !== undefined ? assignedToPin : null;
+            setObj.assignedToName = assignedToName !== undefined ? assignedToName : null;
+          }
+        }
+
+        if (assignType === 'live' || assignType === 'both') {
+          if (task.liveInstructionStatus === "Completed") {
+            // No changes to live instruction assignment data for completed tasks
+          } else {
+            setObj.liveAssignedToPin = liveAssignedToPin !== undefined ? liveAssignedToPin : null;
+            setObj.liveAssignedToName = liveAssignedToName !== undefined ? liveAssignedToName : null;
+            if (liveAssignedToPin) {
+              setObj.liveInstructorPin = liveAssignedToPin;
+              setObj.liveInstructorName = liveAssignedToName;
+            } else if (liveAssignedToPin === null) {
+              setObj.liveInstructorPin = null;
+              setObj.liveInstructorName = null;
+            }
+          }
+        }
+
+        if (Object.keys(setObj).length > 0) {
+          bulkOps.push({
+            updateOne: {
+              filter: { id: task.id },
+              update: { $set: setObj }
+            }
+          });
         }
       }
 
-      await CallTask.updateMany(
-        { id: { $in: taskIds } },
-        { $set: setObj }
-      );
+      if (bulkOps.length > 0) {
+        await CallTask.bulkWrite(bulkOps);
+      }
 
       if (assignedToPin) {
         await notifyTaskAssignment(assignedToPin, `${taskIds.length} call task(s)`);
@@ -1797,6 +1818,21 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       if (updateData.liveInstructionImage) {
         updateData.liveInstructionImage = await processLiveInstructionImages(updateData.liveInstructionImage);
       }
+
+      const existingTask = await CallTask.findOne({ id: req.params.id });
+      if (existingTask) {
+        if (existingTask.feedbackStatus === "Completed") {
+          delete updateData.assignedToPin;
+          delete updateData.assignedToName;
+        }
+        if (existingTask.liveInstructionStatus === "Completed") {
+          delete updateData.liveAssignedToPin;
+          delete updateData.liveAssignedToName;
+          delete updateData.liveInstructorPin;
+          delete updateData.liveInstructorName;
+        }
+      }
+
       const task = await CallTask.findOneAndUpdate(
         { id: req.params.id },
         { $set: updateData },
