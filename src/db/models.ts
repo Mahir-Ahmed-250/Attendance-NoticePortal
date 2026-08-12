@@ -189,16 +189,17 @@ const CallTaskSchema = new mongoose.Schema({
   completedAt: String,
 });
 
-CallTaskSchema.index({ registrationNo: 1 });
 CallTaskSchema.index({ assignedToPin: 1 });
 CallTaskSchema.index({ liveAssignedToPin: 1 });
 CallTaskSchema.index({ liveInstructorPin: 1 });
 CallTaskSchema.index({ campus: 1 });
 CallTaskSchema.index({ branch: 1 });
 CallTaskSchema.index({ className: 1 });
-CallTaskSchema.index({ createdAt: -1 });
 CallTaskSchema.index({ liveInstructionStatus: 1 });
 CallTaskSchema.index({ feedbackStatus: 1 });
+CallTaskSchema.index({ assignedToPin: 1, liveAssignedToPin: 1, liveInstructorPin: 1 });
+CallTaskSchema.index({ campus: 1, branch: 1 });
+CallTaskSchema.index({ createdAt: -1 });
 
 export const User: Model<any> =
   mongoose.models.User || mongoose.model("User", UserSchema);

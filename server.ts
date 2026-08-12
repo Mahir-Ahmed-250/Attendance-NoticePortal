@@ -174,8 +174,8 @@ const seedInitialData = async () => {
       // ignore
     }
 
-    // Run database optimization & compaction
-    await optimizeDatabase();
+    // Skip heavy optimizeDatabase on every request connect to speed up response time (< 3 seconds)
+    // await optimizeDatabase();
 
     // Migrate existing base64 images to ImgBB
     await migrateExistingImagesToImgBB();
@@ -493,7 +493,19 @@ const optimizeDatabase = async () => {
         // ignore if not supported by current DB tier
       }
     }
-    console.log("[DB] Database optimization and compaction completed successfully.");
+    
+    // Ensure critical indexes for fast dashboard queries
+    try {
+      await db.collection('users').createIndex({ pin: 1 }).catch(() => {});
+      await db.collection('users').createIndex({ role: 1 }).catch(() => {});
+      await db.collection('attendancereports').createIndex({ date: -1, pin: 1 }).catch(() => {});
+      await db.collection('calltasks').createIndex({ status: 1, assignedToPin: 1 }).catch(() => {});
+      await db.collection('notices').createIndex({ date: -1 }).catch(() => {});
+    } catch (idxErr) {
+      // ignore index errors if already exist
+    }
+
+    console.log("[DB] Database optimization, compaction, and indexing completed successfully.");
   } catch (err: any) {
     console.warn("[DB] Optimization notice:", err.message);
   }

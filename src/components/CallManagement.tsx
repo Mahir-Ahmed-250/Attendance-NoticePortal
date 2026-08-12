@@ -100,7 +100,7 @@ export default function CallManagement({
   onRefreshEmails,
 }: CallManagementProps) {
   const [activeSubTab, setActiveSubTab] = useState<
-    "dashboard" | "management" | "my-tasks" | "live-instruction"
+    "dashboard" | "management" | "my-tasks" | "live-instruction" | "status-summary"
   >(
     currentUser.role === "manager" ||
       currentUser.role === "mentor" ||
@@ -108,9 +108,19 @@ export default function CallManagement({
       ? "dashboard"
       : "my-tasks",
   );
-  const [tasks, setTasks] = useState<CallTask[]>([]);
+  const [tasks, setTasks] = useState<CallTask[]>(() => {
+    try {
+      const cached = sessionStorage.getItem(`call_tasks_cache_${currentUser.pin}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [liveSearchRegNo, setLiveSearchRegNo] = useState("");
@@ -144,6 +154,13 @@ export default function CallManagement({
     useState<string>("all");
   const [dashboardClassFilter, setDashboardClassFilter] =
     useState<string>("all");
+  const [statusSummaryDate, setStatusSummaryDate] = useState<string>(
+    getTodayLocalDate(),
+  );
+  const [statusSummarySearch, setStatusSummarySearch] = useState<string>("");
+  const [statusSummaryFilterMode, setStatusSummaryFilterMode] = useState<
+    "active" | "all"
+  >("active");
   const [assignFilter, setAssignFilter] = useState<string>("all");
   const [liveAssignFilter, setLiveAssignFilter] = useState<string>("all");
   const [bulkAssignType, setBulkAssignType] = useState<
@@ -462,7 +479,7 @@ export default function CallManagement({
   }, [activeSubTab, currentUser.pin]);
 
   const fetchTasks = async (showLoader = true) => {
-    if (showLoader) {
+    if (showLoader && tasks.length === 0) {
       setLoading(true);
     }
     try {
@@ -492,6 +509,9 @@ export default function CallManagement({
         if (Array.isArray(data)) {
           setTasks(data);
           tasksLoadedRef.current = true;
+          try {
+            sessionStorage.setItem(`call_tasks_cache_${currentUser.pin}`, JSON.stringify(data));
+          } catch (e) {}
         }
       }
     } catch (err) {
@@ -1845,6 +1865,55 @@ export default function CallManagement({
     getTaskCampus,
   ]);
 
+  const handleExportToExcel = async () => {
+    if (!filteredTasks || filteredTasks.length === 0) {
+      toast.error("No tasks available to export");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Small timeout to allow UI state update (spinner) to render before processing
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      const exportData = filteredTasks.map((t, idx) => ({
+        "SL": idx + 1,
+        "Student Name": t.studentName || "",
+        "Nick Name": t.nickName || "",
+        "Reg No": t.registrationNo || "",
+        "Roll No": t.rollNo || (t as any).roll || "",
+        "Personal Contact": t.mobilePersonal || "",
+        "Father Contact": t.mobileFather || "",
+        "Mother Contact": t.mobileMother || "",
+        "Branch": t.branch || "",
+        "Class": t.className || "",
+        "Campus": getTaskCampus(t) || t.campus || "",
+        "Live Instruction Status": t.liveInstructionStatus || "Pending",
+        "Live Instruction Date": t.liveInstructionSubmitDate || "",
+        "Live Instruction Assigned Member": t.liveAssignedToName || "",
+        "Live Instructor Name": t.liveInstructorName || "",
+        "Live Instruction Comment": t.liveInstructionComment || "",
+        "Feedback Status": t.feedbackStatus || "Pending",
+        "Feedback Date": t.feedbackSubmitDate || "",
+        "Feedback Assigned Team Member": t.assignedToName || "",
+        "Feedback Comment": t.feedbackComment || "",
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Call Tasks");
+
+      const fileName = `Call_Tasks_${getTodayLocalDate()}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      toast.success(`Exported ${filteredTasks.length} student call tasks to Excel!`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("An error occurred while exporting");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const totalPages = Math.ceil(filteredTasks.length / pageSize);
   const paginatedTasks = useMemo(() => {
     return filteredTasks.slice(
@@ -1927,9 +1996,9 @@ export default function CallManagement({
     const start = parseInt(rangeStart);
     const end = parseInt(rangeEnd);
     if (isNaN(start) || isNaN(end)) return [];
-    return filteredTasks.filter((t) => {
-      const sl = parseInt(t.sl);
-      return !isNaN(sl) && sl >= start && sl <= end;
+    return filteredTasks.filter((t, index) => {
+      const sl = index + 1;
+      return sl >= start && sl <= end;
     });
   }, [rangeStart, rangeEnd, filteredTasks]);
 
@@ -2305,42 +2374,219 @@ export default function CallManagement({
   const memberPerformanceData = useMemo(() => {
     const data: Record<
       string,
-      { name: string; completed: number; pending: number }
+      {
+        name: string;
+        liveCompleted: number;
+        feedbackCompleted: number;
+        totalCompleted: number;
+        livePending: number;
+        feedbackPending: number;
+        totalPending: number;
+      }
     > = {};
 
     filteredDashboardTasks.forEach((t) => {
-      // For feedback
+      // For feedback assignment
       if (t.assignedToPin) {
-        if (!data[t.assignedToPin]) {
-          data[t.assignedToPin] = {
-            name: t.assignedToName || t.assignedToPin,
-            completed: 0,
-            pending: 0,
+        const pin = t.assignedToPin;
+        if (!data[pin]) {
+          data[pin] = {
+            name: t.assignedToName || pin,
+            liveCompleted: 0,
+            feedbackCompleted: 0,
+            totalCompleted: 0,
+            livePending: 0,
+            feedbackPending: 0,
+            totalPending: 0,
           };
         }
-        if (t.feedbackStatus === "Completed") data[t.assignedToPin].completed++;
-        else data[t.assignedToPin].pending++;
+        if (t.feedbackStatus === "Completed") {
+          data[pin].feedbackCompleted++;
+          data[pin].totalCompleted++;
+        } else {
+          data[pin].feedbackPending++;
+          data[pin].totalPending++;
+        }
       }
 
-      // For live instruction
+      // For live instruction assignment
       if (t.liveAssignedToPin) {
-        if (!data[t.liveAssignedToPin]) {
-          data[t.liveAssignedToPin] = {
-            name: t.liveAssignedToName || t.liveAssignedToPin,
-            completed: 0,
-            pending: 0,
+        const pin = t.liveAssignedToPin;
+        if (!data[pin]) {
+          data[pin] = {
+            name: t.liveAssignedToName || pin,
+            liveCompleted: 0,
+            feedbackCompleted: 0,
+            totalCompleted: 0,
+            livePending: 0,
+            feedbackPending: 0,
+            totalPending: 0,
           };
         }
-        if (t.liveInstructionStatus === "Completed")
-          data[t.liveAssignedToPin].completed++;
-        else data[t.liveAssignedToPin].pending++;
+        if (t.liveInstructionStatus === "Completed") {
+          data[pin].liveCompleted++;
+          data[pin].totalCompleted++;
+        } else {
+          data[pin].livePending++;
+          data[pin].totalPending++;
+        }
       }
     });
 
     return Object.values(data)
-      .sort((a, b) => b.completed + b.pending - (a.completed + a.pending))
+      .sort(
+        (a, b) =>
+          b.totalCompleted - a.totalCompleted ||
+          b.totalCompleted + b.totalPending - (a.totalCompleted + a.totalPending),
+      )
       .slice(0, 10); // top 10
   }, [filteredDashboardTasks]);
+
+  const isManagerPin = useCallback(
+    (pin: string) => {
+      if (!pin) return true;
+      if (currentUser.role === "manager" && currentUser.pin === pin) return true;
+      const m = members.find((u) => u.pin === pin);
+      if (m && (m.role as string) === "manager") return true;
+      const mentor = mentors.find((u) => u.pin === pin);
+      if (mentor && (mentor as any).role === "manager") return true;
+      return false;
+    },
+    [currentUser, members, mentors],
+  );
+
+  const statusSummaryMemberData = useMemo(() => {
+    const memberMap = new Map<
+      string,
+      {
+        pin: string;
+        name: string;
+        liveCount: number;
+        feedbackCount: number;
+        totalCount: number;
+      }
+    >();
+
+    const addKnownUser = (u: { pin: string; name: string; role?: string }) => {
+      if (!u.pin) return;
+      if (u.role === "manager" || isManagerPin(u.pin)) return;
+      if (!memberMap.has(u.pin)) {
+        memberMap.set(u.pin, {
+          pin: u.pin,
+          name: u.name || u.pin,
+          liveCount: 0,
+          feedbackCount: 0,
+          totalCount: 0,
+        });
+      }
+    };
+
+    members.forEach(addKnownUser);
+    mentors.forEach(addKnownUser);
+    if (
+      currentUser &&
+      currentUser.role !== "manager" &&
+      !isManagerPin(currentUser.pin)
+    ) {
+      addKnownUser(currentUser);
+    }
+
+    const checkDateMatch = (dStr?: string) => {
+      if (!dStr) return false;
+      const dateOnly = dStr.split("T")[0].split(" ")[0];
+      return dateOnly === statusSummaryDate;
+    };
+
+    tasks.forEach((t) => {
+      // Live Instruction call on selected date
+      if (
+        t.liveInstructionStatus === "Completed" ||
+        t.liveInstructionSubmitDate
+      ) {
+        const targetDate = t.liveInstructionSubmitDate || t.completedAt;
+        if (checkDateMatch(targetDate)) {
+          const pin = t.liveInstructorPin || t.liveAssignedToPin;
+          const name = t.liveInstructorName || t.liveAssignedToName || pin;
+          if (pin && !isManagerPin(pin)) {
+            if (!memberMap.has(pin)) {
+              memberMap.set(pin, {
+                pin,
+                name: name || pin,
+                liveCount: 0,
+                feedbackCount: 0,
+                totalCount: 0,
+              });
+            }
+            const rec = memberMap.get(pin)!;
+            rec.liveCount++;
+            rec.totalCount++;
+          }
+        }
+      }
+
+      // Feedback call on selected date
+      if (t.feedbackStatus === "Completed" || t.feedbackSubmitDate) {
+        const targetDate = t.feedbackSubmitDate || t.completedAt;
+        if (checkDateMatch(targetDate)) {
+          const pin = t.assignedToPin;
+          const name = t.assignedToName || pin;
+          if (pin && !isManagerPin(pin)) {
+            if (!memberMap.has(pin)) {
+              memberMap.set(pin, {
+                pin,
+                name: name || pin,
+                liveCount: 0,
+                feedbackCount: 0,
+                totalCount: 0,
+              });
+            }
+            const rec = memberMap.get(pin)!;
+            rec.feedbackCount++;
+            rec.totalCount++;
+          }
+        }
+      }
+    });
+
+    return Array.from(memberMap.values()).sort(
+      (a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name),
+    );
+  }, [tasks, members, mentors, currentUser, statusSummaryDate, isManagerPin]);
+
+  const filteredStatusSummaryMembers = useMemo(() => {
+    return statusSummaryMemberData.filter((m) => {
+      if (statusSummaryFilterMode === "active" && m.totalCount === 0) {
+        return false;
+      }
+      if (statusSummarySearch.trim()) {
+        const q = statusSummarySearch.toLowerCase();
+        const matchName = m.name.toLowerCase().includes(q);
+        const matchPin = m.pin.toLowerCase().includes(q);
+        if (!matchName && !matchPin) return false;
+      }
+      return true;
+    });
+  }, [statusSummaryMemberData, statusSummaryFilterMode, statusSummarySearch]);
+
+  const summaryTotalCalls = useMemo(
+    () => statusSummaryMemberData.reduce((acc, m) => acc + m.totalCount, 0),
+    [statusSummaryMemberData],
+  );
+
+  const summaryTotalLiveCalls = useMemo(
+    () => statusSummaryMemberData.reduce((acc, m) => acc + m.liveCount, 0),
+    [statusSummaryMemberData],
+  );
+
+  const summaryTotalFeedbackCalls = useMemo(
+    () => statusSummaryMemberData.reduce((acc, m) => acc + m.feedbackCount, 0),
+    [statusSummaryMemberData],
+  );
+
+  const summaryActiveMembersCount = useMemo(
+    () => statusSummaryMemberData.filter((m) => m.totalCount > 0).length,
+    [statusSummaryMemberData],
+  );
 
   const tasksByBranchData = useMemo(() => {
     const data: Record<string, { name: string; total: number }> = {};
@@ -2357,18 +2603,43 @@ export default function CallManagement({
   }, [filteredDashboardTasks]);
 
   const tasksByCampusData = useMemo(() => {
-    const data: Record<string, { name: string; completed: number; pending: number; total: number }> = {};
+    const data: Record<
+      string,
+      {
+        name: string;
+        total: number;
+        liveCompleted: number;
+        feedbackCompleted: number;
+        livePending: number;
+        feedbackPending: number;
+      }
+    > = {};
     filteredDashboardTasks.forEach((t) => {
       const resolved = getTaskCampus(t) || t.campus;
-      const campusName = resolved && resolved.trim() ? resolved.trim() : "Unassigned Campus";
+      const campusName =
+        resolved && resolved.trim() ? resolved.trim() : "Unassigned Campus";
       if (!data[campusName]) {
-        data[campusName] = { name: campusName, completed: 0, pending: 0, total: 0 };
+        data[campusName] = {
+          name: campusName,
+          total: 0,
+          liveCompleted: 0,
+          feedbackCompleted: 0,
+          livePending: 0,
+          feedbackPending: 0,
+        };
       }
       data[campusName].total++;
-      if (t.feedbackStatus === "Completed" || t.liveInstructionStatus === "Completed") {
-        data[campusName].completed++;
+
+      if (t.liveInstructionStatus === "Completed") {
+        data[campusName].liveCompleted++;
       } else {
-        data[campusName].pending++;
+        data[campusName].livePending++;
+      }
+
+      if (t.feedbackStatus === "Completed") {
+        data[campusName].feedbackCompleted++;
+      } else {
+        data[campusName].feedbackPending++;
       }
     });
     return Object.values(data).sort((a, b) => b.total - a.total);
@@ -2379,19 +2650,19 @@ export default function CallManagement({
   return (
     <div className="space-y-6">
       {/* Sub-tabs Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl">
+      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 md:gap-4">
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl w-full sm:w-auto border border-slate-200/60 overflow-x-auto scrollbar-hide flex-nowrap">
           {showManagementTabs && (
             <>
               <button
                 onClick={() => setActiveSubTab("dashboard")}
-                className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "dashboard" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                className={`flex-shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-center whitespace-nowrap ${activeSubTab === "dashboard" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Dashboard
               </button>
               <button
                 onClick={() => setActiveSubTab("management")}
-                className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "management" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                className={`flex-shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-center whitespace-nowrap ${activeSubTab === "management" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Call Management
               </button>
@@ -2400,21 +2671,29 @@ export default function CallManagement({
           {currentUser.role !== "manager" && (
             <button
               onClick={() => setActiveSubTab("my-tasks")}
-              className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "my-tasks" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              className={`flex-shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-center whitespace-nowrap ${activeSubTab === "my-tasks" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
             >
               {showManagementTabs ? "My Assigned Calls" : "Call Management"}
             </button>
           )}
           <button
             onClick={() => setActiveSubTab("live-instruction")}
-            className={`px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${activeSubTab === "live-instruction" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            className={`flex-shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-center whitespace-nowrap ${activeSubTab === "live-instruction" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
           >
             Live Instruction
           </button>
+          {canUpload && (
+            <button
+              onClick={() => setActiveSubTab("status-summary")}
+              className={`flex-shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-center whitespace-nowrap ${activeSubTab === "status-summary" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
+            >
+              Status Summary
+            </button>
+          )}
         </div>
 
         {activeSubTab === "management" && canUpload && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
             <button
               onClick={() => {
                 const firstClass = uniqueClasses[0] || "";
@@ -2422,10 +2701,10 @@ export default function CallManagement({
                 setEditClassNewName(firstClass);
                 setIsEditClassModalOpen(true);
               }}
-              className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-200 cursor-pointer"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shadow-indigo-200 cursor-pointer whitespace-nowrap"
               title="Edit Existing Class Name"
             >
-              <Edit3 className="w-4 h-4" />
+              <Edit3 className="w-3.5 h-3.5 shrink-0" />
               <span>Edit Class Name</span>
             </button>
             <button
@@ -2433,34 +2712,34 @@ export default function CallManagement({
                 setMeritResult(null);
                 setIsMeritListModalOpen(true);
               }}
-              className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-200"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shadow-purple-200 whitespace-nowrap"
             >
-              <Sparkles className="w-4 h-4 text-amber-300" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
               <span>Sync New Students</span>
             </button>
             <button
               onClick={() => setIsAddStudentModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-200"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shadow-indigo-200 whitespace-nowrap"
             >
-              <Upload className="w-4 h-4" />
-              Add Students +
+              <Upload className="w-3.5 h-3.5 shrink-0" />
+              <span>Add Students +</span>
             </button>
             {tasks.length > 0 && (
               <button
                 onClick={() => setIsDeleteAllModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100 rounded-xl text-xs font-bold transition-all"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 border border-rose-200/80 hover:bg-rose-100 rounded-xl text-xs font-bold transition-all whitespace-nowrap"
               >
-                <Trash2 className="w-4 h-4" />
-                Delete All
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Delete All</span>
               </button>
             )}
-            <button
+            {/* <button
               onClick={() => fetchTasks(true)}
               title="Refresh Server Data"
-              className="p-2 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center cursor-pointer"
+              className="p-2 bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center cursor-pointer shrink-0"
             >
-              <RotateCw className="w-4 h-4" />
-            </button>
+              <RotateCw className="w-3.5 h-3.5" />
+            </button> */}
           </div>
         )}
       </div>
@@ -2505,9 +2784,9 @@ export default function CallManagement({
                       Filter statistics and analytics by campus and class
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                     {(currentUser.role === "manager" || canUpload) && (
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 w-full sm:w-auto">
                         <span className="text-xs font-bold text-slate-600">Campus:</span>
                         <select
                           value={dashboardCampusFilter}
@@ -2524,7 +2803,7 @@ export default function CallManagement({
                         </select>
                       </div>
                     )}
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 w-full sm:w-auto">
                       <span className="text-xs font-bold text-slate-600">Class:</span>
                       <select
                         value={dashboardClassFilter}
@@ -2849,17 +3128,17 @@ export default function CallManagement({
                         }}
                       />
                       <Bar
-                        dataKey="completed"
-                        name="Completed"
+                        dataKey="liveCompleted"
+                        name="Live Instruction"
                         stackId="a"
                         fill="#10b981"
                         radius={[0, 0, 4, 4]}
                       />
                       <Bar
-                        dataKey="pending"
-                        name="Pending"
+                        dataKey="feedbackCompleted"
+                        name="Feedback"
                         stackId="a"
-                        fill="#f59e0b"
+                        fill="#6366f1"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>
@@ -2964,17 +3243,33 @@ export default function CallManagement({
                         }}
                       />
                       <Bar
-                        dataKey="completed"
-                        name="Completed"
-                        stackId="a"
-                        fill="#06b6d4"
-                        radius={[0, 0, 4, 4]}
+                        dataKey="total"
+                        name="Total Task"
+                        fill="#3b82f6"
+                        radius={[4, 4, 0, 0]}
                       />
                       <Bar
-                        dataKey="pending"
-                        name="Pending"
-                        stackId="a"
-                        fill="#8b5cf6"
+                        dataKey="liveCompleted"
+                        name="Live Instruction Completed"
+                        fill="#10b981"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="feedbackCompleted"
+                        name="Feedback Completed"
+                        fill="#6366f1"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="livePending"
+                        name="Live Instruction Pending"
+                        fill="#f59e0b"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="feedbackPending"
+                        name="Feedback Pending"
+                        fill="#f43f5e"
                         radius={[4, 4, 0, 0]}
                       />
                     </BarChart>
@@ -3128,7 +3423,18 @@ export default function CallManagement({
                             Personal Contact
                           </div>
                           <div className="text-xs font-bold text-slate-700">
-                            {liveFoundTask.mobilePersonal || "N/A"}
+                            {liveFoundTask.mobilePersonal ? (
+                              <a
+                                href={`tel:${liveFoundTask.mobilePersonal}`}
+                                className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 font-bold"
+                                title={`Call Personal: ${liveFoundTask.mobilePersonal}`}
+                              >
+                                <span>{liveFoundTask.mobilePersonal}</span>
+                                <Phone className="w-3 h-3 text-indigo-500" />
+                              </a>
+                            ) : (
+                              "N/A"
+                            )}
                           </div>
                         </div>
                         <div className="sm:col-span-2">
@@ -3136,8 +3442,36 @@ export default function CallManagement({
                             Parents Contact Numbers
                           </div>
                           <div className="text-xs font-bold text-slate-700 grid grid-cols-2 gap-1 mt-0.5 bg-white/60 p-2 rounded-lg border border-slate-100">
-                            <div>Father: {liveFoundTask.mobileFather || "N/A"}</div>
-                            <div>Mother: {liveFoundTask.mobileMother || "N/A"}</div>
+                            <div>
+                              Father:{" "}
+                              {liveFoundTask.mobileFather ? (
+                                <a
+                                  href={`tel:${liveFoundTask.mobileFather}`}
+                                  className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 font-bold ml-0.5"
+                                  title={`Call Father: ${liveFoundTask.mobileFather}`}
+                                >
+                                  <span>{liveFoundTask.mobileFather}</span>
+                                  <Phone className="w-2.5 h-2.5 text-indigo-500" />
+                                </a>
+                              ) : (
+                                "N/A"
+                              )}
+                            </div>
+                            <div>
+                              Mother:{" "}
+                              {liveFoundTask.mobileMother ? (
+                                <a
+                                  href={`tel:${liveFoundTask.mobileMother}`}
+                                  className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 font-bold ml-0.5"
+                                  title={`Call Mother: ${liveFoundTask.mobileMother}`}
+                                >
+                                  <span>{liveFoundTask.mobileMother}</span>
+                                  <Phone className="w-2.5 h-2.5 text-indigo-500" />
+                                </a>
+                              ) : (
+                                "N/A"
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -3416,6 +3750,198 @@ export default function CallManagement({
           </motion.div>
         )}
 
+        {activeSubTab === "status-summary" && canUpload && (
+          <motion.div
+            key="status-summary"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+              {/* Header & Title */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 shadow-xs">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 tracking-tight">
+                      Status Summary
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      Call completed count by each member for the selected date
+                    </p>
+                  </div>
+                </div>
+
+                {/* Date Selector & Quick Shortcuts */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 shadow-2xs">
+                    <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-slate-500 hidden sm:inline">Date:</span>
+                    <input
+                      type="date"
+                      value={statusSummaryDate}
+                      onChange={(e) => setStatusSummaryDate(e.target.value)}
+                      className="bg-transparent focus:outline-none cursor-pointer font-bold text-slate-800 text-xs"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setStatusSummaryDate(getTodayLocalDate())}
+                    className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                      statusSummaryDate === getTodayLocalDate()
+                        ? "bg-indigo-600 text-white shadow-xs"
+                        : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+                    }`}
+                  >
+                    Today
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary Stat Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-indigo-50/70 border border-indigo-100 p-4 rounded-2xl">
+                  <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">
+                    Total Calls
+                  </p>
+                  <p className="text-xl sm:text-2xl font-black text-indigo-900 mt-0.5">
+                    {summaryTotalCalls}
+                  </p>
+                </div>
+                <div className="bg-emerald-50/70 border border-emerald-100 p-4 rounded-2xl">
+                  <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">
+                    Live Instruction Calls
+                  </p>
+                  <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-0.5">
+                    {summaryTotalLiveCalls}
+                  </p>
+                </div>
+                <div className="bg-purple-50/70 border border-purple-100 p-4 rounded-2xl">
+                  <p className="text-[11px] font-bold text-purple-600 uppercase tracking-wider">
+                    Feedback Calls
+                  </p>
+                  <p className="text-xl sm:text-2xl font-black text-purple-900 mt-0.5">
+                    {summaryTotalFeedbackCalls}
+                  </p>
+                </div>
+                <div className="bg-amber-50/70 border border-amber-100 p-4 rounded-2xl">
+                  <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">
+                    Active Callers
+                  </p>
+                  <p className="text-xl sm:text-2xl font-black text-amber-900 mt-0.5">
+                    {summaryActiveMembersCount}
+                  </p>
+                </div>
+              </div>
+
+              {/* Filter Mode & Search Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+                  <button
+                    onClick={() => setStatusSummaryFilterMode("active")}
+                    className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      statusSummaryFilterMode === "active"
+                        ? "bg-white text-indigo-600 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    Active Callers ({summaryActiveMembersCount})
+                  </button>
+                  <button
+                    onClick={() => setStatusSummaryFilterMode("all")}
+                    className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      statusSummaryFilterMode === "all"
+                        ? "bg-white text-indigo-600 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    All Members ({statusSummaryMemberData.length})
+                  </button>
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search member name or PIN..."
+                    value={statusSummarySearch}
+                    onChange={(e) => setStatusSummarySearch(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 text-xs font-bold pl-8 pr-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800"
+                  />
+                </div>
+              </div>
+
+              {/* Grid of Members */}
+              {filteredStatusSummaryMembers.length === 0 ? (
+                <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                  <Users className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-500">
+                    No member call records found for {statusSummaryDate}
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {statusSummaryFilterMode === "active"
+                      ? "No calls recorded for members on this date yet."
+                      : "Try adjusting your search query or selecting another date."}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {filteredStatusSummaryMembers.map((m) => (
+                    <div
+                      key={m.pin}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                        m.totalCount > 0
+                          ? "bg-gradient-to-br from-indigo-50/60 to-emerald-50/40 border-indigo-200 shadow-2xs"
+                          : "bg-slate-50/80 border-slate-200/90"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="text-xs font-extrabold text-slate-800 truncate"
+                            title={m.name}
+                          >
+                            {m.name}
+                          </p>
+                          <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                            PIN: <span className="font-mono">{m.pin}</span>
+                          </p>
+                        </div>
+                        <span
+                          className={`text-xs font-black px-2.5 py-1 rounded-xl shrink-0 ${
+                            m.totalCount > 0
+                              ? "bg-indigo-600 text-white shadow-2xs"
+                              : "bg-slate-200 text-slate-500"
+                          }`}
+                        >
+                          {m.totalCount} {m.totalCount === 1 ? "call" : "calls"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-200/70">
+                        <span className="truncate" title="Live Instruction Calls">
+                          Live Instruction:{" "}
+                          <strong className="text-emerald-600 font-extrabold">
+                            {m.liveCount}
+                          </strong>
+                        </span>
+                        <span className="truncate" title="Feedback Calls">
+                          Feedback:{" "}
+                          <strong className="text-indigo-600 font-extrabold">
+                            {m.feedbackCount}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
         {(activeSubTab === "management" || activeSubTab === "my-tasks") && (
           <motion.div
             key="table"
@@ -3646,7 +4172,7 @@ export default function CallManagement({
               </div>
 
               {/* Row 2: Status & Assignment Filters */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-center pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 items-center pt-1">
                 <select
                   value={liveAssignFilter}
                   onChange={(e) => setLiveAssignFilter(e.target.value)}
@@ -3704,9 +4230,9 @@ export default function CallManagement({
               {/* Row 3: Date Filters & Action Tools */}
               <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between pt-2 border-t border-slate-200/60">
                 {/* Date Filters */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50/80 border border-indigo-100 rounded-xl text-indigo-700 font-bold text-[11px]">
-                    <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50/80 border border-indigo-100 rounded-xl text-indigo-700 font-bold text-[11px] justify-center sm:justify-start w-full sm:w-auto">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                     <span>Date Filter:</span>
                   </div>
 
@@ -3718,7 +4244,7 @@ export default function CallManagement({
                         e.target.value as "all" | "live" | "feedback",
                       )
                     }
-                    className="bg-white border border-slate-200/80 text-[11px] sm:text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                    className="w-full sm:w-auto bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
                   >
                     <option value="all">
                       All
@@ -3727,30 +4253,32 @@ export default function CallManagement({
                     <option value="feedback">Feedback</option>
                   </select>
 
-                  <div className="flex items-center gap-1.5 bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl text-xs shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20">
-                    <span className="text-[10px] font-black uppercase text-indigo-600">
-                      From
-                    </span>
-                    <input
-                      type="date"
-                      value={fromDateFilter}
-                      onChange={(e) => setFromDateFilter(e.target.value)}
-                      title="From Date"
-                      className="bg-transparent text-[10px] sm:text-xs font-bold focus:outline-none text-slate-700 cursor-pointer"
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-1.5 bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl text-xs shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20 w-full">
+                      <span className="text-[10px] font-black uppercase text-indigo-600 shrink-0">
+                        From
+                      </span>
+                      <input
+                        type="date"
+                        value={fromDateFilter}
+                        onChange={(e) => setFromDateFilter(e.target.value)}
+                        title="From Date"
+                        className="bg-transparent text-xs font-bold focus:outline-none text-slate-700 cursor-pointer w-full"
+                      />
+                    </div>
 
-                  <div className="flex items-center gap-1.5 bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl text-xs shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20">
-                    <span className="text-[10px] font-black uppercase text-indigo-600">
-                      To
-                    </span>
-                    <input
-                      type="date"
-                      value={toDateFilter}
-                      onChange={(e) => setToDateFilter(e.target.value)}
-                      title="To Date"
-                      className="bg-transparent text-[10px] sm:text-xs font-bold focus:outline-none text-slate-700 cursor-pointer"
-                    />
+                    <div className="flex items-center gap-1.5 bg-white border border-slate-200/80 px-2.5 py-1.5 rounded-xl text-xs shadow-xs focus-within:ring-2 focus-within:ring-indigo-500/20 w-full">
+                      <span className="text-[10px] font-black uppercase text-indigo-600 shrink-0">
+                        To
+                      </span>
+                      <input
+                        type="date"
+                        value={toDateFilter}
+                        onChange={(e) => setToDateFilter(e.target.value)}
+                        title="To Date"
+                        className="bg-transparent text-xs font-bold focus:outline-none text-slate-700 cursor-pointer w-full"
+                      />
+                    </div>
                   </div>
 
                   {/* Reset All Filters Button */}
@@ -3793,26 +4321,39 @@ export default function CallManagement({
                 {/* Right Action Tools */}
                 {(activeSubTab === "management" ||
                   activeSubTab === "my-tasks") && (
-                  <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-1 scrollbar-hide">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/40 w-full sm:w-auto">
                     {canUpload && (
                       <button
                         onClick={() => setShowOnlyWithImages(!showOnlyWithImages)}
-                        className={`flex-shrink-0 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-xs ${
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap ${
                           showOnlyWithImages
                             ? "bg-indigo-600 text-white shadow-indigo-200"
                             : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
                         }`}
                       >
-                        <ImageIcon className="w-3.5 h-3.5" />
+                        <ImageIcon className="w-3.5 h-3.5 shrink-0" />
                         <span>{showOnlyWithImages ? "With Images" : "Only Images"}</span>
                       </button>
                     )}
                     <button
-                      onClick={() => setIsRangeModalOpen(true)}
-                      className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-sm whitespace-nowrap"
+                      onClick={handleExportToExcel}
+                      disabled={isExporting}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-xs shadow-emerald-200 whitespace-nowrap cursor-pointer"
+                      title="Export filtered call tasks to Excel"
                     >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      By SL Range
+                      {isExporting ? (
+                        <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5 shrink-0" />
+                      )}
+                      <span>{isExporting ? "Exporting..." : "Export"}</span>
+                    </button>
+                    <button
+                      onClick={() => setIsRangeModalOpen(true)}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                      <span>By SL Range</span>
                     </button>
                     {selectedTasks.length > 0 &&
                       tasks.some(
@@ -3827,9 +4368,9 @@ export default function CallManagement({
                             setUnassignTarget({ type: "bulk" });
                             setIsUnassignModalOpen(true);
                           }}
-                          className="flex-shrink-0 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 rounded-xl text-[10px] sm:text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap animate-in fade-in slide-in-from-right-2"
+                          className="flex-1 sm:flex-none px-3 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap animate-in fade-in slide-in-from-right-2"
                         >
-                          <UserMinus className="w-3.5 h-3.5" />
+                          <UserMinus className="w-3.5 h-3.5 shrink-0" />
                           <span>Unassign Selected</span>
                         </button>
                       )}
@@ -4020,25 +4561,55 @@ export default function CallManagement({
                               <span className="text-[10px] font-black text-slate-300 w-4">
                                 S:
                               </span>
-                              <span className="font-medium text-slate-600">
-                                {task.mobilePersonal}
-                              </span>
+                              {task.mobilePersonal ? (
+                                <a
+                                  href={`tel:${task.mobilePersonal}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="font-bold text-slate-700 hover:text-indigo-600 hover:underline flex items-center gap-1 group transition-colors"
+                                  title={`Call Student: ${task.mobilePersonal}`}
+                                >
+                                  <span>{task.mobilePersonal}</span>
+                                  <Phone className="w-2.5 h-2.5 text-indigo-500 opacity-60 group-hover:opacity-100 shrink-0" />
+                                </a>
+                              ) : (
+                                <span className="font-medium text-slate-400">-</span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[10px] font-black text-slate-300 w-4">
                                 F:
                               </span>
-                              <span className="font-medium text-slate-600">
-                                {task.mobileFather}
-                              </span>
+                              {task.mobileFather ? (
+                                <a
+                                  href={`tel:${task.mobileFather}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="font-bold text-slate-700 hover:text-indigo-600 hover:underline flex items-center gap-1 group transition-colors"
+                                  title={`Call Father: ${task.mobileFather}`}
+                                >
+                                  <span>{task.mobileFather}</span>
+                                  <Phone className="w-2.5 h-2.5 text-indigo-500 opacity-60 group-hover:opacity-100 shrink-0" />
+                                </a>
+                              ) : (
+                                <span className="font-medium text-slate-400">-</span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[10px] font-black text-slate-300 w-4">
                                 M:
                               </span>
-                              <span className="font-medium text-slate-600">
-                                {task.mobileMother}
-                              </span>
+                              {task.mobileMother ? (
+                                <a
+                                  href={`tel:${task.mobileMother}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="font-bold text-slate-700 hover:text-indigo-600 hover:underline flex items-center gap-1 group transition-colors"
+                                  title={`Call Mother: ${task.mobileMother}`}
+                                >
+                                  <span>{task.mobileMother}</span>
+                                  <Phone className="w-2.5 h-2.5 text-indigo-500 opacity-60 group-hover:opacity-100 shrink-0" />
+                                </a>
+                              ) : (
+                                <span className="font-medium text-slate-400">-</span>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -4468,9 +5039,18 @@ export default function CallManagement({
                       {modalFormData.registrationNo || "N/A"}
                     </span>{" "}
                     | Mobile:{" "}
-                    <span className="font-bold text-slate-800">
-                      {modalFormData.mobilePersonal || "N/A"}
-                    </span>
+                    {modalFormData.mobilePersonal ? (
+                      <a
+                        href={`tel:${modalFormData.mobilePersonal}`}
+                        className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1"
+                        title={`Call Student Mobile: ${modalFormData.mobilePersonal}`}
+                      >
+                        <span>{modalFormData.mobilePersonal}</span>
+                        <Phone className="w-3 h-3 text-indigo-500" />
+                      </a>
+                    ) : (
+                      <span className="font-bold text-slate-800">N/A</span>
+                    )}
                   </p>
                 </div>
                 <button
@@ -5232,9 +5812,20 @@ export default function CallManagement({
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Personal Mobile
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[10px] font-black text-slate-500 uppercase">
+                          Personal Mobile
+                        </label>
+                        {modalFormData.mobilePersonal && (
+                          <a
+                            href={`tel:${modalFormData.mobilePersonal}`}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
+                            title={`Call Personal Mobile: ${modalFormData.mobilePersonal}`}
+                          >
+                            <Phone className="w-2.5 h-2.5" /> Call
+                          </a>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={modalFormData.mobilePersonal || ""}
@@ -5266,9 +5857,20 @@ export default function CallManagement({
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Father's Mobile 
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[10px] font-black text-slate-500 uppercase">
+                          Father's Mobile 
+                        </label>
+                        {modalFormData.mobileFather && (
+                          <a
+                            href={`tel:${modalFormData.mobileFather}`}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
+                            title={`Call Father's Mobile: ${modalFormData.mobileFather}`}
+                          >
+                            <Phone className="w-2.5 h-2.5" /> Call
+                          </a>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={modalFormData.mobileFather || ""}
@@ -5300,9 +5902,20 @@ export default function CallManagement({
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Mother's Mobile
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[10px] font-black text-slate-500 uppercase">
+                          Mother's Mobile
+                        </label>
+                        {modalFormData.mobileMother && (
+                          <a
+                            href={`tel:${modalFormData.mobileMother}`}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
+                            title={`Call Mother's Mobile: ${modalFormData.mobileMother}`}
+                          >
+                            <Phone className="w-2.5 h-2.5" /> Call
+                          </a>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={modalFormData.mobileMother || ""}
@@ -6569,7 +7182,18 @@ export default function CallManagement({
                               {st.branch || "—"}
                             </td>
                             <td className="p-2.5 font-mono text-slate-600">
-                              {st.mobilePersonal || "—"}
+                              {st.mobilePersonal ? (
+                                <a
+                                  href={`tel:${st.mobilePersonal}`}
+                                  className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 font-bold"
+                                  title={`Call: ${st.mobilePersonal}`}
+                                >
+                                  <span>{st.mobilePersonal}</span>
+                                  <Phone className="w-2.5 h-2.5 text-indigo-500" />
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -7000,7 +7624,18 @@ export default function CallManagement({
                                       {st.marks || "—"}
                                     </td>
                                     <td className="p-2.5 font-mono text-slate-600">
-                                      {st.mobilePersonal || "—"}
+                                      {st.mobilePersonal ? (
+                                        <a
+                                          href={`tel:${st.mobilePersonal}`}
+                                          className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 font-bold"
+                                          title={`Call: ${st.mobilePersonal}`}
+                                        >
+                                          <span>{st.mobilePersonal}</span>
+                                          <Phone className="w-2.5 h-2.5 text-indigo-500" />
+                                        </a>
+                                      ) : (
+                                        "—"
+                                      )}
                                     </td>
                                   </tr>
                                 );
