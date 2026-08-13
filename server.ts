@@ -1,5 +1,6 @@
 import * as dotenv from "dotenv";
 import express from "express";
+import compression from "compression";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import mongoose from "mongoose";
@@ -42,6 +43,8 @@ if (process.env.NODE_ENV !== "production") {
 
 const PORT = 3000;
 const app = express();
+
+app.use(compression());
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -102,6 +105,10 @@ const connectDB = async () => {
 
   // Seed initial data if database is empty
   await seedInitialData();
+
+  // Pre-warm caches in background
+  getCallTasksCache().catch(() => {});
+  getEmailsCache().catch(() => {});
 
   return cached.conn;
 };
@@ -1348,9 +1355,34 @@ app.post("/api/campuses", async (req, res) => {
   });
 
   // Emails
+  let emailsCache: any = null;
+  let isFetchingEmailsCache = false;
+
+  async function getEmailsCache() {
+    if (emailsCache) return emailsCache;
+    if (isFetchingEmailsCache) {
+      while (isFetchingEmailsCache) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+      if (emailsCache) return emailsCache;
+    }
+    isFetchingEmailsCache = true;
+    try {
+      const t0 = Date.now();
+      emailsCache = await Email.find().sort({ date: -1 }).lean();
+      console.log(`[Cache] Loaded ${emailsCache.length} Emails in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.error("Failed to populate Emails cache:", err);
+      emailsCache = [];
+    } finally {
+      isFetchingEmailsCache = false;
+    }
+    return emailsCache || [];
+  }
+
   app.get("/api/emails", async (req, res) => {
     try {
-      const emails = await Email.find().sort({ date: -1 });
+      const emails = await getEmailsCache();
       res.json(emails);
     } catch (err) {
       console.error("Fetch emails error:", err);
@@ -1362,6 +1394,7 @@ app.post("/api/campuses", async (req, res) => {
     try {
       const email = new Email(req.body);
       await email.save();
+      if (emailsCache) emailsCache.unshift(email.toObject ? email.toObject() : email);
       res.json(email);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1370,7 +1403,11 @@ app.post("/api/campuses", async (req, res) => {
 
   app.put("/api/emails/:pin", async (req, res) => {
     try {
-      const email = await Email.findOneAndUpdate({ pin: req.params.pin }, req.body, { new: true });
+      const email = await Email.findOneAndUpdate({ pin: req.params.pin }, req.body, { new: true }).lean();
+      if (emailsCache && email) {
+        const idx = emailsCache.findIndex((e: any) => e.pin === req.params.pin);
+        if (idx >= 0) emailsCache[idx] = email;
+      }
       res.json(email);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1380,6 +1417,9 @@ app.post("/api/campuses", async (req, res) => {
   app.delete("/api/emails/:pin", async (req, res) => {
     try {
       await Email.findOneAndDelete({ pin: req.params.pin });
+      if (emailsCache) {
+        emailsCache = emailsCache.filter((e: any) => e.pin !== req.params.pin);
+      }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1434,130 +1474,170 @@ app.post("/api/campuses", async (req, res) => {
     campusUserPins: string[];
   }>();
 
+  let callTasksCache: any[] | null = null;
+  let isFetchingCallTasksCache = false;
+
+  async function getCallTasksCache() {
+    if (callTasksCache) return callTasksCache;
+    if (isFetchingCallTasksCache) {
+      while (isFetchingCallTasksCache) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+      if (callTasksCache) return callTasksCache;
+    }
+
+    isFetchingCallTasksCache = true;
+    try {
+      const t0 = Date.now();
+      const tasks = await CallTask.find({}).select({ liveInstructionImage: 0 }).sort({ createdAt: -1 }).lean();
+      callTasksCache = tasks.map((t: any) => {
+        t.hasLiveInstructionImage = false; // We don't have the image here, assume false or fetch separately if needed
+        return t;
+      });
+      console.log(`[Cache] Loaded ${callTasksCache ? callTasksCache.length : 0} CallTasks in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.error("Failed to populate CallTasks cache:", err);
+      callTasksCache = [];
+    } finally {
+      isFetchingCallTasksCache = false;
+    }
+    return callTasksCache || [];
+  }
+
+  async function refreshCacheForTasks(taskIds: string[]) {
+    if (!callTasksCache) return;
+    try {
+      const updatedTasks = await CallTask.find({ id: { $in: taskIds } }).select({ liveInstructionImage: 0 }).lean();
+      const updatedMap = new Map(updatedTasks.map((t: any) => {
+        t.hasLiveInstructionImage = false;
+        return [t.id, t];
+      }));
+      for (let i = 0; i < callTasksCache.length; i++) {
+        if (updatedMap.has(callTasksCache[i].id)) {
+          const t = updatedMap.get(callTasksCache[i].id) as any;
+          t.hasLiveInstructionImage = callTasksCache[i].hasLiveInstructionImage;
+          callTasksCache[i] = t;
+        }
+      }
+    } catch(err) {
+      console.error("Failed to refresh specific tasks in cache", err);
+    }
+  }
+
+
+
   app.get("/api/call-tasks", async (req, res) => {
     try {
       const { assignedToPin, liveAssignedToPin, liveInstructionStatus, feedbackStatus, className, campus, branch, userPin } = req.query;
-      const andConditions: any[] = [];
+      const allTasks = await getCallTasksCache();
+
+      let filtered = allTasks;
 
       if (assignedToPin && !liveAssignedToPin) {
-        andConditions.push({
-          $or: [
-            { assignedToPin: String(assignedToPin) },
-            { liveAssignedToPin: String(assignedToPin) },
-            { liveInstructorPin: String(assignedToPin) }
-          ]
-        });
+        const p = String(assignedToPin);
+        filtered = filtered.filter((t: any) =>
+          t.assignedToPin === p || t.liveAssignedToPin === p || t.liveInstructorPin === p
+        );
       } else if (assignedToPin && liveAssignedToPin) {
-        andConditions.push({ assignedToPin: String(assignedToPin) });
-        andConditions.push({
-          $or: [
-            { liveAssignedToPin: String(liveAssignedToPin) },
-            { liveInstructorPin: String(liveAssignedToPin) }
-          ]
-        });
+        const p1 = String(assignedToPin);
+        const p2 = String(liveAssignedToPin);
+        filtered = filtered.filter((t: any) =>
+          t.assignedToPin === p1 && (t.liveAssignedToPin === p2 || t.liveInstructorPin === p2)
+        );
       } else if (liveAssignedToPin) {
-        andConditions.push({
-          $or: [
-            { liveAssignedToPin: String(liveAssignedToPin) },
-            { liveInstructorPin: String(liveAssignedToPin) }
-          ]
-        });
+        const p = String(liveAssignedToPin);
+        filtered = filtered.filter((t: any) =>
+          t.liveAssignedToPin === p || t.liveInstructorPin === p
+        );
       }
 
-      if (liveInstructionStatus) andConditions.push({ liveInstructionStatus: String(liveInstructionStatus) });
-      if (feedbackStatus) andConditions.push({ feedbackStatus: String(feedbackStatus) });
-      if (className) andConditions.push({ className: String(className) });
-      
+      if (liveInstructionStatus) {
+        const lis = String(liveInstructionStatus);
+        filtered = filtered.filter((t: any) => t.liveInstructionStatus === lis);
+      }
+
+      if (feedbackStatus) {
+        const fs = String(feedbackStatus);
+        filtered = filtered.filter((t: any) => t.feedbackStatus === fs);
+      }
+
+      if (className) {
+        const cn = String(className);
+        filtered = filtered.filter((t: any) => t.className === cn);
+      }
+
       if (campus && campus !== 'All') {
-        const campusStr = (campus as string).trim();
-        let campusNames: string[] = [];
-        let branchNames: string[] = [];
-        let campusUserPins: string[] = [];
+        const campusStr = String(campus).trim().toLowerCase();
 
-        const cacheKey = campusStr.toLowerCase();
-        const cached = campusResolutionCache.get(cacheKey);
+        const cacheKey = campusStr;
         const now = Date.now();
-
-        if (cached && (now - cached.timestamp < 30000)) {
-          campusNames = cached.campusNames;
-          branchNames = cached.branchNames;
-          campusUserPins = cached.campusUserPins;
-        } else {
-          const campuses = await Campus.find({ name: { $regex: new RegExp(escapeRegExp(campusStr), "i") } }).lean();
-          const campusIds = campuses.map(c => c.id);
-          campusNames = campuses.map(c => c.name);
+        let cached = campusResolutionCache.get(cacheKey);
+        if (!cached || (now - cached.timestamp >= 30000)) {
+          const campuses = await Campus.find({ name: { $regex: new RegExp(escapeRegExp(String(campus).trim()), "i") } }).lean();
+          const campusIds = campuses.map((c: any) => c.id);
+          const campusNames = campuses.map((c: any) => (c.name || '').toLowerCase());
 
           const campusBranches = await Branch.find({ campusId: { $in: campusIds } }).lean();
-          branchNames = campusBranches.map(b => b.name);
+          const branchNames = campusBranches.map((b: any) => (b.name || '').toLowerCase());
 
-          const campusUsers = await User.find({ campus: { $regex: new RegExp(escapeRegExp(campusStr), "i") } }, { pin: 1 }).lean();
-          campusUserPins = campusUsers.map(u => String(u.pin));
+          const campusUsers = await User.find({ campus: { $regex: new RegExp(escapeRegExp(String(campus).trim()), "i") } }, { pin: 1 }).lean();
+          const campusUserPins = campusUsers.map((u: any) => String(u.pin));
 
-          campusResolutionCache.set(cacheKey, {
-            timestamp: now,
-            campusNames,
-            branchNames,
-            campusUserPins
-          });
-        }
-        
-        // Automatic campus/branch match applies ONLY to non-online classes
-        const branchMatch: any[] = [];
-        if (branchNames.length > 0) {
-          const escapedBranches = branchNames.map(b => escapeRegExp(b.trim())).filter(Boolean);
-          if (escapedBranches.length > 0) {
-            branchMatch.push({ branch: { $regex: new RegExp(`^(${escapedBranches.join('|')})$`, "i") } });
-          }
-        }
-
-        const autoCampusBranch = {
-          $and: [
-            { className: { $not: { $regex: /online|অনলাইন/i } } },
-            {
-              $or: [
-                { campus: { $regex: new RegExp(escapeRegExp(campusStr), "i") } },
-                { campus: { $in: campusNames } },
-                ...branchMatch
-              ]
-            }
-          ]
-        };
-
-        const campusConditions: any[] = [autoCampusBranch];
-
-        if (campusUserPins.length > 0) {
-          campusConditions.push(
-            { assignedToPin: { $in: campusUserPins } },
-            { liveAssignedToPin: { $in: campusUserPins } },
-            { liveInstructorPin: { $in: campusUserPins } },
-            { createdByPin: { $in: campusUserPins } }
-          );
+          cached = { timestamp: now, campusNames, branchNames, campusUserPins };
+          campusResolutionCache.set(cacheKey, cached);
         }
 
         const targetPin = userPin || assignedToPin;
-        if (targetPin) {
-          campusConditions.push(
-            { assignedToPin: String(targetPin) },
-            { liveAssignedToPin: String(targetPin) },
-            { liveInstructorPin: String(targetPin) },
-            { createdByPin: String(targetPin) }
-          );
-        }
+        const targetPinStr = targetPin ? String(targetPin) : null;
 
-        andConditions.push({
-          $or: campusConditions
+        filtered = filtered.filter((t: any) => {
+          if (targetPinStr && (
+            t.assignedToPin === targetPinStr ||
+            t.liveAssignedToPin === targetPinStr ||
+            t.liveInstructorPin === targetPinStr ||
+            t.createdByPin === targetPinStr
+          )) return true;
+
+          if (cached!.campusUserPins.length > 0 && (
+            cached!.campusUserPins.includes(t.assignedToPin) ||
+            cached!.campusUserPins.includes(t.liveAssignedToPin) ||
+            cached!.campusUserPins.includes(t.liveInstructorPin) ||
+            cached!.campusUserPins.includes(t.createdByPin)
+          )) return true;
+
+          const isOnline = /online|অনলাইন/i.test(t.className || '');
+          if (!isOnline) {
+            const tCampus = (t.campus || '').toLowerCase();
+            const tBranch = (t.branch || '').toLowerCase();
+
+            if (tCampus === campusStr || cached!.campusNames.includes(tCampus)) return true;
+            if (tBranch && cached!.branchNames.includes(tBranch)) return true;
+          }
+
+          return false;
         });
       }
-      
+
       if (branch && branch !== 'all' && branch !== 'All') {
-        andConditions.push({ branch: { $regex: new RegExp(`^${escapeRegExp((branch as string).trim())}$`, "i") } });
+        const bStr = String(branch).trim().toLowerCase();
+        filtered = filtered.filter((t: any) => (t.branch || '').trim().toLowerCase() === bStr);
       }
-      
-      const query = andConditions.length > 0 ? { $and: andConditions } : {};
-      const tasks = await CallTask.find(query).sort({ createdAt: -1 }).lean();
-      res.json(tasks);
+
+      res.json(filtered);
     } catch (err) {
+      console.error("Error in /api/call-tasks:", err);
       res.status(500).json({ error: "Failed to fetch call tasks" });
+    }
+  });
+
+  app.get("/api/call-tasks/:id", async (req, res) => {
+    try {
+      const task = await CallTask.findOne({ id: req.params.id }).lean();
+      if (!task) return res.status(404).json({ error: "Not found" });
+      res.json(task);
+    } catch (err) {
+      console.error("Error fetching single task:", err);
+      res.status(500).json({ error: "Failed to fetch task" });
     }
   });
 
@@ -1657,6 +1737,15 @@ app.post("/api/campuses", async (req, res) => {
 
       if (nonDuplicateTasks.length > 0) {
         await CallTask.insertMany(nonDuplicateTasks);
+        if (callTasksCache) {
+          const insertedIds = nonDuplicateTasks.map((t: any) => t.id);
+          const newlyInserted = await CallTask.find({ id: { $in: insertedIds } }).select({ liveInstructionImage: 0 }).sort({ createdAt: -1 }).lean();
+          const newlyInsertedMapped = newlyInserted.map((t: any) => {
+             t.hasLiveInstructionImage = false;
+             return t;
+          });
+          callTasksCache.unshift(...newlyInsertedMapped);
+        }
 
         // Notify assigned team members / mentors for imported tasks
         const assignedCounts: { [pin: string]: number } = {};
@@ -1725,35 +1814,55 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
         assignedToName,
         liveAssignedToPin,
         liveAssignedToName,
-        assignType // 'feedback' | 'live' | 'both'
+        assignType, // 'feedback' | 'live' | 'both'
+        memberPins // Array of { pin, name } for distribution
       } = req.body;
+
       if (!Array.isArray(taskIds)) return res.status(400).json({ error: "Invalid task IDs" });
 
-      const existingTasks = await CallTask.find({ id: { $in: taskIds } });
       const bulkOps = [];
 
-      for (const task of existingTasks) {
+      // Fetch tasks to check status for preservation logic
+      const targetTasks = await CallTask.find({ id: { $in: taskIds } }) as any[];
+      const taskMap = new Map(targetTasks.map((t: any) => [t.id, t]));
+
+      taskIds.forEach((id, index) => {
+        const task = taskMap.get(id);
+        if (!task) return;
+
         const setObj: any = {};
+        let currentAssignedToPin = assignedToPin;
+        let currentAssignedToName = assignedToName;
+        let currentLiveAssignedToPin = liveAssignedToPin;
+        let currentLiveAssignedToName = liveAssignedToName;
+
+        // Distribution logic if multiple members provided
+        if (Array.isArray(memberPins) && memberPins.length > 0) {
+          const member = memberPins[index % memberPins.length];
+          currentAssignedToPin = member.pin;
+          currentAssignedToName = member.name;
+          currentLiveAssignedToPin = member.pin;
+          currentLiveAssignedToName = member.name;
+        }
+
+        const canUpdateFeedback = task.feedbackStatus !== 'Completed';
+        const canUpdateLive = task.liveInstructionStatus !== 'Completed';
 
         if (!assignType || assignType === 'feedback' || assignType === 'both') {
-          if (task.feedbackStatus === "Completed") {
-            // No changes to assignment data for completed feedback tasks
-          } else {
-            setObj.assignedToPin = assignedToPin !== undefined ? assignedToPin : null;
-            setObj.assignedToName = assignedToName !== undefined ? assignedToName : null;
+          if (canUpdateFeedback) {
+            setObj.assignedToPin = currentAssignedToPin !== undefined ? currentAssignedToPin : null;
+            setObj.assignedToName = currentAssignedToName !== undefined ? currentAssignedToName : null;
           }
         }
 
         if (assignType === 'live' || assignType === 'both') {
-          if (task.liveInstructionStatus === "Completed") {
-            // No changes to live instruction assignment data for completed tasks
-          } else {
-            setObj.liveAssignedToPin = liveAssignedToPin !== undefined ? liveAssignedToPin : null;
-            setObj.liveAssignedToName = liveAssignedToName !== undefined ? liveAssignedToName : null;
-            if (liveAssignedToPin) {
-              setObj.liveInstructorPin = liveAssignedToPin;
-              setObj.liveInstructorName = liveAssignedToName;
-            } else if (liveAssignedToPin === null) {
+          if (canUpdateLive) {
+            setObj.liveAssignedToPin = currentLiveAssignedToPin !== undefined ? currentLiveAssignedToPin : null;
+            setObj.liveAssignedToName = currentLiveAssignedToName !== undefined ? currentLiveAssignedToName : null;
+            if (currentLiveAssignedToPin) {
+              setObj.liveInstructorPin = currentLiveAssignedToPin;
+              setObj.liveInstructorName = currentLiveAssignedToName;
+            } else if (currentLiveAssignedToPin === null) {
               setObj.liveInstructorPin = null;
               setObj.liveInstructorName = null;
             }
@@ -1763,26 +1872,35 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
         if (Object.keys(setObj).length > 0) {
           bulkOps.push({
             updateOne: {
-              filter: { id: task.id },
+              filter: { id: id },
               update: { $set: setObj }
             }
           });
         }
-      }
+      });
 
       if (bulkOps.length > 0) {
         await CallTask.bulkWrite(bulkOps);
       }
 
-      if (assignedToPin) {
-        await notifyTaskAssignment(assignedToPin, `${taskIds.length} call task(s)`);
-      }
-      if (liveAssignedToPin && liveAssignedToPin !== assignedToPin) {
-        await notifyTaskAssignment(liveAssignedToPin, `${taskIds.length} live instruction task(s)`);
+      refreshCacheForTasks(taskIds);
+
+      // Notify members
+      const uniquePins = new Set<string>();
+      if (Array.isArray(memberPins) && memberPins.length > 0) {
+        memberPins.forEach(m => uniquePins.add(m.pin));
+      } else {
+        if (assignedToPin) uniquePins.add(assignedToPin);
+        if (liveAssignedToPin) uniquePins.add(liveAssignedToPin);
       }
 
-      res.json({ message: "Tasks assigned successfully" });
+      for (const pin of uniquePins) {
+        await notifyTaskAssignment(pin, `new call tasks assigned via range/bulk`);
+      }
+
+      res.json({ message: "Tasks assigned successfully", updatedCount: bulkOps.length });
     } catch (err) {
+      console.error("Assignment error:", err);
       res.status(500).json({ error: "Failed to assign tasks" });
     }
   });
@@ -1800,6 +1918,11 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
         { className: trimmedOld },
         { $set: { className: trimmedNew } }
       );
+      if (callTasksCache) {
+        callTasksCache.forEach(t => {
+          if (t.className === trimmedOld) t.className = trimmedNew;
+        });
+      }
 
       res.json({
         success: true,
@@ -1818,26 +1941,12 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       if (updateData.liveInstructionImage) {
         updateData.liveInstructionImage = await processLiveInstructionImages(updateData.liveInstructionImage);
       }
-
-      const existingTask = await CallTask.findOne({ id: req.params.id });
-      if (existingTask) {
-        if (existingTask.feedbackStatus === "Completed") {
-          delete updateData.assignedToPin;
-          delete updateData.assignedToName;
-        }
-        if (existingTask.liveInstructionStatus === "Completed") {
-          delete updateData.liveAssignedToPin;
-          delete updateData.liveAssignedToName;
-          delete updateData.liveInstructorPin;
-          delete updateData.liveInstructorName;
-        }
-      }
-
       const task = await CallTask.findOneAndUpdate(
         { id: req.params.id },
         { $set: updateData },
         { new: true }
       );
+      refreshCacheForTasks([req.params.id]);
       if (task) {
         if (req.body.assignedToPin) {
           await notifyTaskAssignment(req.body.assignedToPin, `1 call task (${task.studentName || task.id})`);
@@ -1855,6 +1964,9 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
   app.delete("/api/call-tasks/class/:className", async (req, res) => {
     try {
       await CallTask.deleteMany({ className: req.params.className });
+      if (callTasksCache) {
+        callTasksCache = callTasksCache.filter(t => t.className !== req.params.className);
+      }
       res.json({ success: true, message: `All call tasks for class ${req.params.className} deleted successfully` });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete tasks for class" });
@@ -1864,6 +1976,7 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
   app.delete("/api/call-tasks", async (req, res) => {
     try {
       await CallTask.deleteMany({});
+      callTasksCache = [];
       res.json({ success: true, message: "All call tasks deleted successfully" });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete all tasks" });
@@ -1873,6 +1986,9 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
   app.delete("/api/call-tasks/:id", async (req, res) => {
     try {
       await CallTask.deleteOne({ id: req.params.id });
+      if (callTasksCache) {
+        callTasksCache = callTasksCache.filter(t => t.id !== req.params.id);
+      }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to delete task" });
@@ -1961,7 +2077,7 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       }
 
       // Fetch all existing tasks from DB to compare
-      const existingTasks = await CallTask.find().lean();
+      const existingTasks = await getCallTasksCache();
       
       const existingRegs = new Set<string>();
       const existingRolls = new Set<string>();

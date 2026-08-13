@@ -28,9 +28,8 @@ async function request(path: string, options: RequestInit = {}, retries = 5) {
 
     return res.json();
   } catch (err: any) {
-    if (retries > 0 && (err.name === 'TypeError' || err.message === 'Failed to fetch')) {
-      const delay = 2000 + (Math.random() * 1000); // Stagger retries
-      console.warn(`Fetch failed for ${path}, retrying in ${Math.round(delay)}ms... (${retries} left)`);
+    if (retries > 0) {
+      const delay = 1000 + (Math.random() * 500);
       await new Promise(resolve => setTimeout(resolve, delay));
       return request(path, options, retries - 1);
     }

@@ -25,6 +25,7 @@ import {
   Headphones,
   BarChart3,
   CheckCircle2,
+  Check,
   Clock,
   AlertCircle,
   Search,
@@ -90,6 +91,196 @@ const getTodayLocalDate = () => {
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+function SearchableMemberSelect({
+  value,
+  onChange,
+  options,
+  prefixLabel,
+  title,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  options: { pin: string; name: string }[];
+  prefixLabel: string;
+  title?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedMember = useMemo(() => {
+    if (value === "all" || value === "unassigned") return null;
+    return options.find((m) => m.pin === value);
+  }, [value, options]);
+
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return options;
+    const q = search.toLowerCase();
+    return options.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) || m.pin.toLowerCase().includes(q),
+    );
+  }, [options, search]);
+
+  const displayLabel = useMemo(() => {
+    if (value === "all") return `${prefixLabel}: All`;
+    if (value === "unassigned") return `${prefixLabel}: Unassigned`;
+    if (selectedMember)
+      return `${prefixLabel}: ${selectedMember.name} (${selectedMember.pin})`;
+    return `${prefixLabel}: ${value}`;
+  }, [value, prefixLabel, selectedMember]);
+
+  const isActive = value !== "all";
+
+  return (
+    <div className="relative w-full" ref={containerRef} title={title}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between gap-1.5 bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer transition-colors ${
+          isActive
+            ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+            : "border-slate-200/80 text-slate-700 hover:border-slate-300"
+        }`}
+      >
+        <span className="truncate flex-1 text-left">{displayLabel}</span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 shrink-0 transition-transform ${
+            isOpen ? "rotate-180 text-indigo-600" : "text-slate-400"
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 space-y-1.5 min-w-[220px]">
+          {/* Search Box */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search member or PIN..."
+              autoFocus
+              className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Options List */}
+          <div className="max-h-52 overflow-y-auto space-y-0.5 pr-1 text-xs">
+            {(!search ||
+              "all".includes(search.toLowerCase()) ||
+              "সকল".includes(search)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("all");
+                  setIsOpen(false);
+                  setSearch("");
+                }}
+                className={`w-full text-left px-2.5 py-1.5 rounded-lg font-bold flex items-center justify-between transition-colors ${
+                  value === "all"
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span>{prefixLabel}: All</span>
+                {value === "all" && (
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                )}
+              </button>
+            )}
+
+            {(!search ||
+              "unassigned".includes(search.toLowerCase()) ||
+              "আনএসাইন".includes(search)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("unassigned");
+                  setIsOpen(false);
+                  setSearch("");
+                }}
+                className={`w-full text-left px-2.5 py-1.5 rounded-lg font-bold flex items-center justify-between transition-colors ${
+                  value === "unassigned"
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span>{prefixLabel}: Unassigned</span>
+                {value === "unassigned" && (
+                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                )}
+              </button>
+            )}
+
+            {filteredOptions.length === 0 &&
+            search &&
+            !"all".includes(search.toLowerCase()) &&
+            !"unassigned".includes(search.toLowerCase()) ? (
+              <div className="text-center py-3 text-xs text-slate-400 font-medium">
+                No member found
+              </div>
+            ) : (
+              filteredOptions.map((m) => {
+                const isSelected = value === m.pin;
+                return (
+                  <button
+                    key={`opt-${prefixLabel}-${m.pin}`}
+                    type="button"
+                    onClick={() => {
+                      onChange(m.pin);
+                      setIsOpen(false);
+                      setSearch("");
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg font-bold flex items-center justify-between transition-colors ${
+                      isSelected
+                        ? "bg-indigo-50 text-indigo-700"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="truncate pr-1">
+                      {m.name}{" "}
+                      <span className="text-slate-400 font-normal">
+                        ({m.pin})
+                      </span>
+                    </span>
+                    {isSelected && (
+                      <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CallManagement({
   currentUser,
@@ -163,12 +354,42 @@ export default function CallManagement({
   >("active");
   const [assignFilter, setAssignFilter] = useState<string>("all");
   const [liveAssignFilter, setLiveAssignFilter] = useState<string>("all");
+  const [liveAssignedMemberFilter, setLiveAssignedMemberFilter] = useState<string>("all");
+  const [feedbackAssignedMemberFilter, setFeedbackAssignedMemberFilter] = useState<string>("all");
   const [bulkAssignType, setBulkAssignType] = useState<
     "feedback" | "live" | "both"
   >("feedback");
   const [rangeAssignType, setRangeAssignType] = useState<
     "feedback" | "live" | "both"
   >("both");
+
+  // All unique members for assigned member filters
+  const allFilterMembers = useMemo(() => {
+    const map = new Map<string, { pin: string; name: string }>();
+    [...members, ...mentors].forEach((m) => {
+      if (m.pin && m.name) {
+        map.set(m.pin, { pin: m.pin, name: m.name });
+      }
+    });
+    tasks.forEach((t) => {
+      if (t.assignedToPin && t.assignedToName) {
+        if (!map.has(t.assignedToPin)) {
+          map.set(t.assignedToPin, { pin: t.assignedToPin, name: t.assignedToName });
+        }
+      }
+      if (t.liveAssignedToPin && t.liveAssignedToName) {
+        if (!map.has(t.liveAssignedToPin)) {
+          map.set(t.liveAssignedToPin, { pin: t.liveAssignedToPin, name: t.liveAssignedToName });
+        }
+      }
+      if (t.liveInstructorPin && t.liveInstructorName) {
+        if (!map.has(t.liveInstructorPin)) {
+          map.set(t.liveInstructorPin, { pin: t.liveInstructorPin, name: t.liveInstructorName });
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [members, mentors, tasks]);
 
   // Script / Khata Image & Link
   const [liveInstructionImages, setLiveInstructionImages] = useState<string[]>([]);
@@ -389,15 +610,23 @@ export default function CallManagement({
     }
     setIsSearchingLive(true);
     setLiveFoundTask(null);
-    setTimeout(() => {
-      const found = tasks.find(
+    setTimeout(async () => {
+      let found = tasks.find(
         (t) =>
           t.registrationNo?.trim().toLowerCase() === query ||
           t.rollNo?.trim().toLowerCase() === query ||
           (t as any).roll?.trim().toLowerCase() === query,
       );
-      setIsSearchingLive(false);
       if (found) {
+        if ((found as any).hasLiveInstructionImage && !found.liveInstructionImage) {
+          try {
+            const res = await fetch(`/api/call-tasks/${found.id}`);
+            if (res.ok) {
+              const fullTask = await res.json();
+              found = { ...found, liveInstructionImage: fullTask.liveInstructionImage };
+            }
+          } catch (err) {}
+        }
         setLiveFoundTask(found);
         setLiveStatus(found.liveInstructionStatus);
         setLiveComment(found.liveInstructionComment || "");
@@ -410,12 +639,13 @@ export default function CallManagement({
         toast.error("Student not found in your campus data");
         setLiveFoundTask(null);
       }
+      setIsSearchingLive(false);
     }, 600);
   };
 
   const handleUpdateLiveInstruction = async () => {
     if (!liveFoundTask) return;
-    if (liveStatus === "Pending") {
+    if (currentUser?.role !== "manager" && liveStatus === "Pending") {
       toast.error("Cannot save while status is Pending. Please change status to 'Completed'.");
       return;
     }
@@ -1762,10 +1992,24 @@ export default function CallManagement({
             ? !!task.liveAssignedToPin || !!task.liveInstructorPin
             : !task.liveAssignedToPin && !task.liveInstructorPin);
 
+        const matchesLiveAssignedMember =
+          liveAssignedMemberFilter === "all" ||
+          (liveAssignedMemberFilter === "unassigned"
+            ? !task.liveAssignedToPin && !task.liveInstructorPin
+            : task.liveAssignedToPin === liveAssignedMemberFilter ||
+              task.liveInstructorPin === liveAssignedMemberFilter ||
+              task.liveAssignedToName === liveAssignedMemberFilter ||
+              task.liveInstructorName === liveAssignedMemberFilter);
+
+        const matchesFeedbackAssignedMember =
+          feedbackAssignedMemberFilter === "all" ||
+          (feedbackAssignedMemberFilter === "unassigned"
+            ? !task.assignedToPin
+            : task.assignedToPin === feedbackAssignedMemberFilter ||
+              task.assignedToName === feedbackAssignedMemberFilter);
+
         const matchesImageFilter =
-          !showOnlyWithImages ||
-          (task.liveInstructionImage &&
-            parseMultipleImages(task.liveInstructionImage).length > 0);
+          !showOnlyWithImages || (task as any).hasLiveInstructionImage;
 
         // Date Filtering Logic
         const checkDateInRange = (dStr?: string) => {
@@ -1800,6 +2044,8 @@ export default function CallManagement({
           matchesClass &&
           matchesAssign &&
           matchesLiveAssign &&
+          matchesLiveAssignedMember &&
+          matchesFeedbackAssignedMember &&
           matchesDate &&
           matchesBranch
         );
@@ -1855,6 +2101,8 @@ export default function CallManagement({
     classFilter,
     assignFilter,
     liveAssignFilter,
+    liveAssignedMemberFilter,
+    feedbackAssignedMemberFilter,
     showOnlyWithImages,
     fromDateFilter,
     toDateFilter,
@@ -1964,14 +2212,30 @@ export default function CallManagement({
   const [editingTask, setEditingTask] = useState<CallTask | null>(null);
   const [modalFormData, setModalFormData] = useState<Partial<CallTask>>({});
 
-  const openTaskModal = (task: CallTask) => {
-    setEditingTask(task);
-    setModalFormData(task);
-    if (!canUpload && currentUser.role === "member") {
+  const openTaskModal = async (task: CallTask, targetTab?: "live" | "feedback") => {
+    let currentTask = { ...task };
+    setEditingTask(currentTask);
+    setModalFormData(currentTask);
+    
+    if ((currentTask as any).hasLiveInstructionImage && !currentTask.liveInstructionImage) {
+      try {
+        const res = await fetch(`/api/call-tasks/${currentTask.id}`);
+        if (res.ok) {
+          const fullTask = await res.json();
+          currentTask = { ...currentTask, liveInstructionImage: fullTask.liveInstructionImage };
+          setEditingTask(currentTask);
+          setModalFormData(currentTask);
+        }
+      } catch (err) {}
+    }
+
+    if (targetTab) {
+      setModalTab(targetTab);
+    } else if (!canUpload && currentUser.role === "member") {
       const isAssignedLive =
-        task.liveAssignedToPin === currentUser.pin ||
-        task.liveInstructorPin === currentUser.pin;
-      const isAssignedFeedback = task.assignedToPin === currentUser.pin;
+        currentTask.liveAssignedToPin === currentUser.pin ||
+        currentTask.liveInstructorPin === currentUser.pin;
+      const isAssignedFeedback = currentTask.assignedToPin === currentUser.pin;
       if (isAssignedLive && !isAssignedFeedback) {
         setModalTab("live");
       } else if (isAssignedFeedback && !isAssignedLive) {
@@ -1987,7 +2251,8 @@ export default function CallManagement({
 
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
-  const [rangeTargetMember, setRangeTargetMember] = useState("");
+  const [rangeTargetMembers, setRangeTargetMembers] = useState<string[]>([]);
+  const [rangeMemberSearch, setRangeMemberSearch] = useState("");
   const [rangeAction, setRangeAction] = useState<"assign" | "unassign">(
     "assign",
   );
@@ -1996,10 +2261,8 @@ export default function CallManagement({
     const start = parseInt(rangeStart);
     const end = parseInt(rangeEnd);
     if (isNaN(start) || isNaN(end)) return [];
-    return filteredTasks.filter((t, index) => {
-      const sl = index + 1;
-      return sl >= start && sl <= end;
-    });
+    // Use visual index (start-1 to end) from filteredTasks
+    return filteredTasks.slice(Math.max(0, start - 1), Math.min(filteredTasks.length, end));
   }, [rangeStart, rangeEnd, filteredTasks]);
 
   const getValidMembers = (taskSubset: CallTask[]) => {
@@ -2073,8 +2336,8 @@ export default function CallManagement({
 
   const handleRangeAssign = async () => {
     if (rangeAction === "assign") {
-      if (!rangeStart || !rangeEnd || !rangeTargetMember) {
-        toast.error("Please fill all range assignment fields");
+      if (!rangeStart || !rangeEnd || rangeTargetMembers.length === 0) {
+        toast.error("Please fill all range assignment fields and select a member");
         return;
       }
     } else {
@@ -2085,12 +2348,12 @@ export default function CallManagement({
     }
 
     if (tasksInRange.length === 0) {
-      toast.error("No tasks found in this serial range");
+      toast.error("No tasks found in this visual serial range");
       return;
     }
 
     let taskIdsToProcess: string[] = [];
-    let member: any = null;
+    let selectedMembers: any[] = [];
 
     if (rangeAction === "assign") {
       const isOnlineRange = tasksInRange.some((t) =>
@@ -2104,12 +2367,34 @@ export default function CallManagement({
         return;
       }
 
-      const validMembersForRange = getValidMembers(tasksInRange);
-      member = validMembersForRange.find((m) => m.pin === rangeTargetMember);
+      // Check if any of the tasks in the selected range already have an assignment for the selected assignment type
+      const alreadyAssignedSLs: number[] = [];
+      tasksInRange.forEach((t, i) => {
+        const isAssigned =
+          rangeAssignType === "feedback"
+            ? !!t.assignedToPin
+            : rangeAssignType === "live"
+            ? !!(t.liveAssignedToPin || t.liveInstructorPin)
+            : !!t.assignedToPin;
+        if (isAssigned) {
+          const sl = Math.max(0, parseInt(rangeStart) - 1) + i + 1;
+          alreadyAssignedSLs.push(sl);
+        }
+      });
 
-      if (!member) {
+      if (alreadyAssignedSLs.length > 0) {
         toast.error(
-          "This member is not authorized for this branch/campus range",
+          `সিরিয়াল নম্বর ${alreadyAssignedSLs.join(", ")} অলরেডি এসাইন করা আছে। দয়া করে আগে আন-এসাইন করুন।`
+        );
+        return;
+      }
+
+      const validMembersForRange = getValidMembers(tasksInRange);
+      selectedMembers = validMembersForRange.filter((m) => rangeTargetMembers.includes(m.pin));
+
+      if (selectedMembers.length === 0) {
+        toast.error(
+          "Selected member is not authorized for this branch/campus range",
         );
         return;
       }
@@ -2133,11 +2418,8 @@ export default function CallManagement({
     try {
       const payload: any = {
         taskIds: taskIdsToProcess,
-        assignType: "both",
-        assignedToPin: member.pin,
-        assignedToName: member.name,
-        liveAssignedToPin: member.pin,
-        liveAssignedToName: member.name,
+        assignType: rangeAssignType,
+        memberPins: selectedMembers.map(m => ({ pin: m.pin, name: m.name }))
       };
 
       const res = await fetch("/api/call-tasks/assign", {
@@ -2152,9 +2434,10 @@ export default function CallManagement({
         setIsRangeModalOpen(false);
         setRangeStart("");
         setRangeEnd("");
-        setRangeTargetMember("");
+        setRangeTargetMembers([]);
+        setRangeMemberSearch("");
         toast.success(
-          `Successfully assigned ${taskIdsToProcess.length} tasks (Both) to ${member.name}`,
+          `Successfully assigned ${taskIdsToProcess.length} tasks to ${selectedMembers[0]?.name || "member"}. Completed tasks' data was preserved.`,
         );
       }
     } catch (err) {
@@ -2763,7 +3046,9 @@ export default function CallManagement({
                 </div>
                 <div className="space-y-2 text-center">
                   <p className="text-sm font-black text-slate-800 uppercase tracking-widest animate-pulse">
-                    Preparing Dashboard
+                   Dashboard Preparing...                               
+                    It will take less than 2 min, Keep Patience
+
                   </p>
                   <div className="flex gap-1 justify-center">
                     <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
@@ -2805,18 +3090,20 @@ export default function CallManagement({
                     )}
                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 w-full sm:w-auto">
                       <span className="text-xs font-bold text-slate-600">Class:</span>
-                      <select
-                        value={dashboardClassFilter}
-                        onChange={(e) => setDashboardClassFilter(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-48 cursor-pointer"
-                      >
-                        <option value="all">All Classes</option>
-                        {uniqueClasses.map((cls) => (
-                          <option key={cls} value={cls}>
-                            {cls}
-                          </option>
-                        ))}
-                      </select>
+                      {!loading && (
+                        <select
+                          value={dashboardClassFilter}
+                          onChange={(e) => setDashboardClassFilter(e.target.value)}
+                          className="bg-slate-50 border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-48 cursor-pointer"
+                        >
+                          <option value="all">All Classes</option>
+                          {uniqueClasses.map((cls) => (
+                            <option key={cls} value={cls}>
+                              {cls}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3493,19 +3780,25 @@ export default function CallManagement({
                           Live Instruction Status
                         </label>
                         <div className="flex gap-2">
-                          {["Pending", "Completed"].map((s) => (
-                            <button
-                              key={s}
-                              onClick={() => setLiveStatus(s as any)}
-                              className={`flex-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                                liveStatus === s
-                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                                  : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                              }`}
-                            >
-                              {s}
-                            </button>
-                          ))}
+                          {["Pending", "Completed"].map((s) => {
+                            const isDisabled = s === "Pending" && currentUser?.role !== "manager" && liveFoundTask?.liveInstructionStatus === "Completed";
+                            return (
+                              <button
+                                key={s}
+                                onClick={() => setLiveStatus(s as any)}
+                                disabled={isDisabled}
+                                className={`flex-1 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
+                                  isDisabled
+                                    ? "opacity-50 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200"
+                                    : liveStatus === s
+                                    ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                                }`}
+                              >
+                                {s}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                       <div className="flex items-end pb-1.5">
@@ -4172,48 +4465,87 @@ export default function CallManagement({
               </div>
 
               {/* Row 2: Status & Assignment Filters */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 items-center pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 items-center pt-1">
                 <select
                   value={liveAssignFilter}
                   onChange={(e) => setLiveAssignFilter(e.target.value)}
-                  className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                  className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer transition-colors ${
+                    liveAssignFilter !== "all"
+                      ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                      : "border-slate-200/80 text-slate-700"
+                  }`}
                 >
                   <option value="all">Live Instruction Assign: All</option>
                   <option value="Assigned">Assigned</option>
                   <option value="Unassigned">Unassigned</option>
                 </select>
 
+                <SearchableMemberSelect
+                  value={liveAssignedMemberFilter}
+                  onChange={(val) => setLiveAssignedMemberFilter(val)}
+                  options={allFilterMembers}
+                  prefixLabel="Live Instruction Member"
+                  title="Live Instruction Assigned Member"
+                />
+
                 <select
                   value={liveStatusFilter}
                   onChange={(e) => setLiveStatusFilter(e.target.value)}
-                  className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                  className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer transition-colors ${
+                    liveStatusFilter !== "all"
+                      ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                      : "border-slate-200/80 text-slate-700"
+                  }`}
                 >
                   <option value="all">Live Instruction Status: All</option>
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
                 </select>
+
                 <select
                   value={assignFilter}
                   onChange={(e) => setAssignFilter(e.target.value)}
-                  className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                  className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer transition-colors ${
+                    assignFilter !== "all"
+                      ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                      : "border-slate-200/80 text-slate-700"
+                  }`}
                 >
                   <option value="all">Feedback Assign: All</option>
                   <option value="Assigned">Assigned</option>
                   <option value="Unassigned">Unassigned</option>
                 </select>
+
+                <SearchableMemberSelect
+                  value={feedbackAssignedMemberFilter}
+                  onChange={(val) => setFeedbackAssignedMemberFilter(val)}
+                  options={allFilterMembers}
+                  prefixLabel="Feedback Member"
+                  title="Feedback Assigned Team Member"
+                />
+
                 <select
                   value={feedbackStatusFilter}
                   onChange={(e) => setFeedbackStatusFilter(e.target.value)}
-                  className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                  className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer transition-colors ${
+                    feedbackStatusFilter !== "all"
+                      ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                      : "border-slate-200/80 text-slate-700"
+                  }`}
                 >
                   <option value="all">Feedback Status: All</option>
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
                 </select>
+
                 <select
                   value={feedbackDetailFilter}
                   onChange={(e) => setFeedbackDetailFilter(e.target.value)}
-                  className="w-full bg-white border border-slate-200/80 text-xs font-bold text-slate-700 px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 shadow-xs cursor-pointer"
+                  className={`w-full bg-white border text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-xs cursor-pointer transition-colors ${
+                    feedbackDetailFilter !== "all"
+                      ? "border-indigo-500 text-indigo-700 bg-indigo-50/50"
+                      : "border-slate-200/80 text-slate-700"
+                  }`}
                 >
                   <option value="all">Feedback Detail: All</option>
                   <option value="N/R">N/R</option>
@@ -4290,6 +4622,8 @@ export default function CallManagement({
                     classFilter !== "all" ||
                     assignFilter !== "all" ||
                     liveAssignFilter !== "all" ||
+                    liveAssignedMemberFilter !== "all" ||
+                    feedbackAssignedMemberFilter !== "all" ||
                     dateTypeFilter !== "all" ||
                     fromDateFilter ||
                     toDateFilter ||
@@ -4304,6 +4638,8 @@ export default function CallManagement({
                         setClassFilter("all");
                         setAssignFilter("all");
                         setLiveAssignFilter("all");
+                        setLiveAssignedMemberFilter("all");
+                        setFeedbackAssignedMemberFilter("all");
                         setDateTypeFilter("all");
                         setFromDateFilter("");
                         setToDateFilter("");
@@ -4348,13 +4684,15 @@ export default function CallManagement({
                       )}
                       <span>{isExporting ? "Exporting..." : "Export"}</span>
                     </button>
-                    <button
-                      onClick={() => setIsRangeModalOpen(true)}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap"
-                    >
-                      <UserPlus className="w-3.5 h-3.5 shrink-0" />
-                      <span>By SL Range</span>
-                    </button>
+                    {showManagementTabs && (
+                      <button
+                        onClick={() => setIsRangeModalOpen(true)}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                        <span>By SL Range</span>
+                      </button>
+                    )}
                     {selectedTasks.length > 0 &&
                       tasks.some(
                         (t) =>
@@ -4469,10 +4807,10 @@ export default function CallManagement({
                           </div>
                           <div className="space-y-1">
                             <p className="text-xs font-black text-slate-800 uppercase tracking-widest animate-pulse">
-                              Fetching Calls Data
+                              Loading tasks...
                             </p>
                             <p className="text-[10px] text-slate-400 font-bold">
-                              Please wait while we sync with the server
+                              It will take less than 2 min, Keep Patience
                             </p>
                           </div>
                         </div>
@@ -4628,7 +4966,7 @@ export default function CallManagement({
                         </td>
                         <td
                           className="p-4 cursor-pointer"
-                          onClick={() => openTaskModal(task)}
+                          onClick={() => openTaskModal(task, "live")}
                         >
                           <div
                             className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase hover:opacity-80 transition-opacity ${
@@ -4697,7 +5035,7 @@ export default function CallManagement({
                         </td>
                         <td
                           className="p-4 cursor-pointer"
-                          onClick={() => openTaskModal(task)}
+                          onClick={() => openTaskModal(task, "feedback")}
                         >
                           <div
                             className={`inline-block px-2.5 py-1 rounded-full text-[9px] font-black uppercase hover:opacity-80 transition-opacity ${
@@ -4847,7 +5185,6 @@ export default function CallManagement({
                     <option value="25">25</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
-                    <option value="200">200</option>
                     <option value="500">500</option>
                     <option value="1000">1000</option>
                     <option value={Math.max(filteredTasks.length, 1)}>
@@ -5205,7 +5542,12 @@ export default function CallManagement({
                         }}
                         className="w-full bg-white border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 cursor-pointer"
                       >
-                        <option value="Pending">Pending</option>
+                        <option 
+                          value="Pending" 
+                          disabled={currentUser?.role !== "manager" && editingTask?.liveInstructionStatus === "Completed"}
+                        >
+                          Pending
+                        </option>
                         <option value="Completed">Completed</option>
                       </select>
                     </div>
@@ -5580,7 +5922,12 @@ export default function CallManagement({
                         }}
                         className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
                       >
-                        <option value="Pending">Pending</option>
+                        <option 
+                          value="Pending" 
+                          disabled={currentUser?.role !== "manager" && editingTask?.feedbackStatus === "Completed"}
+                        >
+                          Pending
+                        </option>
                         <option value="Completed">Completed</option>
                       </select>
                     </div>
@@ -5841,6 +6188,23 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Branch
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.branch || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            branch: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
                         Father's Name
                       </label>
                       <input
@@ -5993,7 +6357,7 @@ export default function CallManagement({
                       const newFeedbackStatus = modalFormData.feedbackStatus;
 
                       if (modalTab === "live") {
-                        if (newLiveStatus === "Pending" || newLiveStatus !== "Completed") {
+                        if (currentUser?.role !== "manager" && (newLiveStatus === "Pending" || newLiveStatus !== "Completed")) {
                           toast.error(
                             "Cannot save while Live Instruction Status is Pending. Please change status to 'Completed'.",
                           );
@@ -6006,8 +6370,9 @@ export default function CallManagement({
                         const isExempt = ["N/R", "Off", "Busy"].includes(comment);
                         if (!isExempt) {
                           if (
-                            newFeedbackStatus === "Pending" ||
-                            newFeedbackStatus !== "Completed"
+                            currentUser?.role !== "manager" &&
+                            (newFeedbackStatus === "Pending" ||
+                            newFeedbackStatus !== "Completed")
                           ) {
                             toast.error(
                               "Cannot save while Feedback Status is Pending. Please change status to 'Completed' (unless comment is N/R, Off, or Busy).",
@@ -6114,98 +6479,214 @@ export default function CallManagement({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl"
+              className="bg-white rounded-3xl p-5 md:p-6 w-full max-w-2xl lg:max-w-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[85vh]"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                  By SL Range
-                </h3>
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4 shrink-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                    By SL Range Assignment
+                  </h3>
+                  {tasksInRange.length > 0 && (
+                    <span className="bg-indigo-50 text-indigo-700 text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-100">
+                      {tasksInRange.length} Task(s) Selected
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => setIsRangeModalOpen(false)}
-                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                  className="p-1.5 hover:bg-slate-100 rounded-xl transition-colors text-slate-400 hover:text-slate-600"
                 >
-                  <X className="w-4 h-4 text-slate-400" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
-                    Select Action
-                  </label>
-                  <div className="flex gap-2">
-                    {["assign", "unassign"].map((action) => (
-                      <button
-                        key={action}
-                        onClick={() => setRangeAction(action as any)}
-                        className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${
-                          rangeAction === action
-                            ? "bg-slate-800 text-white border-slate-800"
-                            : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-                        }`}
-                      >
-                        {action}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 overflow-y-auto pr-1 flex-1 min-h-0">
+                {/* Left Column: Action, SL Range, Assignment Type */}
+                <div className="space-y-4">
                   <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
-                      Start SL
+                    <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block">
+                      Select Action
                     </label>
-                    <input
-                      type="number"
-                      value={rangeStart}
-                      onChange={(e) => setRangeStart(e.target.value)}
-                      placeholder="e.g. 1"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
+                    <div className="flex gap-2 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/60">
+                      {(["assign", "unassign"] as const).map((action) => (
+                        <button
+                          key={action}
+                          onClick={() => setRangeAction(action)}
+                          className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                            rangeAction === action
+                              ? action === "assign"
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "bg-rose-600 text-white shadow-xs"
+                              : "text-slate-600 hover:text-slate-800"
+                          }`}
+                        >
+                          {action}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
-                      End SL
-                    </label>
-                    <input
-                      type="number"
-                      value={rangeEnd}
-                      onChange={(e) => setRangeEnd(e.target.value)}
-                      placeholder="e.g. 100"
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                  </div>
-                </div>
 
-                {rangeAction === "assign" && (
-                  <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        Start SL
+                      </label>
+                      <input
+                        type="number"
+                        value={rangeStart}
+                        onChange={(e) => setRangeStart(e.target.value)}
+                        placeholder="e.g. 1"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
+                        End SL
+                      </label>
+                      <input
+                        type="number"
+                        value={rangeEnd}
+                        onChange={(e) => setRangeEnd(e.target.value)}
+                        placeholder="e.g. 100"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                      />
+                    </div>
+                  </div>
+
+                  {rangeAction === "assign" && (
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
                         Assignment Type
                       </label>
-                      <div className="w-full px-4 py-2.5 bg-indigo-50/60 border border-indigo-100 rounded-xl text-xs font-bold text-indigo-700 flex items-center gap-2">
-                        <span>Both (Feedback & Live Instruction)</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
-                        Assign To Member
-                      </label>
                       <select
-                        value={rangeTargetMember}
-                        onChange={(e) => setRangeTargetMember(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        value={rangeAssignType}
+                        onChange={(e) =>
+                          setRangeAssignType(
+                            e.target.value as "feedback" | "live" | "both",
+                          )
+                        }
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 cursor-pointer"
                       >
-                        <option value="">Select Member</option>
-                        {renderMemberOptions(getValidMembers(tasksInRange))}
+                        <option value="both">Both (Feedback & Live Instruction)</option>
+                        <option value="feedback">Feedback Call Only</option>
+                        <option value="live">Live Instruction Only</option>
                       </select>
                     </div>
-                  </>
-                )}
+                  )}
+                </div>
 
+                {/* Right Column: Member Selection (Single Select Radio Button + PIN Search) */}
+                {rangeAction === "assign" ? (
+                  <div className="flex flex-col min-h-0 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-400 uppercase block">
+                        Assign To Member (Single Select)
+                      </label>
+                      {rangeTargetMembers.length > 0 && (
+                        <button
+                          onClick={() => setRangeTargetMembers([])}
+                          className="text-[10px] font-bold text-rose-600 hover:underline"
+                        >
+                          Clear Selection
+                        </button>
+                      )}
+                    </div>
+
+                    {/* PIN / Name Search Input */}
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={rangeMemberSearch}
+                        onChange={(e) => setRangeMemberSearch(e.target.value)}
+                        placeholder="Search member by Name or PIN..."
+                        className="w-full pl-9 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                      />
+                      {rangeMemberSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setRangeMemberSearch("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Radio Options List */}
+                    <div className="flex-1 min-h-[160px] max-h-[220px] overflow-y-auto bg-slate-50/70 border border-slate-200 rounded-2xl p-2 space-y-1.5">
+                      {(() => {
+                        const valid = getValidMembers(tasksInRange);
+                        const filtered = rangeMemberSearch.trim()
+                          ? valid.filter(
+                              (m) =>
+                                m.name
+                                  .toLowerCase()
+                                  .includes(rangeMemberSearch.toLowerCase()) ||
+                                m.pin
+                                  .toLowerCase()
+                                  .includes(rangeMemberSearch.toLowerCase()),
+                            )
+                          : valid;
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="text-center py-6 text-xs font-medium text-slate-400">
+                              No matching team member found
+                            </div>
+                          );
+                        }
+
+                        return filtered.map((m) => {
+                          const isSelected = rangeTargetMembers.includes(m.pin);
+                          return (
+                            <label
+                              key={`range-m-${m.pin}`}
+                              className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all border ${
+                                isSelected
+                                  ? "bg-indigo-50/90 border-indigo-300 shadow-xs ring-1 ring-indigo-400/30"
+                                  : "bg-white hover:bg-slate-100/70 border-slate-200/60"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="rangeTargetMemberRadio"
+                                checked={isSelected}
+                                onChange={() => setRangeTargetMembers([m.pin])}
+                                className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500 shrink-0 cursor-pointer"
+                              />
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <span className="text-xs font-bold text-slate-800 truncate">
+                                  {m.name}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-semibold">
+                                  PIN: {m.pin} {m.campus ? `• ${m.campus}` : ""}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center bg-rose-50/50 border border-rose-100 rounded-2xl p-6 text-center">
+                    <UserMinus className="w-8 h-8 text-rose-500 mb-2" />
+                    <span className="text-xs font-bold text-rose-700">
+                      Unassignment Mode
+                    </span>
+                    <span className="text-[11px] font-medium text-slate-500 mt-1">
+                      This will unassign all assigned tasks within the specified SL range.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Execute Button */}
+              <div className="pt-3 border-t border-slate-100 mt-3 shrink-0">
                 <button
                   onClick={handleRangeAssign}
-                  className={`w-full py-3 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg mt-2 ${
+                  className={`w-full py-2.5 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md ${
                     rangeAction === "assign"
                       ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100"
                       : "bg-rose-600 hover:bg-rose-700 shadow-rose-100"

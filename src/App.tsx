@@ -131,9 +131,11 @@ export default function App() {
   const refreshEmails = async () => {
     try {
       const freshEmails = await api.emails.getAll();
-      setEmails(freshEmails);
-    } catch (err) {
-      console.error("Failed to refresh emails:", err);
+      if (Array.isArray(freshEmails)) {
+        setEmails(freshEmails);
+      }
+    } catch (err: any) {
+      console.warn("Background email refresh pending:", err?.message || err);
     }
   };
 
