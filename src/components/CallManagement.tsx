@@ -4475,7 +4475,7 @@ export default function CallManagement({
                       : "border-slate-200/80 text-slate-700"
                   }`}
                 >
-                  <option value="all">Live Instruction Assign: All</option>
+                  <option value="all">Live Assign: All</option>
                   <option value="Assigned">Assigned</option>
                   <option value="Unassigned">Unassigned</option>
                 </select>
@@ -4484,7 +4484,7 @@ export default function CallManagement({
                   value={liveAssignedMemberFilter}
                   onChange={(val) => setLiveAssignedMemberFilter(val)}
                   options={allFilterMembers}
-                  prefixLabel="Live Instruction Member"
+                  prefixLabel="Live Member"
                   title="Live Instruction Assigned Member"
                 />
 
@@ -4497,7 +4497,7 @@ export default function CallManagement({
                       : "border-slate-200/80 text-slate-700"
                   }`}
                 >
-                  <option value="all">Live Instruction Status: All</option>
+                  <option value="all">Live Status: All</option>
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
                 </select>
