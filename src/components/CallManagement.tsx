@@ -537,7 +537,6 @@ export default function CallManagement({
     currentUser.permissions?.includes("can_upload_call_info");
   const canViewStatusSummary =
     currentUser.role === "manager" ||
-    currentUser.permissions?.includes("can_upload_call_info") ||
     currentUser.permissions?.includes("can_view_status_summary");
   const showManagementTabs = isCoordinator || canUpload;
 
