@@ -1,4 +1,4 @@
-export type Role = "manager" | "mentor" | "member";
+export type Role = "manager" | "mentor" | "member" | "coordinator";
 
 export interface User {
   pin: string;
@@ -232,4 +232,6 @@ export interface CallTask {
   institute?: string;
   fatherName?: string;
   motherName?: string;
+  marks?: string;
+  meritPosition?: string;
 }

@@ -1655,11 +1655,7 @@ app.post("/api/campuses", async (req, res) => {
       };
 
       // Fetch existing tasks to check for duplicates
-      const existingTasks = await CallTask.find({}, {
-        registrationNo: 1, pin: 1, rollNo: 1, roll: 1,
-        studentName: 1, nickName: 1, className: 1,
-        mobilePersonal: 1, mobileFather: 1, mobileMother: 1
-      }).lean();
+      const existingTasks = await getCallTasksCache();
 
       const existingRegs = new Set<string>();
       const existingClassRolls = new Set<string>();
@@ -2061,13 +2057,14 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
         const name = cleanStr(rawName);
         const phone1 = cleanPhone(st.mobilePersonal);
         const phone2 = cleanPhone(st.mobileFather);
+        const phone3 = cleanPhone(st.mobileMother);
 
         // Filter out header or footer summary row
         if (isHeaderOrSummary(rawReg) || isHeaderOrSummary(rawRoll) || isHeaderOrSummary(rawName)) {
           return false;
         }
 
-        if (reg || roll || phone1 || phone2) return true;
+        if (reg || roll || phone1 || phone2 || phone3) return true;
         if (name && !/^student\s*\d+$/i.test(name) && !isHeaderOrSummary(rawName)) return true;
         return false;
       });
@@ -2109,7 +2106,7 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
         const normReg2 = cleanStr(st.pin);
         const normRoll1 = cleanStr(st.rollNo);
         const normRoll2 = cleanStr(st.roll);
-        const normName = cleanStr(st.studentName || st.nickName);
+        const normName = cleanStr(st.studentName || st.nickName || st.fullName);
         
         const normPhones = [
           cleanPhone(st.mobilePersonal),
@@ -2141,6 +2138,20 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
           rollNo: st.rollNo || st.roll || '',
           pin: st.pin || st.registrationNo || '',
           roll: st.roll || st.rollNo || '',
+          studentName: st.studentName || st.fullName || st.nickName || '',
+          nickName: st.nickName || '',
+          mobilePersonal: st.mobilePersonal || '',
+          mobileFather: st.mobileFather || '',
+          mobileMother: st.mobileMother || '',
+          branch: st.branch || '',
+          campus: st.campus || '',
+          gender: st.gender || '',
+          institute: st.institute || '',
+          fatherName: st.fatherName || '',
+          motherName: st.motherName || '',
+          className: st.className || '',
+          marks: st.marks || st.totalMarks || st.totalObtainedMarks || '',
+          meritPosition: st.meritPosition || st.branchMerit || st.centralMerit || st.sl || '',
           existsInCallList: exists
         };
       });
@@ -2174,17 +2185,18 @@ async function notifyTaskAssignment(memberPin: string, detailText: string) {
       if (!h) return '';
       
       if (h === 'sl' || h === 'slno' || h === 'serial' || h === 'serialno') return 'sl';
-      if (h === 'registration' || h === 'reg' || h === 'regno' || h === 'registrationno' || h === 'pin' || h === 'studentid' || h === 'id') return 'registrationNo';
-      if (h === 'roll' || h === 'rollno' || h === 'examroll') return 'rollNo';
-      if (h === 'nickname' || h === 'nick') return 'nickName';
-      if (h === 'fullname' || h === 'studentname' || h === 'name') return 'studentName';
+      if (h.includes('reg') || h.includes('pin') || h.includes('studentid') || h === 'id') return 'registrationNo';
+      if (h.includes('roll')) return 'rollNo';
+      if (h.includes('nick')) return 'nickName';
+      if (h === 'fullname' || h === 'studentname' || h === 'name' || h === 'student') return 'studentName';
       if (h === 'gender' || h === 'sex') return 'gender';
-      if (h === 'institute' || h === 'school' || h === 'college') return 'institute';
-      if (h === 'fathername' || h === 'father') return 'fatherName';
-      if (h === 'mothername' || h === 'mother') return 'motherName';
-      if (h.includes('personal') || h === 'mobile' || h === 'phone' || h === 'contact' || h === 'mobilepersonal' || h === 'personalphonenumberp') return 'mobilePersonal';
-      if (h.includes('numbera') || h === 'mobilefather' || h === 'fatherphone' || h === 'guardianphone' || h === 'altphone') return 'mobileFather';
-      if (h === 'branch') return 'branch';
+      if (h.includes('institute') || h.includes('institution') || h.includes('school') || h.includes('college')) return 'institute';
+      if (h === 'fathername' || h === 'fathersname' || h === 'father') return 'fatherName';
+      if (h === 'mothername' || h === 'mothersname' || h === 'mother') return 'motherName';
+      if (h.includes('father') || h.includes('guardian') || h.includes('numbera')) return 'mobileFather';
+      if (h.includes('mother') || h.includes('numberb')) return 'mobileMother';
+      if (h.includes('personal') || h.includes('mobile') || h.includes('phone') || h.includes('contact')) return 'mobilePersonal';
+      if (h.includes('branch') || h.includes('campus') || h === 'centre' || h === 'center') return 'branch';
       if (h === 'coursebat' || h === 'coursebatch' || h === 'course' || h === 'class' || h === 'classname' || h === 'program' || h === 'batch') return 'className';
       if (h.includes('bds') || h.includes('mbbs')) return 'mbbsBdsStatus';
       if (h.includes('stream') || h.includes('steam')) return 'streamName';

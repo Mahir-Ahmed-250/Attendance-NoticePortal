@@ -488,6 +488,12 @@ export default function PermissionManagementView({
                       checked={selectedPermissions.includes("can_upload_call_info")}
                       onChange={() => togglePermission("can_upload_call_info")}
                     />
+                    <PermissionToggle
+                      id="can_view_status_summary"
+                      label="View Status Summary"
+                      checked={selectedPermissions.includes("can_view_status_summary")}
+                      onChange={() => togglePermission("can_view_status_summary")}
+                    />
                   </div>
 
                   {isManager && (

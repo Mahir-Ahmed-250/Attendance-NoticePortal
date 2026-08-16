@@ -9891,6 +9891,22 @@ export default function ManagerDashboard({
                           </span>
                         </label>
 
+                        <label className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer hover:border-amber-300 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={memberPermissions.includes(
+                              "can_view_status_summary",
+                            )}
+                            onChange={() =>
+                              togglePermission("can_view_status_summary")
+                            }
+                            className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-slate-700">
+                            View Status Summary
+                          </span>
+                        </label>
+
                         {/* Configure Menu Permissions privilege toggle */}
                         <label className="flex items-center gap-3 p-2.5 bg-amber-50/80 rounded-xl border border-amber-300/80 cursor-pointer hover:bg-amber-100/80 transition-colors sm:col-span-2">
                           <input

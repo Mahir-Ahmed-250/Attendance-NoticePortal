@@ -98,12 +98,14 @@ function SearchableMemberSelect({
   options,
   prefixLabel,
   title,
+  showAllOption = true,
 }: {
   value: string;
   onChange: (val: string) => void;
   options: { pin: string; name: string }[];
   prefixLabel: string;
   title?: string;
+  showAllOption?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -144,7 +146,7 @@ function SearchableMemberSelect({
     return `${prefixLabel}: ${value}`;
   }, [value, prefixLabel, selectedMember]);
 
-  const isActive = value !== "all";
+  const isActive = value !== "all" && value !== "unassigned";
 
   return (
     <div className="relative w-full" ref={containerRef} title={title}>
@@ -191,7 +193,7 @@ function SearchableMemberSelect({
 
           {/* Options List */}
           <div className="max-h-52 overflow-y-auto space-y-0.5 pr-1 text-xs">
-            {(!search ||
+            {showAllOption && (!search ||
               "all".includes(search.toLowerCase()) ||
               "সকল".includes(search)) && (
               <button
@@ -214,7 +216,7 @@ function SearchableMemberSelect({
               </button>
             )}
 
-            {(!search ||
+            {showAllOption && (!search ||
               "unassigned".includes(search.toLowerCase()) ||
               "আনএসাইন".includes(search)) && (
               <button
@@ -313,6 +315,12 @@ export default function CallManagement({
   const [isUploading, setIsUploading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const selectedTasksAreAllFeedbackUnassigned = useMemo(() => {
+    if (selectedTasks.length === 0) return false;
+    return tasks
+      .filter((t) => selectedTasks.includes(t.id))
+      .every((t) => !t.assignedToPin || t.assignedToPin.trim() === "");
+  }, [tasks, selectedTasks]);
   const [searchQuery, setSearchQuery] = useState("");
   const [liveSearchRegNo, setLiveSearchRegNo] = useState("");
   const [liveFoundTask, setLiveFoundTask] = useState<CallTask | null>(null);
@@ -349,6 +357,8 @@ export default function CallManagement({
     getTodayLocalDate(),
   );
   const [statusSummarySearch, setStatusSummarySearch] = useState<string>("");
+  const [statusSummaryCampusFilter, setStatusSummaryCampusFilter] =
+    useState<string>("all");
   const [statusSummaryFilterMode, setStatusSummaryFilterMode] = useState<
     "active" | "all"
   >("active");
@@ -390,6 +400,15 @@ export default function CallManagement({
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [members, mentors, tasks]);
+
+  const assignableMembers = useMemo(() => {
+    let list = [...members];
+    // If not a manager, filter by campus
+    if (currentUser.role !== 'manager') {
+        list = list.filter(m => m.campus && m.campus === currentUser.campus);
+    }
+    return list.map(m => ({ pin: m.pin, name: m.name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [members, currentUser]);
 
   // Script / Khata Image & Link
   const [liveInstructionImages, setLiveInstructionImages] = useState<string[]>([]);
@@ -503,10 +522,16 @@ export default function CallManagement({
   const [isRenamingClass, setIsRenamingClass] = useState(false);
 
   const isCoordinator =
-    currentUser.role === "manager" || currentUser.role === "mentor";
+    currentUser.role === "manager" ||
+    currentUser.role === "mentor" ||
+    currentUser.role === "coordinator";
   const canUpload =
     currentUser.role === "manager" ||
     currentUser.permissions?.includes("can_upload_call_info");
+  const canViewStatusSummary =
+    currentUser.role === "manager" ||
+    currentUser.permissions?.includes("can_upload_call_info") ||
+    currentUser.permissions?.includes("can_view_status_summary");
   const showManagementTabs = isCoordinator || canUpload;
 
   const mentorPins = useMemo(
@@ -1104,16 +1129,74 @@ export default function CallManagement({
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const excelRows = XLSX.utils.sheet_to_json(ws) as any[];
+
+        // 2D Sheet parsing to auto-detect header row even with top title rows
+        const rawSheetData = XLSX.utils.sheet_to_json(ws, {
+          header: 1,
+          defval: "",
+        }) as any[][];
+        let excelRows: any[] = [];
+
+        if (rawSheetData && rawSheetData.length > 0) {
+          let headerIdx = -1;
+          for (let r = 0; r < Math.min(rawSheetData.length, 10); r++) {
+            const rowCells = rawSheetData[r].map((c) =>
+              String(c || "")
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, ""),
+            );
+            const matchCount = rowCells.filter(
+              (c) =>
+                c.includes("reg") ||
+                c.includes("roll") ||
+                c.includes("name") ||
+                c.includes("mobile") ||
+                c.includes("phone") ||
+                c.includes("branch") ||
+                c.includes("sl") ||
+                c.includes("pin"),
+            ).length;
+            if (matchCount >= 2) {
+              headerIdx = r;
+              break;
+            }
+          }
+
+          if (headerIdx !== -1) {
+            const headers = rawSheetData[headerIdx].map((h) =>
+              String(h || "").trim(),
+            );
+            for (let r = headerIdx + 1; r < rawSheetData.length; r++) {
+              const rowData = rawSheetData[r];
+              if (
+                !rowData ||
+                rowData.every((c) => !c || String(c).trim() === "")
+              )
+                continue;
+              const rowObj: any = {};
+              headers.forEach((headerName, colIdx) => {
+                if (headerName) {
+                  rowObj[headerName] =
+                    rowData[colIdx] !== undefined ? rowData[colIdx] : "";
+                }
+              });
+              excelRows.push(rowObj);
+            }
+          } else {
+            excelRows = XLSX.utils.sheet_to_json(ws) as any[];
+          }
+        }
 
         const parsedList: any[] = [];
-        excelRows.forEach((row, idx) => {
+        excelRows.forEach((row) => {
           const getValue = (keys: string[]) => {
             const rowKeys = Object.keys(row);
             for (const k of keys) {
               const normKey = k.toLowerCase().replace(/[^a-z0-9]/g, "");
               const found = rowKeys.find(
-                (rk) => rk.toLowerCase().replace(/[^a-z0-9]/g, "") === normKey,
+                (rk) =>
+                  rk.toLowerCase().replace(/[^a-z0-9]/g, "") === normKey,
               );
               if (found && row[found] !== undefined && row[found] !== null)
                 return String(row[found]).trim();
@@ -1122,29 +1205,66 @@ export default function CallManagement({
           };
 
           const reg = getValue([
-            "registration",
-            "reg",
-            "regno",
             "registrationno",
+            "registration",
+            "regno",
+            "reg",
             "pin",
             "studentid",
+            "regnumber",
+            "registrationnumber",
             "id",
           ]);
-          const roll = getValue(["rollno", "roll", "examroll"]);
-          const fullName = getValue(["fullname", "studentname", "name"]);
+          const roll = getValue([
+            "rollno",
+            "roll",
+            "examroll",
+            "rollnumber",
+            "examrollno",
+          ]);
+          const fullName = getValue([
+            "fullname",
+            "studentname",
+            "name",
+            "student",
+          ]);
           const nickName = getValue(["nickname", "nick"]);
           const mobilePersonal = getValue([
+            "mobilenumberpersonal",
             "mobilepersonal",
             "personalphonenumberp",
+            "personalmobile",
+            "personalphone",
+            "personalcontact",
+            "contactnumber",
+            "mobilenumber",
             "mobile",
             "phone",
             "contact",
           ]);
           const mobileFather = getValue([
-            "numbera",
+            "mobilenumberfather",
             "mobilefather",
+            "fathermobile",
             "fatherphone",
             "guardianphone",
+            "guardianmobile",
+            "numbera",
+          ]);
+          const mobileMother = getValue([
+            "mobilenumbermother",
+            "mobilemother",
+            "mothermobile",
+            "motherphone",
+            "numberb",
+          ]);
+          const rawBranch = getValue([
+            "branch",
+            "branchname",
+            "campus",
+            "campusname",
+            "centre",
+            "center",
           ]);
 
           const isHeaderValue = (val: string) => {
@@ -1201,7 +1321,8 @@ export default function CallManagement({
             !fullName &&
             !nickName &&
             !mobilePersonal &&
-            !mobileFather
+            !mobileFather &&
+            !mobileMother
           ) {
             return;
           }
@@ -1212,34 +1333,94 @@ export default function CallManagement({
             (reg ? `Student ${reg}` : roll ? `Student ${roll}` : "");
           if (!studentName) return;
 
+          // Branch & Campus matching
+          const branchName = rawBranch ? String(rawBranch).trim() : "";
+          let campusName = "";
+          if (branchName) {
+            const normalizedBranchName = branchName
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "");
+            const branchObj = branches.find((b) => {
+              const systemBranchName = b.name
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+              return (
+                systemBranchName === normalizedBranchName ||
+                systemBranchName.startsWith(normalizedBranchName) ||
+                normalizedBranchName.startsWith(systemBranchName)
+              );
+            });
+            if (branchObj && branchObj.campusId) {
+              campusName =
+                campuses.find((c) => c.id === branchObj.campusId)?.name || "";
+            }
+          }
+          if (!campusName && currentUser.campus) {
+            campusName = currentUser.campus;
+          }
+
           parsedList.push({
             sl:
-              getValue(["sl", "serial", "slno"]) ||
-              String(parsedList.length + 1),
+              getValue([
+                "sl",
+                "serial",
+                "slno",
+                "rank",
+                "meritposition",
+                "meritrank",
+                "meritpos",
+              ]) || String(parsedList.length + 1),
             registrationNo: reg,
             pin: reg,
             rollNo: roll,
             roll: roll,
-            nickName: nickName,
+            fullName: fullName || studentName,
             studentName: studentName,
+            nickName: nickName,
             gender: getValue(["gender", "sex"]),
-            institute: getValue(["institute", "school", "college"]),
-            fatherName: getValue(["fathername", "father"]),
-            motherName: getValue(["mothername", "mother"]),
+            institute: getValue([
+              "institute",
+              "institution",
+              "school",
+              "college",
+            ]),
+            fatherName: getValue(["fathername", "fathersname", "father"]),
+            motherName: getValue(["mothername", "mothersname", "mother"]),
             mobilePersonal: mobilePersonal,
             mobileFather: mobileFather,
-            branch: getValue(["branch"]) || getValue(["campus"]),
+            mobileMother: mobileMother,
+            branch: branchName,
+            campus: campusName,
             className:
               getValue([
                 "coursebat",
                 "coursebatch",
                 "course",
                 "class",
+                "classname",
                 "program",
                 "batch",
               ]) ||
               meritTargetClass ||
               "Default",
+            marks: getValue([
+              "marks",
+              "score",
+              "totalmarks",
+              "totalobtainedmarks",
+              "obtainedmarks",
+              "mcqmark",
+              "writtenmark",
+            ]),
+            meritPosition: getValue([
+              "meritposition",
+              "meritrank",
+              "meritpos",
+              "rank",
+              "branchmerit",
+              "centralmerit",
+              "merit",
+            ]),
             liveInstructionStatus: "Pending",
             feedbackStatus: "Pending",
           });
@@ -1278,7 +1459,12 @@ export default function CallManagement({
             st.mobileMother ||
             ""
           ).trim();
-          const name = (st.studentName || st.nickName || "").trim();
+          const name = (
+            st.studentName ||
+            st.fullName ||
+            st.nickName ||
+            ""
+          ).trim();
           if (
             !reg &&
             !roll &&
@@ -1301,7 +1487,30 @@ export default function CallManagement({
         : null;
 
       const newTasks: Partial<CallTask>[] = selectedMissing.map((st, idx) => {
-        let campusName = st.campus || currentUser.campus || "";
+        let campusName = st.campus || "";
+        if (!campusName && st.branch) {
+          const normalizedBranchName = st.branch
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "");
+          const branchObj = branches.find((b) => {
+            const systemBranchName = b.name
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "");
+            return (
+              systemBranchName === normalizedBranchName ||
+              systemBranchName.startsWith(normalizedBranchName) ||
+              normalizedBranchName.startsWith(systemBranchName)
+            );
+          });
+          if (branchObj && branchObj.campusId) {
+            campusName =
+              campuses.find((c) => c.id === branchObj.campusId)?.name || "";
+          }
+        }
+        if (!campusName) {
+          campusName = currentUser.campus || "";
+        }
+
         return {
           ...st,
           id: `task-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
@@ -1310,13 +1519,24 @@ export default function CallManagement({
           rollNo: st.rollNo || st.roll || st.pin || "",
           pin: st.pin || st.registrationNo || "",
           roll: st.roll || st.rollNo || "",
-          studentName: st.studentName || st.nickName || "Unknown Student",
-          className: meritTargetClass || st.className || "Default",
+          studentName:
+            st.studentName ||
+            st.fullName ||
+            st.nickName ||
+            "Unknown Student",
+          nickName: st.nickName || "",
           mobilePersonal: st.mobilePersonal || "",
           mobileFather: st.mobileFather || "",
           mobileMother: st.mobileMother || "",
-          branch: st.branch || st.campus || "",
+          branch: st.branch || "",
           campus: campusName,
+          gender: st.gender || "",
+          institute: st.institute || "",
+          fatherName: st.fatherName || "",
+          motherName: st.motherName || "",
+          className: meritTargetClass || st.className || "Default",
+          marks: st.marks || "",
+          meritPosition: st.meritPosition || "",
           assignedToPin: assignedMember ? assignedMember.pin : undefined,
           assignedToName: assignedMember ? assignedMember.name : undefined,
           liveInstructionStatus: "Pending",
@@ -2190,6 +2410,7 @@ export default function CallManagement({
   };
 
   const [isRangeModalOpen, setIsRangeModalOpen] = useState(false);
+  const [isBulkAssignModalOpen, setIsBulkAssignModalOpen] = useState(false);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [isDeleteClassModalOpen, setIsDeleteClassModalOpen] = useState(false);
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
@@ -2253,6 +2474,7 @@ export default function CallManagement({
   const [rangeEnd, setRangeEnd] = useState("");
   const [rangeTargetMembers, setRangeTargetMembers] = useState<string[]>([]);
   const [rangeMemberSearch, setRangeMemberSearch] = useState("");
+  const [bulkMemberPin, setBulkMemberPin] = useState("");
   const [rangeAction, setRangeAction] = useState<"assign" | "unassign">(
     "assign",
   );
@@ -2273,9 +2495,12 @@ export default function CallManagement({
       return allAssignable;
     }
 
-    // For others (Coordinators), they can only see team members under them
+    // For others (Coordinators, mentors, etc.), filter by campus
     const myCampusMembers = members.filter(
-      (m) => m.campus === currentUser.campus || m.mentorPin === currentUser.pin,
+      (m) => {
+          if (currentUser.role === 'coordinator') return m.campus === currentUser.campus;
+          return m.campus === currentUser.campus || m.mentorPin === currentUser.pin;
+      }
     );
 
     if (taskSubset.length === 0) return myCampusMembers;
@@ -2738,6 +2963,44 @@ export default function CallManagement({
     [currentUser, members, mentors],
   );
 
+  const getMemberCampus = useCallback(
+    (m: { campus?: string; branch?: string }) => {
+      if (m.campus && m.campus.trim()) {
+        const direct = m.campus.trim();
+        const official =
+          campusAndBranchMaps.campusNameMap.get(direct.toLowerCase());
+        return official || direct;
+      }
+      if (m.branch) {
+        const cleanBranch = m.branch.trim().toLowerCase();
+        const mapped = campusAndBranchMaps.branchToCampusMap.get(cleanBranch);
+        if (mapped) return mapped;
+        const matched = campuses.find(
+          (c) =>
+            c.name &&
+            cleanBranch.includes(
+              c.name.toLowerCase().replace("campus", "").trim(),
+            ),
+        );
+        if (matched && matched.name) return matched.name.trim();
+      }
+      return "Unassigned";
+    },
+    [campusAndBranchMaps, campuses],
+  );
+
+  const effectiveStatusSummaryCampus = useMemo(() => {
+    if (
+      currentUser.role !== "manager" &&
+      !currentUser.permissions?.includes("can_upload_call_info") &&
+      currentUser.campus &&
+      currentUser.campus !== "All"
+    ) {
+      return currentUser.campus;
+    }
+    return statusSummaryCampusFilter;
+  }, [currentUser, statusSummaryCampusFilter]);
+
   const statusSummaryMemberData = useMemo(() => {
     const memberMap = new Map<
       string,
@@ -2750,9 +3013,24 @@ export default function CallManagement({
       }
     >();
 
-    const addKnownUser = (u: { pin: string; name: string; role?: string }) => {
+    const addKnownUser = (u: {
+      pin: string;
+      name: string;
+      role?: string;
+      campus?: string;
+      branch?: string;
+    }) => {
       if (!u.pin) return;
       if (u.role === "manager" || isManagerPin(u.pin)) return;
+
+      const memCampus = getMemberCampus(u);
+      if (
+        effectiveStatusSummaryCampus !== "all" &&
+        memCampus.toLowerCase() !== effectiveStatusSummaryCampus.toLowerCase()
+      ) {
+        return;
+      }
+
       if (!memberMap.has(u.pin)) {
         memberMap.set(u.pin, {
           pin: u.pin,
@@ -2781,6 +3059,15 @@ export default function CallManagement({
     };
 
     tasks.forEach((t) => {
+      const tCamp = getTaskCampus(t) || t.campus || "";
+      if (
+        effectiveStatusSummaryCampus !== "all" &&
+        tCamp &&
+        tCamp.toLowerCase() !== effectiveStatusSummaryCampus.toLowerCase()
+      ) {
+        return;
+      }
+
       // Live Instruction call on selected date
       if (
         t.liveInstructionStatus === "Completed" ||
@@ -2834,7 +3121,17 @@ export default function CallManagement({
     return Array.from(memberMap.values()).sort(
       (a, b) => b.totalCount - a.totalCount || a.name.localeCompare(b.name),
     );
-  }, [tasks, members, mentors, currentUser, statusSummaryDate, isManagerPin]);
+  }, [
+    tasks,
+    members,
+    mentors,
+    currentUser,
+    statusSummaryDate,
+    isManagerPin,
+    effectiveStatusSummaryCampus,
+    getMemberCampus,
+    getTaskCampus,
+  ]);
 
   const filteredStatusSummaryMembers = useMemo(() => {
     return statusSummaryMemberData.filter((m) => {
@@ -2965,7 +3262,7 @@ export default function CallManagement({
           >
             Live Instruction
           </button>
-          {canUpload && (
+          {canViewStatusSummary && (
             <button
               onClick={() => setActiveSubTab("status-summary")}
               className={`flex-shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-center whitespace-nowrap ${activeSubTab === "status-summary" ? "bg-white text-indigo-600 shadow-xs" : "text-slate-500 hover:text-slate-700"}`}
@@ -4043,7 +4340,7 @@ export default function CallManagement({
           </motion.div>
         )}
 
-        {activeSubTab === "status-summary" && canUpload && (
+        {activeSubTab === "status-summary" && canViewStatusSummary && (
           <motion.div
             key="status-summary"
             initial={{ opacity: 0, y: 10 }}
@@ -4068,8 +4365,35 @@ export default function CallManagement({
                   </div>
                 </div>
 
-                {/* Date Selector & Quick Shortcuts */}
+                {/* Date Selector & Campus Filter & Quick Shortcuts */}
                 <div className="flex flex-wrap items-center gap-2">
+                  {currentUser.role === "manager" ||
+                  currentUser.permissions?.includes("can_upload_call_info") ||
+                  currentUser.campus === "All" ||
+                  !currentUser.campus ? (
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 shadow-2xs">
+                      <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="text-slate-500 hidden sm:inline">Campus:</span>
+                      <select
+                        value={statusSummaryCampusFilter}
+                        onChange={(e) => setStatusSummaryCampusFilter(e.target.value)}
+                        className="bg-transparent focus:outline-none cursor-pointer font-bold text-slate-800 text-xs"
+                      >
+                        <option value="all">All Campuses</option>
+                        {availableCampuses.map((camp) => (
+                          <option key={camp} value={camp}>
+                            {camp}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 px-3.5 py-2 rounded-xl text-xs font-bold text-indigo-800 shadow-2xs">
+                      <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span>Campus: {currentUser.campus}</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 shadow-2xs">
                     <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />
                     <span className="text-slate-500 hidden sm:inline">Date:</span>
@@ -4150,7 +4474,7 @@ export default function CallManagement({
                         : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
-                    All Members ({statusSummaryMemberData.length})
+                    All Members 
                   </button>
                 </div>
 
@@ -4475,7 +4799,7 @@ export default function CallManagement({
                       : "border-slate-200/80 text-slate-700"
                   }`}
                 >
-                  <option value="all">Live Assign: All</option>
+                  <option value="all">Live Instruction Assign: All</option>
                   <option value="Assigned">Assigned</option>
                   <option value="Unassigned">Unassigned</option>
                 </select>
@@ -4484,7 +4808,7 @@ export default function CallManagement({
                   value={liveAssignedMemberFilter}
                   onChange={(val) => setLiveAssignedMemberFilter(val)}
                   options={allFilterMembers}
-                  prefixLabel="Live Member"
+                  prefixLabel="Live Instruction Member"
                   title="Live Instruction Assigned Member"
                 />
 
@@ -4497,7 +4821,7 @@ export default function CallManagement({
                       : "border-slate-200/80 text-slate-700"
                   }`}
                 >
-                  <option value="all">Live Status: All</option>
+                  <option value="all">Live Instruction Status: All</option>
                   <option value="Pending">Pending</option>
                   <option value="Completed">Completed</option>
                 </select>
@@ -4685,13 +5009,25 @@ export default function CallManagement({
                       <span>{isExporting ? "Exporting..." : "Export"}</span>
                     </button>
                     {showManagementTabs && (
-                      <button
-                        onClick={() => setIsRangeModalOpen(true)}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 shrink-0" />
-                        <span>By SL Range</span>
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setIsRangeModalOpen(true)}
+                          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                          <span>By SL Range</span>
+                        </button>
+                        {(currentUser.role === "manager" || isCoordinator || canUpload) &&
+                          selectedTasksAreAllFeedbackUnassigned && (
+                            <button
+                              onClick={() => setIsBulkAssignModalOpen(true)}
+                              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs whitespace-nowrap"
+                            >
+                              <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                              <span>Assign Feedback</span>
+                            </button>
+                          )}
+                      </div>
                     )}
                     {selectedTasks.length > 0 &&
                       tasks.some(
@@ -4730,7 +5066,8 @@ export default function CallManagement({
                 <thead>
                   <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     {(activeSubTab === "management" ||
-                      activeSubTab === "my-tasks") && (
+                      activeSubTab === "my-tasks") &&
+                      currentUser.role !== "member" && (
                       <th className="p-4 w-10 ">
                         <input
                           type="checkbox"
@@ -4791,8 +5128,9 @@ export default function CallManagement({
                     <tr>
                       <td
                         colSpan={
-                          activeSubTab === "management" ||
-                          activeSubTab === "my-tasks"
+                          (activeSubTab === "management" ||
+                            activeSubTab === "my-tasks") &&
+                          currentUser.role !== "member"
                             ? 18
                             : 17
                         }
@@ -4820,8 +5158,9 @@ export default function CallManagement({
                     <tr>
                       <td
                         colSpan={
-                          activeSubTab === "management" ||
-                          activeSubTab === "my-tasks"
+                          (activeSubTab === "management" ||
+                            activeSubTab === "my-tasks") &&
+                          currentUser.role !== "member"
                             ? 18
                             : 17
                         }
@@ -4840,7 +5179,8 @@ export default function CallManagement({
                         className={`hover:bg-slate-50/30 transition-colors ${selectedTasks.includes(task.id) ? "bg-indigo-50/20" : ""}`}
                       >
                         {(activeSubTab === "management" ||
-                          activeSubTab === "my-tasks") && (
+                          activeSubTab === "my-tasks") &&
+                          currentUser.role !== "member" && (
                           <td className="p-4">
                             <input
                               type="checkbox"
@@ -6823,6 +7163,62 @@ export default function CallManagement({
         )}
       </AnimatePresence>
 
+      {isBulkAssignModalOpen && (
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-indigo-100"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                  Assign Feedback
+                </h3>
+                <button
+                  onClick={() => setIsBulkAssignModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <SearchableMemberSelect
+                  value={bulkMemberPin}
+                  onChange={setBulkMemberPin}
+                  options={assignableMembers}
+                  prefixLabel="Member"
+                  title="Assign to Team Member"
+                  showAllOption={false}
+                />
+              </div>
+
+              <button
+                onClick={() => {
+                  if (bulkMemberPin) {
+                    handleAssignTasks(bulkMemberPin, "feedback");
+                    setIsBulkAssignModalOpen(false);
+                    setBulkMemberPin("");
+                  } else {
+                    toast.error("Please select a member");
+                  }
+                }}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg mt-4"
+              >
+               Assign
+              </button>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>
+      )}
+
       {/* Individual Assign Modal */}
       <AnimatePresence>
         {isAssignModalOpen && assignTarget && (
@@ -7895,7 +8291,7 @@ export default function CallManagement({
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl p-5 sm:p-7 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border border-indigo-100 my-auto overflow-hidden"
+              className="bg-white rounded-3xl p-5 sm:p-7 w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl border border-indigo-100 my-auto overflow-hidden"
             >
               {/* Header */}
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 flex-shrink-0">
@@ -7947,14 +8343,23 @@ export default function CallManagement({
                     Upload Merit List Excel / CSV File
                   </label>
                   <label
-                    className={`inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-md shadow-emerald-200 ${!meritTargetClass ? "opacity-50 cursor-not-allowed" : ""}`}
+                    className={`inline-flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-200 ${!meritTargetClass || isCheckingMerit ? "opacity-60 cursor-not-allowed pointer-events-none" : "cursor-pointer"}`}
                   >
-                    <Upload className="w-4 h-4" />
-                    <span>Select File (.xlsx, .xls, .csv)</span>
+                    {isCheckingMerit ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>Checking & Parsing File...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>Select File (.xlsx, .xls, .csv)</span>
+                      </>
+                    )}
                     <input
                       type="file"
                       accept=".xlsx, .xls, .csv"
-                      disabled={!meritTargetClass}
+                      disabled={!meritTargetClass || isCheckingMerit}
                       onChange={handleMeritFileUpload}
                       className="hidden"
                     />
@@ -8028,9 +8433,9 @@ export default function CallManagement({
                           </div>
                         </div>
 
-                        <div className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200">
+                        <div className="max-h-72 overflow-y-auto rounded-2xl border border-slate-200">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 sticky top-0">
+                            <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 sticky top-0 z-10 shadow-sm">
                               <tr>
                                 <th className="p-2.5 w-10 text-center">
                                   <input
@@ -8054,18 +8459,29 @@ export default function CallManagement({
                                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                   />
                                 </th>
-                                <th className="p-2.5">SL / Rank</th>
-                                <th className="p-2.5">Reg / Roll</th>
-                                <th className="p-2.5">Student Name</th>
-                                <th className="p-2.5">Program / Class</th>
-                                <th className="p-2.5">Marks</th>
-                                <th className="p-2.5">Mobile</th>
+                                <th className="p-2.5 whitespace-nowrap">SL / Rank</th>
+                                <th className="p-2.5 whitespace-nowrap">Reg Number</th>
+                                <th className="p-2.5 whitespace-nowrap">Roll Number</th>
+                                <th className="p-2.5 whitespace-nowrap">FULL NAME</th>
+                                <th className="p-2.5 whitespace-nowrap">NICK NAME</th>
+                                <th className="p-2.5 whitespace-nowrap">Contact Number</th>
+                                <th className="p-2.5 whitespace-nowrap">Branch</th>
+                                <th className="p-2.5 whitespace-nowrap">Student Info</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
                               {meritResult.missingStudents.map((st, i) => {
                                 const isSelected =
                                   selectedMissingIndexes.includes(i);
+                                const reg = st.registrationNo || st.pin || "";
+                                const roll = st.rollNo || st.roll || "";
+                                const name = st.studentName || st.fullName || "";
+                                const nick = st.nickName || "";
+                                const branch = st.branch || st.campus || "";
+                                const pPhone = st.mobilePersonal || "";
+                                const fPhone = st.mobileFather || "";
+                                const mPhone = st.mobileMother || "";
+
                                 return (
                                   <tr
                                     key={i}
@@ -8089,34 +8505,103 @@ export default function CallManagement({
                                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                       />
                                     </td>
-                                    <td className="p-2.5 font-bold text-slate-700">
+                                    <td className="p-2.5 font-bold text-slate-700 whitespace-nowrap">
                                       {st.sl || st.meritPosition || i + 1}
                                     </td>
-                                    <td className="p-2.5 font-mono font-bold text-indigo-600 select-text cursor-text">
-                                      {st.pin || st.roll || "—"}
+                                    <td className="p-2.5 font-mono font-bold text-indigo-600 select-text cursor-text whitespace-nowrap">
+                                      {reg || "—"}
                                     </td>
-                                    <td className="p-2.5 font-bold text-slate-800">
-                                      {st.studentName}
+                                    <td className="p-2.5 font-mono font-bold text-slate-700 select-text cursor-text whitespace-nowrap">
+                                      {roll || "—"}
                                     </td>
-                                    <td className="p-2.5 font-medium text-slate-600">
-                                      {st.className}
+                                    <td className="p-2.5 font-bold text-slate-800 whitespace-nowrap">
+                                      {name || "—"}
                                     </td>
-                                    <td className="p-2.5 font-bold text-slate-700">
-                                      {st.marks || "—"}
+                                    <td className="p-2.5 font-medium text-slate-600 whitespace-nowrap">
+                                      {nick || "—"}
                                     </td>
-                                    <td className="p-2.5 font-mono text-slate-600">
-                                      {st.mobilePersonal ? (
-                                        <a
-                                          href={`tel:${st.mobilePersonal}`}
-                                          className="text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1 font-bold"
-                                          title={`Call: ${st.mobilePersonal}`}
-                                        >
-                                          <span>{st.mobilePersonal}</span>
-                                          <Phone className="w-2.5 h-2.5 text-indigo-500" />
-                                        </a>
+                                    <td className="p-2.5 text-slate-700 min-w-[200px]">
+                                      <div className="space-y-1 text-[11px]">
+                                        {pPhone && (
+                                          <div className="flex items-center gap-1">
+                                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-[10px]">
+                                              Personal:
+                                            </span>
+                                            <a
+                                              href={`tel:${pPhone}`}
+                                              className="text-indigo-600 hover:underline font-mono font-bold inline-flex items-center gap-1"
+                                            >
+                                              {pPhone}
+                                              <Phone className="w-2.5 h-2.5 text-indigo-400" />
+                                            </a>
+                                          </div>
+                                        )}
+                                        {fPhone && (
+                                          <div className="flex items-center gap-1">
+                                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-bold text-[10px]">
+                                              Father:
+                                            </span>
+                                            <a
+                                              href={`tel:${fPhone}`}
+                                              className="text-slate-700 hover:underline font-mono font-medium inline-flex items-center gap-1"
+                                            >
+                                              {fPhone}
+                                              <Phone className="w-2.5 h-2.5 text-slate-400" />
+                                            </a>
+                                          </div>
+                                        )}
+                                        {mPhone && (
+                                          <div className="flex items-center gap-1">
+                                            <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 font-bold text-[10px]">
+                                              Mother:
+                                            </span>
+                                            <a
+                                              href={`tel:${mPhone}`}
+                                              className="text-slate-700 hover:underline font-mono font-medium inline-flex items-center gap-1"
+                                            >
+                                              {mPhone}
+                                              <Phone className="w-2.5 h-2.5 text-slate-400" />
+                                            </a>
+                                          </div>
+                                        )}
+                                        {!pPhone && !fPhone && !mPhone && (
+                                          <span className="text-slate-400 italic">—</span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-2.5 font-bold text-slate-700 whitespace-nowrap">
+                                      {branch ? (
+                                        <span className="inline-block px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800 text-[11px] font-bold">
+                                          {branch}
+                                        </span>
                                       ) : (
-                                        "—"
+                                        <span className="text-slate-400 italic">—</span>
                                       )}
+                                    </td>
+                                    <td className="p-2.5 text-slate-600 min-w-[180px]">
+                                      <div className="space-y-0.5 text-[11px]">
+                                        {st.className && (
+                                          <div>
+                                            <span className="font-bold text-slate-700">Class:</span> {st.className}
+                                          </div>
+                                        )}
+                                       
+                                        {st.institute && (
+                                          <div>
+                                            <span className="font-bold text-slate-700">Inst:</span> {st.institute}
+                                          </div>
+                                        )}
+                                        {st.gender && (
+                                          <div>
+                                            <span className="font-bold text-slate-700">Gender:</span> {st.gender}
+                                          </div>
+                                        )}
+                                        {(st.fatherName || st.motherName) && (
+                                          <div>
+                                            <span className="font-bold text-slate-700">Parents:</span> {st.fatherName || ""}{st.fatherName && st.motherName ? " / " : ""}{st.motherName || ""}
+                                          </div>
+                                        )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -8131,7 +8616,7 @@ export default function CallManagement({
                             <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                               <UserPlus className="w-4 h-4 text-indigo-600" />
                               <span>
-                                Assign Selected Students To (Optional):
+                                Assign Feedback Selected Students To (Optional):
                               </span>
                             </div>
                             <select
