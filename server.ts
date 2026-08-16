@@ -1659,26 +1659,16 @@ app.post("/api/campuses", async (req, res) => {
 
       const existingRegs = new Set<string>();
       const existingClassRolls = new Set<string>();
-      const existingClassNames = new Set<string>();
-      const existingPhones = new Set<string>();
 
       existingTasks.forEach((t: any) => {
         const reg1 = cleanStr(t.registrationNo);
         const reg2 = cleanStr(t.pin);
         const roll = cleanStr(t.rollNo || t.roll);
         const cls = cleanStr(t.className);
-        const name = cleanStr(t.studentName || t.nickName);
-        const p1 = cleanPhone(t.mobilePersonal);
-        const p2 = cleanPhone(t.mobileFather);
-        const p3 = cleanPhone(t.mobileMother);
 
         if (reg1) existingRegs.add(reg1);
         if (reg2) existingRegs.add(reg2);
         if (cls && roll) existingClassRolls.add(`${cls}::${roll}`);
-        if (cls && name) existingClassNames.add(`${cls}::${name}`);
-        if (p1 && p1.length >= 10) existingPhones.add(p1);
-        if (p2 && p2.length >= 10) existingPhones.add(p2);
-        if (p3 && p3.length >= 10) existingPhones.add(p3);
       });
 
       const nonDuplicateTasks: any[] = [];
@@ -1689,30 +1679,16 @@ app.post("/api/campuses", async (req, res) => {
         const reg2 = cleanStr(task.pin);
         const roll = cleanStr(task.rollNo || task.roll);
         const cls = cleanStr(task.className);
-        const name = cleanStr(task.studentName || task.nickName);
-        const p1 = cleanPhone(task.mobilePersonal);
-        const p2 = cleanPhone(task.mobileFather);
-        const p3 = cleanPhone(task.mobileMother);
 
         let isDuplicate = false;
 
-        // Check 1: Reg / PIN match
+        // Check 1: Reg / PIN match (Registration number / ID duplicate blocks addition)
         if ((reg1 && existingRegs.has(reg1)) || (reg2 && existingRegs.has(reg2))) {
           isDuplicate = true;
         }
 
         // Check 2: Class + Roll match
         if (!isDuplicate && cls && roll && existingClassRolls.has(`${cls}::${roll}`)) {
-          isDuplicate = true;
-        }
-
-        // Check 3: Class + Student Name match (when reg/roll absent)
-        if (!isDuplicate && cls && name && (!reg1 && !reg2 && !roll) && existingClassNames.has(`${cls}::${name}`)) {
-          isDuplicate = true;
-        }
-
-        // Check 4: Same Personal Phone AND Name match
-        if (!isDuplicate && p1 && p1.length >= 10 && name && existingPhones.has(p1) && existingClassNames.has(`${cls}::${name}`)) {
           isDuplicate = true;
         }
 
@@ -1724,10 +1700,6 @@ app.post("/api/campuses", async (req, res) => {
           if (reg1) existingRegs.add(reg1);
           if (reg2) existingRegs.add(reg2);
           if (cls && roll) existingClassRolls.add(`${cls}::${roll}`);
-          if (cls && name) existingClassNames.add(`${cls}::${name}`);
-          if (p1 && p1.length >= 10) existingPhones.add(p1);
-          if (p2 && p2.length >= 10) existingPhones.add(p2);
-          if (p3 && p3.length >= 10) existingPhones.add(p3);
         }
       }
 

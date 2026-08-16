@@ -401,6 +401,13 @@ export default function CallManagement({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [members, mentors, tasks]);
 
+  const feedbackFilterMembers = useMemo(() => {
+    if (currentUser.role === "member") {
+      return [{ pin: currentUser.pin, name: currentUser.name }];
+    }
+    return allFilterMembers;
+  }, [currentUser, allFilterMembers]);
+
   const assignableMembers = useMemo(() => {
     let list = [...members];
     // If not a manager, filter by campus
@@ -4474,7 +4481,7 @@ export default function CallManagement({
                         : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
-                    All Members 
+                    Campus Members 
                   </button>
                 </div>
 
@@ -4843,7 +4850,7 @@ export default function CallManagement({
                 <SearchableMemberSelect
                   value={feedbackAssignedMemberFilter}
                   onChange={(val) => setFeedbackAssignedMemberFilter(val)}
-                  options={allFilterMembers}
+                  options={feedbackFilterMembers}
                   prefixLabel="Feedback Member"
                   title="Feedback Assigned Team Member"
                 />
