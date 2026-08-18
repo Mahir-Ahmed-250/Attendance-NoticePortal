@@ -4064,6 +4064,37 @@ export default function CallManagement({
                             </div>
                           </div>
                         </div>
+
+                        {/* Feedback Status & Date Section */}
+                        <div className="sm:col-span-2 pt-2 border-t border-indigo-100/60 mt-1">
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                            Feedback Information
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 bg-white/80 p-3 rounded-xl border border-indigo-100/80 shadow-xs">
+                            <div>
+                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                Feedback Status
+                              </div>
+                              <div className="mt-0.5">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                  liveFoundTask.feedbackStatus === "Completed"
+                                    ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                    : "bg-amber-100 text-amber-800 border border-amber-200"
+                                }`}>
+                                  {liveFoundTask.feedbackStatus || "Pending"}
+                                </span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                Feedback Date
+                              </div>
+                              <div className="text-xs font-bold text-slate-700 mt-1">
+                                {liveFoundTask.feedbackSubmitDate || liveFoundTask.completedAt || "Not Submitted"}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </motion.div>
                   )}
