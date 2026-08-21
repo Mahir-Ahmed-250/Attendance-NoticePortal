@@ -2271,7 +2271,7 @@ export default function CallManagement({
         const matchesFeedbackStatus =
           feedbackStatusFilter === "all" ||
           task.feedbackStatus === feedbackStatusFilter;
-        const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"];
+        const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Syllabus Problem", "Notify Later"];
         const matchesFeedbackDetail =
           feedbackDetailFilter === "all" ||
           (feedbackDetailFilter === "Others"
@@ -2932,7 +2932,7 @@ export default function CallManagement({
     { name: "Pending", value: feedbackPending },
   ];
 
-  const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"];
+  const standardFeedbackOptions = ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Syllabus Problem", "Notify Later"];
   const feedbackDetailCounts: Record<string, number> = {
     "N/R": 0,
     "Off": 0,
@@ -2940,6 +2940,7 @@ export default function CallManagement({
     "Irregular": 0,
     "Satisfied": 0,
     "Class Problem": 0,
+    "Syllabus Problem": 0,
     "Notify Later": 0,
     "Others": 0,
   };
@@ -3248,11 +3249,15 @@ export default function CallManagement({
   );
 
   const tasksByBranchData = useMemo(() => {
-    const data: Record<string, { name: string; total: number }> = {};
+    const data: Record<string, { fullName: string; name: string; total: number }> = {};
     filteredDashboardTasks.forEach((t) => {
-      const branch = t.branch || "Unknown";
+      const branch = (t.branch || "Unknown").trim();
       if (!data[branch]) {
-        data[branch] = { name: branch, total: 0 };
+        const cleanName =
+          branch
+            .replace(/[\s\-_]*(?:Udvash[\s\-_]*Unmesh|Udvash|Unmesh)\b/gi, "")
+            .trim() || branch;
+        data[branch] = { fullName: branch, name: cleanName, total: 0 };
       }
       data[branch].total++;
     });
@@ -3702,7 +3707,7 @@ export default function CallManagement({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={feedbackDetailChartData}
-                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
+                      margin={{ top: 15, right: 15, left: 10, bottom: 55 }}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -3720,10 +3725,10 @@ export default function CallManagement({
                         height={60}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tick={{ fontSize: 11, fill: "#475569", fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
-                        width={35}
+                        width={45}
                       />
                       <Tooltip
                         contentStyle={{
@@ -3752,7 +3757,7 @@ export default function CallManagement({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={memberPerformanceData}
-                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
+                      margin={{ top: 15, right: 15, left: 10, bottom: 55 }}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -3770,10 +3775,10 @@ export default function CallManagement({
                         height={60}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tick={{ fontSize: 11, fill: "#475569", fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
-                        width={35}
+                        width={45}
                       />
                       <Tooltip
                         contentStyle={{
@@ -3817,7 +3822,7 @@ export default function CallManagement({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={tasksByBranchData}
-                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
+                      margin={{ top: 15, right: 15, left: 10, bottom: 55 }}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -3835,10 +3840,10 @@ export default function CallManagement({
                         height={60}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tick={{ fontSize: 11, fill: "#475569", fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
-                        width={35}
+                        width={45}
                       />
                       <Tooltip
                         contentStyle={{
@@ -3847,6 +3852,9 @@ export default function CallManagement({
                           boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                         }}
                         itemStyle={{ fontSize: "12px", fontWeight: "bold" }}
+                        labelFormatter={(_label, payload) => {
+                          return (payload && payload[0]?.payload?.fullName) || _label;
+                        }}
                       />
                       <Bar
                         dataKey="total"
@@ -3867,7 +3875,7 @@ export default function CallManagement({
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={tasksByCampusData}
-                      margin={{ top: 15, right: 15, left: -10, bottom: 55 }}
+                      margin={{ top: 15, right: 15, left: 10, bottom: 55 }}
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
@@ -3885,10 +3893,10 @@ export default function CallManagement({
                         height={60}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#64748b" }}
+                        tick={{ fontSize: 11, fill: "#475569", fontWeight: 600 }}
                         axisLine={false}
                         tickLine={false}
-                        width={35}
+                        width={45}
                       />
                       <Tooltip
                         contentStyle={{
@@ -4988,6 +4996,7 @@ export default function CallManagement({
                   <option value="Irregular">Irregular</option>
                   <option value="Satisfied">Satisfied</option>
                   <option value="Class Problem">Class Problem</option>
+                  <option value="Syllabus Problem">Syllabus Problem</option>
                   <option value="Notify Later">Notify Later</option>
                   <option value="Others">Others</option>
                 </select>
@@ -6455,7 +6464,7 @@ export default function CallManagement({
                       </label>
                       <select
                         value={
-                          ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"].includes(modalFormData.feedbackComment || "")
+                          ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Syllabus Problem", "Notify Later"].includes(modalFormData.feedbackComment || "")
                             ? modalFormData.feedbackComment
                             : "Others"
                         }
@@ -6464,7 +6473,7 @@ export default function CallManagement({
                           if (val === "Others") {
                             setModalFormData({
                               ...modalFormData,
-                              feedbackComment: ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"].includes(modalFormData.feedbackComment || "") ? "" : modalFormData.feedbackComment,
+                              feedbackComment: ["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Syllabus Problem", "Notify Later"].includes(modalFormData.feedbackComment || "") ? "" : modalFormData.feedbackComment,
                             });
                           } else {
                             setModalFormData({
@@ -6481,12 +6490,13 @@ export default function CallManagement({
                         <option value="Irregular">🟣 Irregular</option>
                         <option value="Satisfied">🟢 Satisfied</option>
                         <option value="Class Problem">🟠 Class Problem</option>
+                        <option value="Syllabus Problem">📘 Syllabus Problem</option>
                         <option value="Notify Later">🟡 Notify Later</option>
                         <option value="Others">✏️ Others (Custom Comment)</option>
                       </select>
                     </div>
 
-                    {(!["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Notify Later"].includes(modalFormData.feedbackComment || "")) && (
+                    {(!["N/R", "Off", "Busy", "Irregular", "Satisfied", "Class Problem", "Syllabus Problem", "Notify Later"].includes(modalFormData.feedbackComment || "")) && (
                       <div className="sm:col-span-2">
                         <label className="block text-[10px] font-black text-indigo-900 uppercase tracking-wider mb-1">
                           Feedback Comment (Others)
