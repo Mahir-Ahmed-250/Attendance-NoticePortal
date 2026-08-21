@@ -6422,6 +6422,7 @@ export default function CallManagement({
                     </div>
 
                     {(canUpload ||
+                      currentUser.role === "member" ||
                       (editingTask &&
                         getTaskAssignPermissions(
                           editingTask,
@@ -6450,9 +6451,18 @@ export default function CallManagement({
                                 : undefined,
                             });
                           }}
-                          className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer"
+                          disabled={currentUser.role === "member"}
+                          className="w-full bg-white border border-indigo-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 cursor-pointer disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200"
                         >
                           <option value="">Unassigned</option>
+                          {modalFormData.assignedToPin &&
+                            !getValidMembers([editingTask]).some(
+                              (m) => m.pin === modalFormData.assignedToPin,
+                            ) && (
+                              <option value={modalFormData.assignedToPin}>
+                                {modalFormData.assignedToName || modalFormData.assignedToPin} - PIN: {modalFormData.assignedToPin}
+                              </option>
+                            )}
                           {renderMemberOptions(getValidMembers([editingTask]))}
                         </select>
                       </div>
