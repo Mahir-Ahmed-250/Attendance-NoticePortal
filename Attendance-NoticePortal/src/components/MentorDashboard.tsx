@@ -2023,7 +2023,7 @@ export default function MentorDashboard({
                           <div className="bg-slate-50/70 border-b border-slate-150 p-5 flex flex-wrap items-center justify-between gap-3 text-sm">
                             <div className="flex items-center gap-2.5 font-semibold text-slate-700">
                               <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold border border-indigo-150 shadow-2xs">
-                                 {report.campus}
+                                {report.campus}
                               </span>
                               <span className="text-slate-300">|</span>
                               <span className="text-slate-500">

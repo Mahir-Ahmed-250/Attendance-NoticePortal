@@ -1,0 +1,105 @@
+            {/* Add Student Modal */}
+            <AnimatePresence>
+              {isAddStudentModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl my-auto"
+                  >
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Add Students</h3>
+                      <button onClick={() => setIsAddStudentModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+                        <X className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-6">
+                      {/* Manual Entry Section */}
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                        <h4 className="text-sm font-bold text-slate-800 mb-4">Manual Entry</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Full Name *</label>
+                            <input type="text" value={newStudentFormData.studentName || ''} onChange={e => setNewStudentFormData({...newStudentFormData, studentName: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Class *</label>
+                            <input type="text" value={newStudentFormData.className || ''} onChange={e => setNewStudentFormData({...newStudentFormData, className: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Reg No</label>
+                            <input type="text" value={newStudentFormData.registrationNo || ''} onChange={e => setNewStudentFormData({...newStudentFormData, registrationNo: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Nick Name</label>
+                            <input type="text" value={newStudentFormData.nickName || ''} onChange={e => setNewStudentFormData({...newStudentFormData, nickName: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Branch</label>
+                            <input type="text" value={newStudentFormData.branch || ''} onChange={e => setNewStudentFormData({...newStudentFormData, branch: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Student Mobile</label>
+                            <input type="text" value={newStudentFormData.mobilePersonal || ''} onChange={e => setNewStudentFormData({...newStudentFormData, mobilePersonal: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Father Mobile</label>
+                            <input type="text" value={newStudentFormData.mobileFather || ''} onChange={e => setNewStudentFormData({...newStudentFormData, mobileFather: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Mother Mobile</label>
+                            <input type="text" value={newStudentFormData.mobileMother || ''} onChange={e => setNewStudentFormData({...newStudentFormData, mobileMother: e.target.value})} className="w-full bg-white border border-slate-200 text-xs font-medium px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500" />
+                          </div>
+                        </div>
+                        <div className="mt-4 flex justify-end">
+                          <button onClick={handleAddStudent} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors shadow-md">
+                            Add Student
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative flex items-center py-2">
+                        <div className="flex-grow border-t border-slate-200"></div>
+                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-widest">OR</span>
+                        <div className="flex-grow border-t border-slate-200"></div>
+                      </div>
+
+                      {/* Excel Upload Section */}
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col sm:flex-row items-end gap-4">
+                        <div className="flex-grow w-full">
+                          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Class for Excel Upload *</label>
+                          <input 
+                            type="text" 
+                            list="class-options"
+                            value={selectedClassForUpload}
+                            onChange={(e) => setSelectedClassForUpload(e.target.value)}
+                            placeholder="Enter class name (Required for upload)"
+                            className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          />
+                        </div>
+                        <label className={`flex-shrink-0 flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md w-full sm:w-auto ${!selectedClassForUpload ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-indigo-200'}`}>
+                          <Upload className="w-4 h-4" />
+                          Upload Excel
+                          <input 
+                            type="file" 
+                            accept=".xlsx, .xls" 
+                            onChange={(e) => {
+                              if (!selectedClassForUpload) {
+                                alert('Please provide a class name for the upload first.');
+                                return;
+                              }
+                              handleFileUpload(e);
+                              setIsAddStudentModalOpen(false);
+                            }} 
+                            className="hidden" 
+                            disabled={!selectedClassForUpload}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>

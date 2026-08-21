@@ -1,0 +1,114 @@
+const API_BASE = '/api';
+
+async function request(path: string, options: RequestInit = {}, retries = 5) {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+
+    if (!res.ok) {
+      if (isJson) {
+        const error = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || `Request failed (${res.status})`);
+      } else {
+        throw new Error(`Server returned error status (${res.status})`);
+      }
+    }
+
+    if (!isJson) {
+      throw new Error('Expected JSON response from server');
+    }
+
+    return res.json();
+  } catch (err: any) {
+    if (retries > 0) {
+      const delay = 1000 + (Math.random() * 500);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return request(path, options, retries - 1);
+    }
+    throw err;
+  }
+}
+
+export const api = {
+  auth: {
+    login: (credentials: any) => request('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
+    forgotPassword: (pin: string) => request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ pin }) }),
+    verifyOtp: (data: { pin: string; otp: string }) => request('/auth/verify-otp', { method: 'POST', body: JSON.stringify(data) }),
+    resetPassword: (data: any) => request('/auth/reset-password', { method: 'POST', body: JSON.stringify(data) }),
+  },
+  users: {
+    getAll: () => request('/users'),
+    create: (data: any) => request('/users', { method: 'POST', body: JSON.stringify(data) }),
+    update: (pin: string, data: any) => request(`/users/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (pin: string) => request(`/users/${pin}`, { method: 'DELETE' }),
+  },
+  reports: {
+    getAll: () => request('/reports'),
+    create: (data: any) => request('/reports', { method: 'POST', body: JSON.stringify(data) }),
+    update: (pin: string, data: any) => request(`/reports/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (pin: string) => request(`/reports/${pin}`, { method: 'DELETE' }),
+  },
+  notices: {
+    getAll: () => request('/notices'),
+    create: (data: any) => request('/notices', { method: 'POST', body: JSON.stringify(data) }),
+    update: (pin: string, data: any) => request(`/notices/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (pin: string) => request(`/notices/${pin}`, { method: 'DELETE' }),
+  },
+  campuses: {
+    getAll: () => request('/campuses'),
+    create: (data: any) => request('/campuses', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: any) => request(`/campuses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/campuses/${id}`, { method: 'DELETE' }),
+  },
+  requests: {
+    profile: {
+      getAll: () => request('/requests/profile'),
+      create: (data: any) => request('/requests/profile', { method: 'POST', body: JSON.stringify(data) }),
+      update: (pin: string, data: any) => request(`/requests/profile/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+      delete: (pin: string) => request(`/requests/profile/${pin}`, { method: 'DELETE' }),
+    },
+    edit: {
+      getAll: () => request('/requests/edit'),
+      create: (data: any) => request('/requests/edit', { method: 'POST', body: JSON.stringify(data) }),
+      update: (pin: string, data: any) => request(`/requests/edit/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+      delete: (pin: string) => request(`/requests/edit/${pin}`, { method: 'DELETE' }),
+    },
+    leave: {
+      getAll: () => request('/requests/leave'),
+      create: (data: any) => request('/requests/leave', { method: 'POST', body: JSON.stringify(data) }),
+      update: (pin: string, data: any) => request(`/requests/leave/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+      delete: (pin: string) => request(`/requests/leave/${pin}`, { method: 'DELETE' }),
+    },
+  },
+  emails: {
+    getAll: () => request('/emails'),
+    create: (data: any) => request('/emails', { method: 'POST', body: JSON.stringify(data) }),
+    update: (pin: string, data: any) => request(`/emails/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (pin: string) => request(`/emails/${pin}`, { method: 'DELETE' }),
+  },
+  feedbacks: {
+    getAll: () => request('/feedbacks'),
+    create: (data: any) => request('/feedbacks', { method: 'POST', body: JSON.stringify(data) }),
+    update: (pin: string, data: any) => request(`/feedbacks/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (pin: string) => request(`/feedbacks/${pin}`, { method: 'DELETE' }),
+  },
+  branches: {
+    getAll: () => request('/branches'),
+    create: (data: any) => request('/branches', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: any) => request(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request(`/branches/${id}`, { method: 'DELETE' }),
+  },
+  logo: {
+    get: () => request('/logo'),
+  },
+  health: () => request('/health'),
+  seed: (data: any) => request('/seed', { method: 'POST', body: JSON.stringify(data) }),
+};

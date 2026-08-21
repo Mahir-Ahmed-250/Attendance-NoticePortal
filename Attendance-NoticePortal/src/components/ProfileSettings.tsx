@@ -1,0 +1,416 @@
+import React, { useState } from 'react';
+import { uploadImageToImgBB } from "../utils/imageUtils";
+import { User, ProfileRequest, Role } from '../types';
+import { ShieldCheck, Lock, UserCheck, Image as ImageIcon, Save, AlertCircle, Clock, Eye, EyeOff, Upload, Loader2 } from 'lucide-react';
+import { motion } from 'motion/react';
+
+interface ProfileSettingsProps {
+  currentUser: any;
+  userRole: Role;
+  profileRequests: ProfileRequest[];
+  onSubmitProfileRequest: (requestedName: string, requestedPin: string, requestedEmail?: string) => void | Promise<void>;
+  onInstantUpdate: (updatedFields: Partial<User>) => void | Promise<void>;
+}
+
+export default function ProfileSettings({
+  currentUser,
+  userRole,
+  profileRequests,
+  onSubmitProfileRequest,
+  onInstantUpdate
+}: ProfileSettingsProps) {
+  const [name, setName] = React.useState(currentUser.name || '');
+  const [pin, setPin] = React.useState(currentUser.pin || ''); // PIN corresponds to user.pin
+  const [email, setEmail] = React.useState(currentUser.email || '');
+  const [avatarUrl, setAvatarUrl] = React.useState(currentUser.avatarUrl || '');
+  const [password, setPassword] = React.useState('');
+  const [designation, setDesignation] = React.useState(currentUser.designation || '');
+  
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [message, setMessage] = React.useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+
+  const [isSavingInstant, setIsSavingInstant] = React.useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = React.useState(false);
+
+  React.useEffect(() => {
+    setName(currentUser.name || '');
+    setPin(currentUser.pin || '');
+    setEmail(currentUser.email || '');
+    setAvatarUrl(currentUser.avatarUrl || '');
+    setPassword('');
+    setDesignation(currentUser.designation || '');
+  }, [currentUser]);
+
+  // Find any active pending requests for this user
+  const pendingRequest = profileRequests.find(
+    r => r.userPin === currentUser.pin && r.status === 'Pending'
+  );
+
+  const handleInstantSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSavingInstant) return;
+    setMessage(null);
+    setIsSavingInstant(true);
+
+    // Update password, avatarUrl and designation (if manager)
+    const updatedFields: Partial<User> = {
+      avatarUrl: avatarUrl.trim()
+    };
+
+    if (password.trim()) {
+      updatedFields.password = password.trim();
+    }
+
+    if (userRole === 'manager') {
+      updatedFields.designation = designation.trim();
+    }
+
+    try {
+      await onInstantUpdate(updatedFields);
+      setPassword('');
+      setMessage({
+        type: 'success',
+        text: 'Password, profile picture, and other information updated successfully!'
+      });
+    } catch (err: any) {
+      setMessage({
+        type: 'error',
+        text: err?.message || 'Failed to update profile settings.'
+      });
+    } finally {
+      setIsSavingInstant(false);
+    }
+  };
+
+  const handleVerificationRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmittingRequest) return;
+    setMessage(null);
+
+    if (pendingRequest) {
+      setMessage({
+        type: 'error',
+        text: 'You already have a pending change request! You cannot send a new one until it is resolved.'
+      });
+      return;
+    }
+
+    const cleanName = name.trim();
+    const cleanPin = pin.trim();
+    const cleanEmail = email.trim();
+
+    if (!cleanName || !cleanPin || !cleanEmail) {
+      setMessage({
+        type: 'error',
+        text: 'Name, PIN, and Email cannot be empty.'
+      });
+      return;
+    }
+
+    if (cleanName === currentUser.name && cleanPin === currentUser.pin && cleanEmail === (currentUser.email || '')) {
+      setMessage({
+        type: 'info',
+        text: 'No changes made. Your name, PIN, and Email match the current information.'
+      });
+      return;
+    }
+
+    setIsSubmittingRequest(true);
+
+    try {
+      if (userRole === 'manager') {
+        await onInstantUpdate({ name: cleanName, pin: cleanPin, email: cleanEmail });
+        setMessage({
+          type: 'success',
+          text: 'Your name, PIN, and Email have been successfully updated!'
+        });
+      } else {
+        await onSubmitProfileRequest(cleanName, cleanPin, cleanEmail);
+        setMessage({
+          type: 'success',
+          text: 'The request to change your name, PIN, and Email has been successfully sent. It will be updated once the mentors verifies and submits it.'
+        });
+      }
+    } catch (err: any) {
+      setMessage({
+        type: 'error',
+        text: err?.message || 'Failed to update name, PIN, or Email.'
+      });
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header card */}
+      <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs text-left">
+        <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-indigo-600" />
+          Profile Settings & Security
+        </h2>
+        <p className="text-xs text-slate-500 font-medium mt-1">
+         
+        </p>
+
+        {message && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className={`mt-4 p-4 rounded-xl text-xs font-bold leading-relaxed flex items-start gap-2.5 ${
+              message.type === 'success' ? 'bg-emerald-50 border border-emerald-150 text-emerald-800' :
+              message.type === 'info' ? 'bg-indigo-50 border border-indigo-150 text-indigo-800' :
+              'bg-rose-50 border border-rose-150 text-rose-800'
+            }`}
+          >
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>{message.text}</div>
+          </motion.div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* Instant Changes Column (Password & Avatar) */}
+        <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs text-left flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
+              <Lock className="w-4.5 h-4.5 text-emerald-600" />
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider"> Change Your Password & Profile Image</h3>
+            </div>
+            <p className="text-xs text-slate-400 font-medium mb-5">
+           
+            </p>
+
+            <form onSubmit={handleInstantSave} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                New Password (Optional)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter new password"
+                    className="w-full pl-3 pr-10 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {userRole === 'manager' && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                   Designation
+                  </label>
+                  <input
+                    type="text"
+                    value={designation}
+                    onChange={(e) => setDesignation(e.target.value)}
+                    placeholder="Enter your designation"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                 Profile Image
+                </label>
+                
+                {/* Drag and Drop Zone */}
+                <div 
+                  className="border-2 border-dashed border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/10 rounded-2xl p-4 text-center cursor-pointer transition-all relative group mb-3"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) {
+                      try {
+                        const imgUrl = await uploadImageToImgBB(file);
+                        setAvatarUrl(imgUrl);
+                      } catch (err) {
+                        console.error("ImgBB upload failed:", err);
+                      }
+                    }
+                  }}
+                  onClick={() => document.getElementById('profile-image-upload')?.click()}
+                >
+                  <input
+                    id="profile-image-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        try {
+                          const imgUrl = await uploadImageToImgBB(file);
+                          setAvatarUrl(imgUrl);
+                        } catch (err) {
+                          console.error("ImgBB upload failed:", err);
+                        }
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <div className="flex flex-col items-center justify-center gap-1.5">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt="Preview"
+                        referrerPolicy="no-referrer"
+                        className="w-16 h-16 rounded-full border-2 border-indigo-100 object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:text-indigo-600 group-hover:bg-indigo-50 transition-colors">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                    )}
+                    <span className="text-[10px] font-extrabold text-slate-600 mt-1">
+                      {avatarUrl ? 'Click or drag to change photo' : 'Click or drag to upload photo'}
+                    </span>
+                    <span className="text-[9px] text-slate-400">Image up to 100KB (Auto-compressed to Base64)</span>
+                  </div>
+                </div>
+
+                {/* Manual URL input fallback */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-bold text-slate-400 font-mono shrink-0">OR URL:</span>
+                  <input
+                    type="url"
+                    value={avatarUrl.startsWith('data:') ? '' : avatarUrl}
+                    onChange={(e) => setAvatarUrl(e.target.value)}
+                    placeholder="Or provide a direct image link..."
+                    className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSavingInstant}
+                className="w-full mt-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-center gap-2 shadow-2xs active:scale-[0.99] disabled:cursor-not-allowed"
+              >
+                {isSavingInstant ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Saving Updates...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save Password & Photo</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Verification Needed Column (Name & PIN) */}
+        <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs text-left flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
+              <UserCheck className="w-4.5 h-4.5 text-indigo-600" />
+              <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">Correct Your Name, PIN or Email</h3>
+            </div>
+            <p className="text-xs text-slate-400 font-medium mb-5">
+             {userRole === 'manager' ? '' : 'Mentor Will Verify Your Name, PIN and Email Before Updating'}
+            </p>
+
+            {pendingRequest && (
+              <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs font-bold text-amber-800">
+                <div className="flex items-center gap-2 mb-1.5 text-amber-900">
+                  <Clock className="w-4 h-4 animate-spin shrink-0" />
+                 Awaiting Verification
+                </div>
+                <p className="font-medium text-slate-600">
+                 One Request is already pending for your name, PIN or Email change. Please wait for the mentor to verify
+                </p>
+                <div className="mt-2 pl-2 border-l-2 border-amber-400 space-y-1 text-[11px] font-mono">
+                  <p>Requested Name: {pendingRequest.requestedName}</p>
+                  <p>Requested PIN: {pendingRequest.requestedPin}</p>
+                  <p>Requested Email: {pendingRequest.requestedEmail || 'No Change'}</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleVerificationRequest} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  disabled={!!pendingRequest || isSubmittingRequest}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                  Pin
+                </label>
+                <input
+                  type="text"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  required
+                  disabled={!!pendingRequest || isSubmittingRequest}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1.5">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={!!pendingRequest || isSubmittingRequest}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans disabled:opacity-50"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmittingRequest || !!pendingRequest || (name.trim() === currentUser.name && pin.trim() === currentUser.pin && email.trim() === (currentUser.email || ''))}
+                className="w-full mt-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-center gap-2 shadow-2xs active:scale-[0.99] disabled:cursor-not-allowed"
+              >
+                {isSubmittingRequest ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Updating Server...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>{userRole === 'manager' ? 'Update' : 'Request For Review & Update'}</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}

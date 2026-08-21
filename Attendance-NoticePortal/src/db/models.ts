@@ -187,10 +187,7 @@ const CallTaskSchema = new mongoose.Schema({
   createdByPin: String,
   createdAt: { type: String, default: () => new Date().toISOString() },
   completedAt: String,
-  centralMerit: String,
-  meritPosition: String,
-  marks: String,
-}, { strict: false });
+});
 
 CallTaskSchema.index({ assignedToPin: 1 });
 CallTaskSchema.index({ campus: 1 });

@@ -103,9 +103,6 @@ const connectDB = async () => {
     throw e;
   }
 
-  // Cleanup any legacy call task notifications
-  await cleanupCallNotifications();
-
   // Seed initial data if database is empty
   await seedInitialData();
 
@@ -114,27 +111,6 @@ const connectDB = async () => {
   getEmailsCache().catch(() => {});
 
   return cached.conn;
-};
-
-const cleanupCallNotifications = async () => {
-  try {
-    const res = await Email.deleteMany({
-      $or: [
-        { fromName: "Call Management System" },
-        { fromName: { $regex: /Call Management/i } },
-        { subject: { $regex: /Call Task/i } },
-        { subject: { $regex: /live instruction task/i } },
-        { body: { $regex: /call task/i } },
-        { body: { $regex: /live instruction task/i } },
-        { body: { $regex: /Call Management dashboard/i } }
-      ]
-    });
-    if (res && res.deletedCount > 0) {
-      console.log(`[CLEANUP] Deleted ${res.deletedCount} legacy call task notification emails.`);
-    }
-  } catch (e) {
-    console.error("[CLEANUP] Failed to delete call task notification emails:", e);
-  }
 };
 
 const seedInitialData = async () => {
@@ -1393,11 +1369,7 @@ app.post("/api/campuses", async (req, res) => {
     isFetchingEmailsCache = true;
     try {
       const t0 = Date.now();
-      emailsCache = await Email.find({
-        fromName: { $ne: "Call Management System", $not: /Call Management/i },
-        subject: { $not: /(Call Task|live instruction task)/i },
-        body: { $not: /(call task|live instruction task|Call Management dashboard)/i }
-      }).sort({ date: -1 }).lean();
+      emailsCache = await Email.find().sort({ date: -1 }).lean();
       console.log(`[Cache] Loaded ${emailsCache.length} Emails in ${Date.now() - t0}ms`);
     } catch (err) {
       console.error("Failed to populate Emails cache:", err);
@@ -1742,6 +1714,24 @@ app.post("/api/campuses", async (req, res) => {
           });
           callTasksCache.unshift(...newlyInsertedMapped);
         }
+
+        // Notify assigned team members / mentors for imported tasks
+        const assignedCounts: { [pin: string]: number } = {};
+        const liveAssignedCounts: { [pin: string]: number } = {};
+        nonDuplicateTasks.forEach((t: any) => {
+          if (t.assignedToPin) {
+            assignedCounts[t.assignedToPin] = (assignedCounts[t.assignedToPin] || 0) + 1;
+          }
+          if (t.liveAssignedToPin && t.liveAssignedToPin !== t.assignedToPin) {
+            liveAssignedCounts[t.liveAssignedToPin] = (liveAssignedCounts[t.liveAssignedToPin] || 0) + 1;
+          }
+        });
+        for (const [pin, count] of Object.entries(assignedCounts)) {
+          await notifyTaskAssignment(pin, `${count} call task(s)`);
+        }
+        for (const [pin, count] of Object.entries(liveAssignedCounts)) {
+          await notifyTaskAssignment(pin, `${count} live instruction task(s)`);
+        }
       }
 
       res.json({
@@ -1756,6 +1746,33 @@ app.post("/api/campuses", async (req, res) => {
       res.status(500).json({ error: "Failed to import tasks", details: err.message });
     }
   });
+
+async function notifyTaskAssignment(memberPin: string, detailText: string) {
+  if (!memberPin) return;
+  try {
+    const cleanPin = String(memberPin).trim();
+    if (!cleanPin) return;
+    const targetUser = await User.findOne({
+      pin: { $regex: new RegExp(`^${cleanPin.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, "i") }
+    });
+    const toEmail = targetUser?.email || `${cleanPin}@portal.com`;
+    const recipientName = targetUser?.name || cleanPin;
+    const emailObj = new Email({
+      pin: "notif_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
+      toEmail: toEmail,
+      fromEmail: "system@portal.com",
+      fromName: "Call Management System",
+      subject: `New Call Task Assigned (${detailText})`,
+      body: `Hello ${recipientName},\n\nYou have been assigned new call task(s): ${detailText}.\n\nPlease check your Call Management dashboard.\n\nDate: ${new Date().toLocaleString()}`,
+      date: new Date().toISOString(),
+      isRead: false,
+      recipientPin: cleanPin
+    });
+    await emailObj.save();
+  } catch (err) {
+    console.error("Error creating assignment notification email:", err);
+  }
+}
 
   app.put("/api/call-tasks/assign", async (req, res) => {
     try {
@@ -1836,6 +1853,19 @@ app.post("/api/campuses", async (req, res) => {
 
       refreshCacheForTasks(taskIds);
 
+      // Notify members
+      const uniquePins = new Set<string>();
+      if (Array.isArray(memberPins) && memberPins.length > 0) {
+        memberPins.forEach(m => uniquePins.add(m.pin));
+      } else {
+        if (assignedToPin) uniquePins.add(assignedToPin);
+        if (liveAssignedToPin) uniquePins.add(liveAssignedToPin);
+      }
+
+      for (const pin of uniquePins) {
+        await notifyTaskAssignment(pin, `new call tasks assigned via range/bulk`);
+      }
+
       res.json({ message: "Tasks assigned successfully", updatedCount: bulkOps.length });
     } catch (err) {
       console.error("Assignment error:", err);
@@ -1885,6 +1915,14 @@ app.post("/api/campuses", async (req, res) => {
         { new: true }
       );
       refreshCacheForTasks([req.params.id]);
+      if (task) {
+        if (req.body.assignedToPin) {
+          await notifyTaskAssignment(req.body.assignedToPin, `1 call task (${task.studentName || task.id})`);
+        }
+        if (req.body.liveAssignedToPin && req.body.liveAssignedToPin !== req.body.assignedToPin) {
+          await notifyTaskAssignment(req.body.liveAssignedToPin, `1 live instruction task (${task.studentName || task.id})`);
+        }
+      }
       res.json(task);
     } catch (err) {
       res.status(500).json({ error: "Failed to update task" });
@@ -2085,8 +2123,7 @@ app.post("/api/campuses", async (req, res) => {
           motherName: st.motherName || '',
           className: st.className || '',
           marks: st.marks || st.totalMarks || st.totalObtainedMarks || '',
-          centralMerit: st.centralMerit || st.meritPosition || st.branchMerit || '',
-          meritPosition: st.meritPosition || st.centralMerit || st.branchMerit || st.sl || '',
+          meritPosition: st.meritPosition || st.branchMerit || st.centralMerit || st.sl || '',
           existsInCallList: exists
         };
       });

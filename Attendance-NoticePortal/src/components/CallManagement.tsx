@@ -997,54 +997,6 @@ export default function CallManagement({
               getValue(row, ["mother name", "mothers name"]) || "",
             ),
             className: selectedClassForUpload,
-            centralMerit: String(
-              getValue(row, [
-                "central merit",
-                "centralmerit",
-                "central merit pos",
-                "central merit position",
-                "central merit rank",
-                "central rank",
-                "centralmeritlist",
-                "merit position",
-                "merit rank",
-                "merit pos",
-                "merit",
-                "branch merit",
-                "branchmerit",
-                "rank",
-              ]) || "",
-            ).trim(),
-            meritPosition: String(
-              getValue(row, [
-                "central merit",
-                "centralmerit",
-                "central merit pos",
-                "central merit position",
-                "central merit rank",
-                "central rank",
-                "centralmeritlist",
-                "merit position",
-                "merit rank",
-                "merit pos",
-                "merit",
-                "branch merit",
-                "branchmerit",
-                "rank",
-              ]) || "",
-            ).trim(),
-            marks: String(
-              getValue(row, [
-                "marks",
-                "score",
-                "total marks",
-                "totalmarks",
-                "total obtained marks",
-                "obtained marks",
-                "mcq marks",
-                "written marks",
-              ]) || "",
-            ).trim(),
             liveInstructionStatus: "Pending",
             feedbackStatus: "Pending",
             createdByPin: currentUser.pin,
@@ -1466,32 +1418,13 @@ export default function CallManagement({
               "mcqmark",
               "writtenmark",
             ]),
-            centralMerit: getValue([
-              "centralmerit",
-              "centralmeritpos",
-              "centralmeritposition",
-              "centralmeritrank",
-              "centralrank",
-              "centralmeritlist",
-              "meritposition",
-              "meritrank",
-              "meritpos",
-              "rank",
-              "branchmerit",
-              "merit",
-            ]),
             meritPosition: getValue([
-              "centralmerit",
-              "centralmeritpos",
-              "centralmeritposition",
-              "centralmeritrank",
-              "centralrank",
-              "centralmeritlist",
               "meritposition",
               "meritrank",
               "meritpos",
               "rank",
               "branchmerit",
+              "centralmerit",
               "merit",
             ]),
             liveInstructionStatus: "Pending",
@@ -1609,8 +1542,7 @@ export default function CallManagement({
           motherName: st.motherName || "",
           className: meritTargetClass || st.className || "Default",
           marks: st.marks || "",
-          centralMerit: st.centralMerit || st.meritPosition || "",
-          meritPosition: st.meritPosition || st.centralMerit || "",
+          meritPosition: st.meritPosition || "",
           assignedToPin: assignedMember ? assignedMember.pin : undefined,
           assignedToName: assignedMember ? assignedMember.name : undefined,
           liveInstructionStatus: "Pending",
@@ -2241,14 +2173,10 @@ export default function CallManagement({
           }
         }
 
-        const q = searchQuery.toLowerCase().trim();
         const matchesSearch =
-          !q ||
-          task.studentName?.toLowerCase().includes(q) ||
-          task.registrationNo.toLowerCase().includes(q) ||
-          task.mobilePersonal.includes(q) ||
-          (task.centralMerit && String(task.centralMerit).toLowerCase().includes(q)) ||
-          (task.meritPosition && String(task.meritPosition).toLowerCase().includes(q));
+          task.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          task.registrationNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          task.mobilePersonal.includes(searchQuery);
 
         const isOnline = isOnlineTask(task);
 
@@ -2428,7 +2356,6 @@ export default function CallManagement({
         "Nick Name": t.nickName || "",
         "Reg No": t.registrationNo || "",
         "Roll No": t.rollNo || (t as any).roll || "",
-        "Central Merit": t.centralMerit || t.meritPosition || "",
         "Personal Contact": t.mobilePersonal || "",
         "Father Contact": t.mobileFather || "",
         "Mother Contact": t.mobileMother || "",
@@ -4137,37 +4064,6 @@ export default function CallManagement({
                             </div>
                           </div>
                         </div>
-
-                        {/* Feedback Status & Date Section */}
-                        <div className="sm:col-span-2 pt-2 border-t border-indigo-100/60 mt-1">
-                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                            Feedback Information
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 bg-white/80 p-3 rounded-xl border border-indigo-100/80 shadow-xs">
-                            <div>
-                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                Feedback Status
-                              </div>
-                              <div className="mt-0.5">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                  liveFoundTask.feedbackStatus === "Completed"
-                                    ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                                    : "bg-amber-100 text-amber-800 border border-amber-200"
-                                }`}>
-                                  {liveFoundTask.feedbackStatus || "Pending"}
-                                </span>
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                Feedback Date
-                              </div>
-                              <div className="text-xs font-bold text-slate-700 mt-1">
-                                {liveFoundTask.feedbackSubmitDate || liveFoundTask.completedAt || "Not Submitted"}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -5218,9 +5114,7 @@ export default function CallManagement({
                     <th className="p-4 text-center">Full Name</th>
                     <th className="p-4 text-center">Nick Name</th>
                     <th className="p-4 text-center">Contact</th>
-                    <th className="p-4 text-center">Branch</th>
-                    <th className="p-4 text-center">Class</th>
-                    <th className="p-4 text-center">Central Merit</th>
+                    <th className="p-4 text-center">Branch/Class</th>
                     <th className="p-4 text-center">Campus</th>
                     <th className="p-4 text-center">Live Instruction Status</th>
                     <th className="p-4 text-center">Live Instruction Date</th>
@@ -5243,8 +5137,8 @@ export default function CallManagement({
                           (activeSubTab === "management" ||
                             activeSubTab === "my-tasks") &&
                           currentUser.role !== "member"
-                            ? 20
-                            : 19
+                            ? 18
+                            : 17
                         }
                         className="p-16 text-center"
                       >
@@ -5273,8 +5167,8 @@ export default function CallManagement({
                           (activeSubTab === "management" ||
                             activeSubTab === "my-tasks") &&
                           currentUser.role !== "member"
-                            ? 20
-                            : 19
+                            ? 18
+                            : 17
                         }
                         className="p-8 text-center text-slate-400 font-medium italic"
                       >
@@ -5405,22 +5299,11 @@ export default function CallManagement({
                         </td>
                         <td className="p-4">
                           <div className="font-bold text-slate-700">
-                            {task.branch || "-"}
+                            {task.branch}
                           </div>
-                        </td>
-                        <td className="p-4 text-center">
-                          <div className="font-bold text-indigo-600 bg-indigo-50/60 border border-indigo-100/80 px-2.5 py-1 rounded-lg inline-block text-[11px] whitespace-nowrap">
-                            {task.className || "-"}
+                          <div className="text-[10px] font-black text-indigo-500 uppercase mt-0.5">
+                            {task.className}
                           </div>
-                        </td>
-                        <td className="p-4 text-center">
-                          {task.centralMerit || task.meritPosition ? (
-                            <div className="font-mono font-bold text-amber-800 bg-amber-50/80 border border-amber-200/80 px-2.5 py-1 rounded-lg inline-block text-[11px] select-text">
-                              {task.centralMerit || task.meritPosition}
-                            </div>
-                          ) : (
-                            <span className="text-slate-300 font-bold">—</span>
-                          )}
                         </td>
                         <td className="p-4 text-center">
                           <div className="font-extrabold text-indigo-600 bg-indigo-50/50 px-2 py-1 rounded-md border border-indigo-100 inline-block text-[11px] whitespace-nowrap">
@@ -6589,25 +6472,6 @@ export default function CallManagement({
                     </div>
                     <div>
                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Central Merit
-                      </label>
-                      <input
-                        type="text"
-                        value={modalFormData.centralMerit || modalFormData.meritPosition || ""}
-                        onChange={(e) =>
-                          setModalFormData({
-                            ...modalFormData,
-                            centralMerit: e.target.value,
-                            meritPosition: e.target.value,
-                          })
-                        }
-                        disabled={!canUpload}
-                        placeholder="e.g. 1024"
-                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
                         Gender
                       </label>
                       <input
@@ -6617,40 +6481,6 @@ export default function CallManagement({
                           setModalFormData({
                             ...modalFormData,
                             gender: e.target.value,
-                          })
-                        }
-                        disabled={!canUpload}
-                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Branch
-                      </label>
-                      <input
-                        type="text"
-                        value={modalFormData.branch || ""}
-                        onChange={(e) =>
-                          setModalFormData({
-                            ...modalFormData,
-                            branch: e.target.value,
-                          })
-                        }
-                        disabled={!canUpload}
-                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                        Class Name
-                      </label>
-                      <input
-                        type="text"
-                        value={modalFormData.className || ""}
-                        onChange={(e) =>
-                          setModalFormData({
-                            ...modalFormData,
-                            className: e.target.value,
                           })
                         }
                         disabled={!canUpload}
@@ -6696,6 +6526,23 @@ export default function CallManagement({
                           setModalFormData({
                             ...modalFormData,
                             mobilePersonal: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Branch
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.branch || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            branch: e.target.value,
                           })
                         }
                         disabled={!canUpload}
@@ -6786,6 +6633,40 @@ export default function CallManagement({
                           setModalFormData({
                             ...modalFormData,
                             mobileMother: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Branch
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.branch || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            branch: e.target.value,
+                          })
+                        }
+                        disabled={!canUpload}
+                        className="w-full bg-white border border-slate-200 text-xs font-bold px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                        Class Name
+                      </label>
+                      <input
+                        type="text"
+                        value={modalFormData.className || ""}
+                        onChange={(e) =>
+                          setModalFormData({
+                            ...modalFormData,
+                            className: e.target.value,
                           })
                         }
                         disabled={!canUpload}
@@ -8164,7 +8045,6 @@ export default function CallManagement({
                           <th className="p-2.5">SL</th>
                           <th className="p-2.5">Reg No</th>
                           <th className="p-2.5">Student Name</th>
-                          <th className="p-2.5">Central Merit</th>
                           <th className="p-2.5">Branch</th>
                           <th className="p-2.5">Mobile</th>
                         </tr>
@@ -8180,9 +8060,6 @@ export default function CallManagement({
                             </td>
                             <td className="p-2.5 font-bold text-slate-800">
                               {st.studentName || "—"}
-                            </td>
-                            <td className="p-2.5 font-bold text-amber-700 font-mono">
-                              {st.centralMerit || st.meritPosition || "—"}
                             </td>
                             <td className="p-2.5 font-medium text-slate-600">
                               {st.branch || "—"}
@@ -8588,7 +8465,7 @@ export default function CallManagement({
                                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                   />
                                 </th>
-                                <th className="p-2.5 whitespace-nowrap">SL / Central Merit</th>
+                                <th className="p-2.5 whitespace-nowrap">SL / Rank</th>
                                 <th className="p-2.5 whitespace-nowrap">Reg Number</th>
                                 <th className="p-2.5 whitespace-nowrap">Roll Number</th>
                                 <th className="p-2.5 whitespace-nowrap">FULL NAME</th>
@@ -8635,7 +8512,7 @@ export default function CallManagement({
                                       />
                                     </td>
                                     <td className="p-2.5 font-bold text-slate-700 whitespace-nowrap">
-                                      {st.centralMerit || st.meritPosition || st.sl || i + 1}
+                                      {st.sl || st.meritPosition || i + 1}
                                     </td>
                                     <td className="p-2.5 font-mono font-bold text-indigo-600 select-text cursor-text whitespace-nowrap">
                                       {reg || "—"}
