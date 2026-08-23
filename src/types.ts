@@ -234,4 +234,5 @@ export interface CallTask {
   motherName?: string;
   marks?: string;
   meritPosition?: string;
+  centralMerit?: string;
 }
