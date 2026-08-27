@@ -55,6 +55,7 @@ import NoticeBoard from "./NoticeBoard";
 import CallManagement from "./CallManagement";
 import ClockInput from "./ClockInput";
 import * as XLSX from "xlsx";
+import { exportJsonToCsvFile } from "../utils/csvExport";
 
 interface MemberDashboardProps {
   currentMember: TeamMember;
@@ -1041,7 +1042,6 @@ export default function MemberDashboard({
                       />
                       <button
                         onClick={() => {
-                          const wb = XLSX.utils.book_new();
                           // Export member's own records
                           const recordsToExport = myAttendanceRecords.map(
                             (rec) => ({
@@ -1057,17 +1057,20 @@ export default function MemberDashboard({
                             }),
                           );
 
-                          const ws = XLSX.utils.json_to_sheet(recordsToExport);
-                          XLSX.utils.book_append_sheet(wb, ws, "My Attendance");
-                          XLSX.writeFile(
-                            wb,
-                            `my_attendance_${filterMonth || "all"}.xlsx`,
+                          if (recordsToExport.length === 0) {
+                            return;
+                          }
+
+                          exportJsonToCsvFile(
+                            recordsToExport,
+                            `my_attendance_${filterMonth || "all"}.csv`,
                           );
                         }}
                         className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        title="Export attendance records to CSV"
                       >
                         <Download className="w-4 h-4" />
-                        Export
+                        Export (CSV)
                       </button>
                       <span className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 px-3.5 py-1.5 rounded-full font-bold shadow-2xs">
                         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />

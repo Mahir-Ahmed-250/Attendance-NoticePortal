@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { exportJsonToCsvFile } from "../utils/csvExport";
 import {
   Mentor,
   TeamMember,
@@ -1958,14 +1959,13 @@ export default function MentorDashboard({
 
                       <button
                         onClick={() => {
-                          const groupedByDate = reportsWithMyTeam.reduce(
-                            (acc, report) => {
-                              const date = report.date;
-                              if (!acc[date]) acc[date] = [];
+                          const recordsToExport: any[] = [];
 
-                              const reportRecords = report.records
-                                .filter((r) => myTeamPins.includes(r.memberPin))
-                                .map((r) => ({
+                          reportsWithMyTeam.forEach((report) => {
+                            report.records
+                              .filter((r) => myTeamPins.includes(r.memberPin))
+                              .forEach((r) => {
+                                recordsToExport.push({
                                   Date: report.date,
                                   Campus: report.campus,
                                   PIN: r.memberPin,
@@ -1975,30 +1975,32 @@ export default function MentorDashboard({
                                   "Check Out": r.checkOutTime || "-",
                                   Remarks: r.remarks || "-",
                                   Notes: r.notes || "-",
-                                }));
+                                });
+                              });
+                          });
 
-                              acc[date].push(...reportRecords);
-                              return acc;
-                            },
-                            {} as Record<string, any[]>,
-                          );
+                          recordsToExport.sort((a, b) => {
+                            const dateCmp = String(a.Date).localeCompare(String(b.Date));
+                            if (dateCmp !== 0) return dateCmp;
+                            return String(a.PIN).localeCompare(String(b.PIN), undefined, {
+                              numeric: true,
+                              sensitivity: "base",
+                            });
+                          });
 
-                          const wb = XLSX.utils.book_new();
-                          Object.entries(groupedByDate).forEach(
-                            ([date, records]) => {
-                              const ws = XLSX.utils.json_to_sheet(records);
-                              XLSX.utils.book_append_sheet(wb, ws, date);
-                            },
-                          );
+                          if (recordsToExport.length === 0) {
+                            return;
+                          }
 
-                          XLSX.writeFile(
-                            wb,
-                            `attendance_${filterDate ? filterDate.substring(0, 7) : "all"}.xlsx`,
+                          exportJsonToCsvFile(
+                            recordsToExport,
+                            `attendance_${filterDate ? filterDate.substring(0, 7) : "all"}.csv`,
                           );
                         }}
                         className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                        title="Download attendance as CSV"
                       >
-                        Download Excel
+                        Download CSV
                       </button>
                     </div>
                   </div>

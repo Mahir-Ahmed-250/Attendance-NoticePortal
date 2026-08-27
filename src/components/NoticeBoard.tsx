@@ -733,7 +733,7 @@ export default function NoticeBoard({ notices, onAddNotice, onDeleteNoticeReques
                     </div>
                     <div>
                       <p className="font-extrabold text-slate-800">Published By {viewingNotice.postedBy?.name || 'Unknown'}</p>
-                      <p className="text-[10px] text-slate-400 uppercase font-black tracking-wider mt-0.5">{viewingNotice.postedBy?.role || 'Unknown'}</p>
+                      {/* <p className="text-[10px] text-slate-400 uppercase font-black tracking-wider mt-0.5">{viewingNotice.postedBy?.role || 'Unknown'}</p> */}
                     </div>
                   </div>
 

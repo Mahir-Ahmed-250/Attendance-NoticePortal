@@ -88,6 +88,7 @@ import { api } from "../lib/api";
 import toast from "react-hot-toast";
 import { UserAvatar } from "./UserAvatar";
 import * as XLSX from "xlsx";
+import { exportJsonToCsvFile, arrayToCsv, downloadCsv } from "../utils/csvExport";
 import ClockInput from "./ClockInput";
 import {
   AreaChart,
@@ -724,26 +725,19 @@ export default function ManagerDashboard({
     ];
 
     const rows = attendanceTrendsData.memberAvgList.map((m) => [
-      `"${m.pin}"`,
-      `"${m.name.replace(/"/g, '""')}"`,
-      `"${(m.designation || 'Member').replace(/"/g, '""')}"`,
-      `"${(m.campus || 'N/A').replace(/"/g, '""')}"`,
-      `"${trendsMonth}"`,
+      m.pin,
+      m.name,
+      m.designation || 'Member',
+      m.campus || 'N/A',
+      trendsMonth,
       m.presentDays,
       m.workDaysLogged,
       m.totalHours.toFixed(2),
       m.avgHours.toFixed(2)
     ]);
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Member_Average_Working_Hours_${trendsMonth}_${trendsCampus}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const csvContent = arrayToCsv(headers, rows);
+    downloadCsv(csvContent, `Member_Average_Working_Hours_${trendsMonth}_${trendsCampus}.csv`);
     toast.success("Exported team members average working hours successfully!");
   };
 
@@ -4611,7 +4605,6 @@ export default function ManagerDashboard({
                   <button
                     onClick={() => {
                       const monthPrefix = attendanceViewerDate.substring(0, 7);
-                      const wb = XLSX.utils.book_new();
                       const filtered = reports.filter(
                         (r) =>
                           r.date.startsWith(monthPrefix) &&
@@ -4619,75 +4612,64 @@ export default function ManagerDashboard({
                             r.campus === attendanceViewerCampus),
                       );
 
-                      const groupedByDate = filtered.reduce(
-                        (acc, report) => {
-                          if (!acc[report.date]) acc[report.date] = [];
+                      const recordsToExport: any[] = [];
 
-                          report.records.forEach((rec) => {
-                            const member = [...members, ...mentors].find(
-                              (m) => m.pin === rec.memberPin,
-                            );
-                            const displayStatus = getEffectiveStatus(rec);
-
-                            if (attendanceViewerStatus !== "All") {
-                              if (displayStatus !== attendanceViewerStatus)
-                                return;
-                            }
-
-                            if (
-                              attendanceViewerPinSearch !== "" &&
-                              !rec.memberPin.includes(attendanceViewerPinSearch)
-                            )
-                              return;
-
-                            acc[report.date].push({
-                              Campus: report.campus,
-                              PIN: rec.memberPin,
-                              Name: rec.memberName || member?.name || "Unknown",
-                              Status: displayStatus,
-                              "In Time": rec.checkInTime || "-",
-                              "Out Time": rec.checkOutTime || "-",
-                              Notes: rec.notes || "-",
-                            });
-                          });
-                          return acc;
-                        },
-                        {} as Record<string, any[]>,
-                      );
-
-                      Object.keys(groupedByDate)
-                        .sort()
-                        .forEach((date) => {
-                          const records = groupedByDate[date];
-                          records.sort((a, b) =>
-                            String(a.PIN).localeCompare(
-                              String(b.PIN),
-                              undefined,
-                              { numeric: true, sensitivity: "base" },
-                            ),
+                      filtered.forEach((report) => {
+                        report.records.forEach((rec) => {
+                          const member = [...members, ...mentors].find(
+                            (m) => m.pin === rec.memberPin,
                           );
-                          const ws = XLSX.utils.json_to_sheet(records);
-                          XLSX.utils.book_append_sheet(wb, ws, date);
-                        });
+                          const displayStatus = getEffectiveStatus(rec);
 
-                      if (Object.keys(groupedByDate).length === 0) {
-                        const ws = XLSX.utils.json_to_sheet([
-                          {
-                            Message: "No attendance data found for this month",
-                          },
-                        ]);
-                        XLSX.utils.book_append_sheet(wb, ws, "No Data");
+                          if (attendanceViewerStatus !== "All") {
+                            if (displayStatus !== attendanceViewerStatus)
+                              return;
+                          }
+
+                          if (
+                            attendanceViewerPinSearch !== "" &&
+                            !rec.memberPin.includes(attendanceViewerPinSearch)
+                          )
+                            return;
+
+                          recordsToExport.push({
+                            Date: report.date,
+                            Campus: report.campus,
+                            PIN: rec.memberPin,
+                            Name: rec.memberName || member?.name || "Unknown",
+                            Status: displayStatus,
+                            "In Time": rec.checkInTime || "-",
+                            "Out Time": rec.checkOutTime || "-",
+                            Notes: rec.notes || "-",
+                          });
+                        });
+                      });
+
+                      recordsToExport.sort((a, b) => {
+                        const dateCmp = String(a.Date).localeCompare(String(b.Date));
+                        if (dateCmp !== 0) return dateCmp;
+                        return String(a.PIN).localeCompare(String(b.PIN), undefined, {
+                          numeric: true,
+                          sensitivity: "base",
+                        });
+                      });
+
+                      if (recordsToExport.length === 0) {
+                        toast.error("No attendance data found to export!");
+                        return;
                       }
 
-                      XLSX.writeFile(
-                        wb,
-                        `attendance_${monthPrefix}_${attendanceViewerCampus}.xlsx`,
+                      exportJsonToCsvFile(
+                        recordsToExport,
+                        `attendance_${monthPrefix}_${attendanceViewerCampus}.csv`,
                       );
+                      toast.success("Attendance report exported to CSV successfully!");
                     }}
                     className="px-6 py-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer shadow-sm hover:shadow-md transition-all flex items-center gap-2 border border-indigo-200/50 whitespace-nowrap"
+                    title="Export attendance report to CSV"
                   >
                     <Download className="w-4 h-4" />
-                    Export
+                    Export (CSV)
                   </button>
                   <button
                     onClick={() =>

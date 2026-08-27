@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Calendar, Clock, MapPin, User as UserIcon, Sparkles, CheckCircle2, AlertCircle, HelpCircle, Download } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import { exportJsonToCsvFile } from '../utils/csvExport';
 import { AttendanceReport, TeamMember, Mentor } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { getEffectiveStatus, getRecordWorkingMinutes } from '../utils';
@@ -275,7 +276,6 @@ export default function TeamMemberAttendanceViewer({ reports, members, mentors }
             </button>
             <button
               onClick={() => {
-                const wb = XLSX.utils.book_new();
                 const dataToExport = dateRange.map((dateStr) => {
                   const dayReports = reports.filter(r => r.date === dateStr);
                   let memberRecord: any = null;
@@ -342,15 +342,17 @@ export default function TeamMemberAttendanceViewer({ reports, members, mentors }
                   }
                 });
 
-                const ws = XLSX.utils.json_to_sheet(dataToExport);
-                XLSX.utils.book_append_sheet(wb, ws, "Attendance Report");
-                XLSX.writeFile(wb, `attendance_report_${targetUser.name.replace(/\s+/g, '_')}_${pin}.xlsx`);
-                toast.success("Excel sheet exported successfully!");
+                exportJsonToCsvFile(
+                  dataToExport,
+                  `attendance_report_${targetUser.name.replace(/\s+/g, '_')}_${pin}.csv`
+                );
+                toast.success("Attendance sheet exported to CSV successfully!");
               }}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-[#107c41] hover:bg-[#0b5930] text-white font-bold rounded-lg cursor-pointer transition-colors shadow-2xs"
+              title="Download attendance report as CSV"
             >
               <Download className="w-4 h-4" />
-              Download Excel
+              Download CSV
             </button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
+import { exportJsonToCsvFile } from "../utils/csvExport";
 import { optimizeImage, optimizeBase64, uploadImageToImgBB } from "../utils/imageUtils";
 import CameraModal from "./CameraModal";
 import { motion, AnimatePresence } from "motion/react";
@@ -2439,13 +2440,9 @@ export default function CallManagement({
         "Feedback Comment": t.feedbackComment || "",
       }));
 
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Call Tasks");
-
-      const fileName = `Call_Tasks_${getTodayLocalDate()}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
-      toast.success(`Exported ${filteredTasks.length} student call tasks to Excel!`);
+      const fileName = `Call_Tasks_${getTodayLocalDate()}.csv`;
+      exportJsonToCsvFile(exportData, fileName);
+      toast.success(`Exported ${filteredTasks.length} student call tasks to CSV!`);
     } catch (err) {
       console.error("Export error:", err);
       toast.error("An error occurred while exporting");
@@ -5108,7 +5105,7 @@ export default function CallManagement({
                       onClick={handleExportToExcel}
                       disabled={isExporting}
                       className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-xs shadow-emerald-200 whitespace-nowrap cursor-pointer"
-                      title="Export filtered call tasks to Excel"
+                      title="Export filtered call tasks to CSV"
                     >
                       {isExporting ? (
                         <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
