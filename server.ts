@@ -722,8 +722,11 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
   // 2. Fallback to Nodemailer SMTP
   try {
     let transporter;
-    if (process.env.SMTP_USER && process.env.SMTP_PASS && !process.env.SMTP_USER.includes('your_email')) {
-      const isGmail = process.env.SMTP_USER.toLowerCase().endsWith('@gmail.com');
+    const smtpUser = (process.env.SMTP_USER && !process.env.SMTP_USER.includes('your_email')) ? process.env.SMTP_USER : 'examinerid@gmail.com';
+    const smtpPass = (process.env.SMTP_PASS && !process.env.SMTP_PASS.includes('your_pass')) ? process.env.SMTP_PASS : 'rpcr dlqw gbof oyjj';
+
+    if (smtpUser && smtpPass) {
+      const isGmail = smtpUser.toLowerCase().endsWith('@gmail.com');
       
       if (process.env.SMTP_HOST) {
         console.log(`[EMAIL] Using custom SMTP Host settings from environment to send OTP.`);
@@ -732,17 +735,17 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
           port: parseInt(process.env.SMTP_PORT || '587'),
           secure: process.env.SMTP_SECURE === 'true',
           auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
+            user: smtpUser,
+            pass: smtpPass,
           }
         });
       } else if (isGmail) {
-        console.log(`[EMAIL] Auto-configuring Gmail SMTP service using SMTP_USER and SMTP_PASS.`);
+        console.log(`[EMAIL] Auto-configuring Gmail SMTP service using SMTP user ${smtpUser}.`);
         transporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
+            user: smtpUser,
+            pass: smtpPass,
           }
         });
       }
@@ -750,7 +753,7 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
 
     if (transporter) {
       const mailOptions = {
-        from: process.env.SMTP_FROM || '"Exam Scripts Management" <noreply@portal.com>',
+        from: process.env.SMTP_FROM || `"Exam Scripts Management" <${smtpUser}>`,
         to: toEmail,
         subject: 'Password Reset OTP - Exam Scripts Management',
         text: emailText,
