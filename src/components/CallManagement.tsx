@@ -546,8 +546,52 @@ export default function CallManagement({
     if (currentUser.role === "member") {
       return [{ pin: currentUser.pin, name: currentUser.name }];
     }
-    return allFilterMembers;
-  }, [currentUser, allFilterMembers]);
+    const baseTasks = tasks.filter(t => {
+      const matchesClass = classFilter === "all" || t.className === classFilter;
+      const matchesCampus =
+        campusFilter === "all" ||
+        (campusFilter === "unassigned"
+          ? !t.campus || t.campus.trim() === ""
+          : t.campus === campusFilter);
+      return matchesCampus && matchesClass;
+    });
+
+    const map = new Map<string, { pin: string; name: string }>();
+    [...members, ...mentors].forEach((m) => {
+      if (m.pin && m.name) {
+        if (classFilter !== "all" || assignFilter === "Assigned") {
+          const hasFeedbackTask = baseTasks.some(t => t.assignedToPin === m.pin);
+          if (hasFeedbackTask) {
+            map.set(m.pin, { pin: m.pin, name: m.name });
+          }
+        } else {
+          // If no specific class or filter is active, only include members who have at least one feedback assignment across tasks
+          const hasFeedbackTask = tasks.some(t => t.assignedToPin === m.pin);
+          if (hasFeedbackTask) {
+            map.set(m.pin, { pin: m.pin, name: m.name });
+          }
+        }
+      }
+    });
+
+    if (map.size === 0) {
+      [...members, ...mentors].forEach((m) => {
+        if (m.pin && m.name) {
+          map.set(m.pin, { pin: m.pin, name: m.name });
+        }
+      });
+    }
+
+    baseTasks.forEach((t) => {
+      if (t.assignedToPin && t.assignedToName) {
+        if (!map.has(t.assignedToPin)) {
+          map.set(t.assignedToPin, { pin: t.assignedToPin, name: t.assignedToName });
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [currentUser, members, mentors, tasks, classFilter, assignFilter, campusFilter]);
 
   const assignableMembers = useMemo(() => {
     let list = [...members];
