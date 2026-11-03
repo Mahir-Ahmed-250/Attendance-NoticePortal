@@ -182,6 +182,7 @@ const CallTaskSchema = new mongoose.Schema({
   liveInstructionImage: String,
   liveInstructionLink: String,
   isLiveInstructorTeacher: Boolean,
+  liveInstructionTime: String,
   liveInstructionSubmitDate: String,
   feedbackSubmitDate: String,
   createdByPin: String,

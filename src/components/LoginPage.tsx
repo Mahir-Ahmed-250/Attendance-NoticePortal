@@ -240,17 +240,6 @@ export default function LoginPage({ onLoginSuccess, logo }: LoginPageProps) {
                   <label htmlFor="password" className="block text-sm font-semibold text-slate-700">
                     Password
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setView('forgot');
-                      setError('');
-                      setInfoMessage('');
-                    }}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
-                  >
-                    Forgot Password?
-                  </button>
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">

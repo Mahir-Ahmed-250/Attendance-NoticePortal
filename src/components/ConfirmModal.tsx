@@ -8,9 +8,21 @@ interface ConfirmModalProps {
   onConfirm: () => void;
   title: string;
   message: string;
+  confirmText?: string;
+  confirmButtonClass?: string;
+  icon?: React.ReactNode;
 }
 
-export default function ConfirmModal({ isOpen, onClose, onConfirm, title, message }: ConfirmModalProps) {
+export default function ConfirmModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title, 
+  message,
+  confirmText = "Confirm Delete",
+  confirmButtonClass = "bg-rose-600 hover:bg-rose-700",
+  icon
+}: ConfirmModalProps) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -28,8 +40,8 @@ export default function ConfirmModal({ isOpen, onClose, onConfirm, title, messag
             exit={{ scale: 0.95, opacity: 0 }}
             className="bg-white rounded-3xl p-6 w-full max-w-sm relative shadow-2xl border border-slate-200"
           >
-            <div className="flex items-center gap-3 mb-4 text-rose-600">
-              <AlertTriangle className="w-8 h-8" />
+            <div className="flex items-center gap-3 mb-4 text-slate-800">
+              {icon || <AlertTriangle className="w-8 h-8 text-rose-600 shrink-0" />}
               <h3 className="text-lg font-black">{title}</h3>
             </div>
             <p className="text-sm text-slate-600 mb-6 font-medium">{message}</p>
@@ -45,9 +57,9 @@ export default function ConfirmModal({ isOpen, onClose, onConfirm, title, messag
                   onConfirm();
                   onClose();
                 }}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer transition-colors"
+                className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white cursor-pointer transition-colors ${confirmButtonClass}`}
               >
-                Confirm Delete
+                {confirmText}
               </button>
             </div>
           </motion.div>

@@ -218,6 +218,7 @@ export interface CallTask {
   liveInstructionImage?: string;
   liveInstructionLink?: string;
   isLiveInstructorTeacher?: boolean;
+  liveInstructionTime?: string;
   liveInstructionSubmitDate?: string;
   feedbackSubmitDate?: string;
   examScriptImage?: string;

@@ -863,7 +863,11 @@ export default function ManagerDashboard({
     }
   };
 
-  // --- DELETE CONFIRMATION STATES ---
+  // --- PASSWORD RESET & DELETE CONFIRMATION STATES ---
+  const [resettingPasswordMember, setResettingPasswordMember] = useState<{
+    pin: string;
+    name: string;
+  } | null>(null);
   const [confirmDeleteMemberPin, setConfirmDeleteMemberPin] = useState<
     string | null
   >(null);
@@ -3413,6 +3417,26 @@ export default function ManagerDashboard({
             }}
             title="Delete Campus"
             message={`Are you sure you want to delete "${confirmDeleteCampusName}" campus? This action cannot be undone.`}
+          />
+          <ConfirmModal
+            isOpen={!!resettingPasswordMember}
+            onClose={() => setResettingPasswordMember(null)}
+            onConfirm={async () => {
+              if (!resettingPasswordMember) return;
+              const target = resettingPasswordMember;
+              setResettingPasswordMember(null);
+              try {
+                const res = await api.users.resetDefaultPassword(target.pin);
+                toast.success(res.message || `Password for ${target.name} (${target.pin}) successfully reset to 'password'!`);
+              } catch (err: any) {
+                toast.error(err.message || "Failed to reset password!");
+              }
+            }}
+            title="Reset Password to 'password'"
+            message={`Are you sure you want to change the login password for ${resettingPasswordMember?.name} (PIN: ${resettingPasswordMember?.pin}) to 'password'? Regardless of their previous password, they will now be able to log in using 'password'.`}
+            confirmText="Reset to 'password'"
+            confirmButtonClass="bg-emerald-600 hover:bg-emerald-700"
+            icon={<Key className="w-8 h-8 text-emerald-600 shrink-0" />}
           />
           <ConfirmModal
             isOpen={!!confirmDeleteMemberPin}
@@ -7322,6 +7346,19 @@ export default function ManagerDashboard({
                                       <Shield className="w-3.5 h-3.5" />
                                     </button>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setResettingPasswordMember({
+                                        pin: member.pin,
+                                        name: member.name,
+                                      })
+                                    }
+                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Reset Password to 'password'"
+                                  >
+                                    <Key className="w-3.5 h-3.5" />
+                                  </button>
                                   <button
                                     onClick={() => {
                                       const updatedUser = {

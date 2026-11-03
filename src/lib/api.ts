@@ -48,6 +48,7 @@ export const api = {
     getAll: () => request('/users'),
     create: (data: any) => request('/users', { method: 'POST', body: JSON.stringify(data) }),
     update: (pin: string, data: any) => request(`/users/${pin}`, { method: 'PUT', body: JSON.stringify(data) }),
+    resetDefaultPassword: (pin: string) => request(`/users/${pin}/reset-default-password`, { method: 'POST' }),
     delete: (pin: string) => request(`/users/${pin}`, { method: 'DELETE' }),
   },
   reports: {

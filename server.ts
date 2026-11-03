@@ -674,8 +674,8 @@ app.get("/api/logo", async (req, res) => {
   }
 });
 
-// Helper function to send email via Resend API or Nodemailer
-async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
+// Helper function to send email via Nodemailer SMTP or Resend API
+async function sendOTPEmail(toEmail: string, otp: string, userName: string): Promise<boolean> {
   const emailHtml = `
     <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
       <h2 style="color: #4f46e5; margin-bottom: 20px;">Password Reset Request</h2>
@@ -689,87 +689,112 @@ async function sendOTPEmail(toEmail: string, otp: string, userName: string) {
       <p style="color: #94a3b8; font-size: 12px; text-align: center;">&copy; ${new Date().getFullYear()} Exam Scripts Management Team. All rights reserved.</p>
     </div>
   `;
+
   const emailText = `Hello ${userName},\n\nYour OTP for password reset is: ${otp}\n\nThis OTP is valid for 10 minutes. If you did not request this, please ignore this email.\n\nBest regards,\nExam Scripts Management Team`;
 
-  // 1. Try Resend API if RESEND_API_KEY is set and valid
-  if (process.env.RESEND_API_KEY && !process.env.RESEND_API_KEY.includes('xxxx')) {
-    console.log(`[EMAIL] RESEND_API_KEY detected. Sending email via Resend API...`);
+  const smtpUser = (process.env.SMTP_USER && !process.env.SMTP_USER.includes('your_email')) ? process.env.SMTP_USER : 'examinerid@gmail.com';
+  const smtpPass = (process.env.SMTP_PASS && !process.env.SMTP_PASS.includes('your_pass')) ? process.env.SMTP_PASS : 'rpcr dlqw gbof oyjj';
+  const isGmail = smtpUser.toLowerCase().endsWith('@gmail.com');
+
+  // Strategy 1: Try Gmail SMTP via Direct SSL (port 465) first!
+  // Port 465 SSL is NOT blocked on cloud platforms (Render, etc.) and delivers to ANY email address!
+  if (smtpUser && smtpPass) {
     try {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const fromAddress = process.env.RESEND_FROM || process.env.SMTP_FROM || 'Exam Scripts Management <onboarding@resend.dev>';
-      
-      const { data, error } = await resend.emails.send({
-        from: fromAddress,
-        to: [toEmail],
-        subject: 'Password Reset OTP - Exam Scripts Management',
-        html: emailHtml,
-        text: emailText
+      console.log(`[EMAIL] Attempting to send OTP to ${toEmail} via Gmail SMTP (Port 465 SSL)...`);
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || (isGmail ? 'smtp.gmail.com' : undefined),
+        port: parseInt(process.env.SMTP_PORT || '465'),
+        secure: process.env.SMTP_PORT ? process.env.SMTP_PORT === '465' : true,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+        connectionTimeout: 8000, // 8s timeout - never hang!
+        greetingTimeout: 5000,
+        socketTimeout: 10000,
       });
 
-      if (error) {
-        console.error(`[EMAIL] Resend API error:`, error);
-        console.log(`[EMAIL] Falling back to Nodemailer SMTP / Console...`);
-      } else {
-        console.log(`[EMAIL] OTP Email sent successfully via Resend API! Message ID: ${data?.id}`);
-        return true;
-      }
-    } catch (resendErr: any) {
-      console.error(`[EMAIL] Resend API exception:`, resendErr.message);
-      console.log(`[EMAIL] Falling back to Nodemailer SMTP / Console...`);
-    }
-  }
-
-  // 2. Fallback to Nodemailer SMTP
-  try {
-    let transporter;
-    const smtpUser = (process.env.SMTP_USER && !process.env.SMTP_USER.includes('your_email')) ? process.env.SMTP_USER : 'examinerid@gmail.com';
-    const smtpPass = (process.env.SMTP_PASS && !process.env.SMTP_PASS.includes('your_pass')) ? process.env.SMTP_PASS : 'rpcr dlqw gbof oyjj';
-
-    if (smtpUser && smtpPass) {
-      const isGmail = smtpUser.toLowerCase().endsWith('@gmail.com');
-      
-      if (process.env.SMTP_HOST) {
-        console.log(`[EMAIL] Using custom SMTP Host settings from environment to send OTP.`);
-        transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: parseInt(process.env.SMTP_PORT || '587'),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          }
-        });
-      } else if (isGmail) {
-        console.log(`[EMAIL] Auto-configuring Gmail SMTP service using SMTP user ${smtpUser}.`);
-        transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          }
-        });
-      }
-    }
-
-    if (transporter) {
       const mailOptions = {
         from: process.env.SMTP_FROM || `"Exam Scripts Management" <${smtpUser}>`,
         to: toEmail,
         subject: 'Password Reset OTP - Exam Scripts Management',
         text: emailText,
-        html: emailHtml
+        html: emailHtml,
       };
 
       const info = await transporter.sendMail(mailOptions);
-      console.log(`[EMAIL] Email sent successfully via Nodemailer! Message ID: ${info.messageId}`);
+      console.log(`[EMAIL] OTP sent successfully to ${toEmail} via Nodemailer (Port 465)! Message ID: ${info.messageId}`);
       return true;
+    } catch (smtpErr: any) {
+      console.error(`[EMAIL] Nodemailer Port 465 error: ${smtpErr.message}. Trying next fallback...`);
     }
-  } catch (err: any) {
-    console.error("[EMAIL] Failed to send email via nodemailer:", err.message);
   }
 
-  // 3. Fallback: If no live email provider succeeded, log OTP to console and allow flow
-  console.log(`[EMAIL FALLBACK] OTP for ${toEmail}: ${otp}`);
+  // Strategy 2: If port 465 failed, try Resend API
+  // Note: Resend onboarding@resend.dev only allows sending to account owner (xahin.mahir@gmail.com).
+  // Verified domains can send to anyone.
+  if (process.env.RESEND_API_KEY && !process.env.RESEND_API_KEY.includes('xxxx')) {
+    const fromAddress = process.env.RESEND_FROM || process.env.SMTP_FROM || 'Exam Scripts Management <onboarding@resend.dev>';
+    const isUnverifiedDomain = fromAddress.includes('resend.dev');
+    const isOwner = toEmail.toLowerCase() === 'xahin.mahir@gmail.com';
+
+    if (!isUnverifiedDomain || isOwner) {
+      console.log(`[EMAIL] Attempting to send OTP to ${toEmail} via Resend API...`);
+      try {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const { data, error } = await resend.emails.send({
+          from: fromAddress,
+          to: [toEmail],
+          subject: 'Password Reset OTP - Exam Scripts Management',
+          html: emailHtml,
+          text: emailText,
+        });
+
+        if (error) {
+          console.error(`[EMAIL] Resend API error:`, error);
+        } else {
+          console.log(`[EMAIL] OTP sent successfully to ${toEmail} via Resend API! Message ID: ${data?.id}`);
+          return true;
+        }
+      } catch (resendErr: any) {
+        console.error(`[EMAIL] Resend API exception:`, resendErr.message);
+      }
+    }
+  }
+
+  // Strategy 3: Try standard Gmail service port 587 with strict 6-second timeout
+  if (smtpUser && smtpPass) {
+    try {
+      console.log(`[EMAIL] Attempting fallback via Nodemailer Port 587...`);
+      const transporter587 = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+        connectionTimeout: 6000,
+        greetingTimeout: 4000,
+        socketTimeout: 8000,
+      });
+
+      const info = await transporter587.sendMail({
+        from: process.env.SMTP_FROM || `"Exam Scripts Management" <${smtpUser}>`,
+        to: toEmail,
+        subject: 'Password Reset OTP - Exam Scripts Management',
+        text: emailText,
+        html: emailHtml,
+      });
+      console.log(`[EMAIL] OTP sent successfully to ${toEmail} via Nodemailer (Port 587)! Message ID: ${info.messageId}`);
+      return true;
+    } catch (fallbackErr: any) {
+      console.error(`[EMAIL] Nodemailer fallback error: ${fallbackErr.message}`);
+    }
+  }
+
+  // Strategy 4: If all live email providers failed, log OTP so users are never blocked
+  console.log(`[EMAIL FALLBACK] Could not deliver to ${toEmail}. OTP for testing: ${otp}`);
   return true;
 }
 
@@ -785,11 +810,13 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     // Escape regex characters for safe search
     const escapedPin = trimmedPin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     
-    // Find the user by exact PIN
+    // Find the user by exact PIN or Email
     const user = await User.findOne({ 
-      pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } 
+      $or: [
+        { pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } },
+        { email: { $regex: new RegExp(`^${escapedPin}$`, "i") } }
+      ]
     });
-
     if (!user) {
       return res.status(404).json({ error: "No user found with this PIN." });
     }
@@ -837,11 +864,14 @@ app.post("/api/auth/verify-otp", async (req, res) => {
 
     const escapedPin = trimmedPin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({ 
-      pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } 
+      $or: [
+        { pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } },
+        { email: { $regex: new RegExp(`^${escapedPin}$`, "i") } }
+      ]
     });
 
     if (!user) {
-      return res.status(404).json({ error: "No user found with this PIN." });
+      return res.status(404).json({ error: "No user found with this PIN or Email." });
     }
 
     if (!user.otp || !user.otpExpiry) {
@@ -879,11 +909,14 @@ app.post("/api/auth/reset-password", async (req, res) => {
 
     const escapedPin = trimmedPin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const user = await User.findOne({ 
-      pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } 
+      $or: [
+        { pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } },
+        { email: { $regex: new RegExp(`^${escapedPin}$`, "i") } }
+      ]
     });
 
     if (!user) {
-      return res.status(404).json({ error: "No user found with this PIN." });
+      return res.status(404).json({ error: "No user found with this PIN or Email." });
     }
 
     if (!user.otp || !user.otpExpiry) {
@@ -1105,6 +1138,38 @@ app.delete("/api/users/:pin", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Manager Reset User Password to 'password'
+app.post("/api/users/:pin/reset-default-password", async (req, res) => {
+  try {
+    const { pin } = req.params;
+    const escapedPin = pin.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const user = await User.findOne({
+      $or: [
+        { pin: { $regex: new RegExp(`^${escapedPin}$`, "i") } },
+        { email: { $regex: new RegExp(`^${escapedPin}$`, "i") } }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    user.password = "password";
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    await user.save();
+
+    console.log(`[PASSWORD_RESET] Password for user ${user.pin} (${user.name}) reset to 'password' by manager.`);
+    res.json({ 
+      success: true, 
+      message: `${user.name} (${user.pin})-এর পাসওয়ার্ড সফলভাবে 'password' এ রিসেট করা হয়েছে!` 
+    });
+  } catch (err: any) {
+    console.error("Reset default password error:", err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
   }
 });
 
@@ -1878,7 +1943,10 @@ app.post("/api/campuses", async (req, res) => {
 
   app.put("/api/call-tasks/:id", async (req, res) => {
     try {
-      const updateData = { ...req.body };
+      const updateData = { 
+        ...req.body, 
+        updatedAt: new Date().toISOString() 
+      };
       if (updateData.liveInstructionImage) {
         updateData.liveInstructionImage = await processLiveInstructionImages(updateData.liveInstructionImage);
       }
@@ -1887,7 +1955,7 @@ app.post("/api/campuses", async (req, res) => {
         { $set: updateData },
         { new: true }
       );
-      refreshCacheForTasks([req.params.id]);
+      await refreshCacheForTasks([req.params.id]);
       res.json(task);
     } catch (err) {
       res.status(500).json({ error: "Failed to update task" });

@@ -93,6 +93,17 @@ const getTodayLocalDate = () => {
   return `${year}-${month}-${day}`;
 };
 
+const getTimeStr = (dStr?: string, task?: any) => {
+  const raw = dStr || task?.updatedAt || task?.completedAt || task?.createdAt;
+  if (!raw) return "";
+  if (typeof raw === "string" && !raw.includes("T") && raw.length <= 10) {
+    return "";
+  }
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+};
+
 function SearchableMemberSelect({
   value,
   onChange,
@@ -334,6 +345,101 @@ export default function CallManagement({
   );
   const [liveInstructorPin, setLiveInstructorPin] = useState(currentUser.pin);
   const [isLiveInstructorTeacher, setIsLiveInstructorTeacher] = useState(false);
+  const [liveInstructionTime, setLiveInstructionTime] = useState("");
+  const [teacherClockModalOpen, setTeacherClockModalOpen] = useState(false);
+  const [teacherClockTarget, setTeacherClockTarget] = useState<"taskModal" | "liveTab">("taskModal");
+  const [clockHour, setClockHour] = useState("10");
+  const [clockMinute, setClockMinute] = useState("00");
+  const [clockPeriod, setClockPeriod] = useState<"AM" | "PM">("AM");
+  const [clockMode, setClockMode] = useState<"hour" | "minute">("hour");
+
+  const hourDialPositions = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  const minuteDialPositions = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
+
+  const getClockHandRotation = () => {
+    if (clockMode === "hour") {
+      const h = parseInt(clockHour, 10);
+      return (h % 12) * 30;
+    } else {
+      const m = parseInt(clockMinute, 10);
+      return m * 6;
+    }
+  };
+
+  const openTeacherClockModal = (
+    initialTime?: string,
+    target: "taskModal" | "liveTab" = "taskModal",
+  ) => {
+    setTeacherClockTarget(target);
+    setClockMode("hour");
+    if (initialTime && initialTime.trim()) {
+      const match = initialTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+      if (match) {
+        let h = parseInt(match[1], 10);
+        const m = match[2];
+        const p = match[3]
+          ? (match[3].toUpperCase() as "AM" | "PM")
+          : h >= 12
+            ? "PM"
+            : "AM";
+        if (h > 12) h = h - 12;
+        if (h === 0) h = 12;
+        setClockHour(String(h).padStart(2, "0"));
+        setClockMinute(m);
+        setClockPeriod(p);
+      } else {
+        const now = new Date();
+        let h = now.getHours();
+        const p = h >= 12 ? "PM" : "AM";
+        h = h % 12 || 12;
+        setClockHour(String(h).padStart(2, "0"));
+        setClockMinute(String(now.getMinutes()).padStart(2, "0"));
+        setClockPeriod(p);
+      }
+    } else {
+      const now = new Date();
+      let h = now.getHours();
+      const p = h >= 12 ? "PM" : "AM";
+      h = h % 12 || 12;
+      setClockHour(String(h).padStart(2, "0"));
+      setClockMinute(String(now.getMinutes()).padStart(2, "0"));
+      setClockPeriod(p);
+    }
+    setTeacherClockModalOpen(true);
+  };
+
+  const handleConfirmTeacherClock = () => {
+    const formatted = clockHour + ":" + clockMinute + " " + clockPeriod;
+    if (teacherClockTarget === "taskModal") {
+      setModalFormData((prev) => ({
+        ...prev,
+        liveInstructionTime: formatted,
+        isLiveInstructorTeacher: true,
+      }));
+      if (editingTask?.id) {
+        setEditingTask((prev) => prev ? ({
+          ...prev,
+          liveInstructionTime: formatted,
+          isLiveInstructorTeacher: true,
+        }) : null);
+        handleUpdateTask(editingTask.id, {
+          liveInstructionTime: formatted,
+          isLiveInstructorTeacher: true,
+        });
+      }
+    } else {
+      setLiveInstructionTime(formatted);
+      setIsLiveInstructorTeacher(true);
+      if (liveFoundTask?.id) {
+        handleUpdateTask(liveFoundTask.id, {
+          liveInstructionTime: formatted,
+          isLiveInstructorTeacher: true,
+        });
+      }
+    }
+    setTeacherClockModalOpen(false);
+    toast.success("Time set: " + formatted);
+  };
   const [isUpdatingLive, setIsUpdatingLive] = useState(false);
   const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
   const [dateTypeFilter, setDateTypeFilter] = useState<
@@ -374,15 +480,49 @@ export default function CallManagement({
     "feedback" | "live" | "both"
   >("both");
 
-  // All unique members for assigned member filters
+  // All unique members for assigned member filters (respecting classFilter and assignment filters)
   const allFilterMembers = useMemo(() => {
+    // First get base subset matching classFilter
+    const baseTasks = tasks.filter(t => {
+      const matchesClass = classFilter === "all" || t.className === classFilter;
+      const matchesCampus =
+        campusFilter === "all" ||
+        (campusFilter === "unassigned"
+          ? !t.campus || t.campus.trim() === ""
+          : t.campus === campusFilter);
+      return matchesCampus && matchesClass;
+    });
+
     const map = new Map<string, { pin: string; name: string }>();
+    
+    // If liveAssignFilter is "Assigned", or classFilter is set, narrow down or show all roster members who have tasks matching the criteria
     [...members, ...mentors].forEach((m) => {
       if (m.pin && m.name) {
-        map.set(m.pin, { pin: m.pin, name: m.name });
+        if (classFilter !== "all" || liveAssignFilter === "Assigned" || assignFilter === "Assigned") {
+          const hasTask = baseTasks.some(t => 
+            t.assignedToPin === m.pin || 
+            t.liveAssignedToPin === m.pin || 
+            t.liveInstructorPin === m.pin
+          );
+          if (hasTask) {
+            map.set(m.pin, { pin: m.pin, name: m.name });
+          }
+        } else {
+          map.set(m.pin, { pin: m.pin, name: m.name });
+        }
       }
     });
-    tasks.forEach((t) => {
+
+    // If map is empty, fall back to all members so the dropdown isn't empty
+    if (map.size === 0 && classFilter !== "all") {
+      [...members, ...mentors].forEach((m) => {
+        if (m.pin && m.name) {
+          map.set(m.pin, { pin: m.pin, name: m.name });
+        }
+      });
+    }
+
+    baseTasks.forEach((t) => {
       if (t.assignedToPin && t.assignedToName) {
         if (!map.has(t.assignedToPin)) {
           map.set(t.assignedToPin, { pin: t.assignedToPin, name: t.assignedToName });
@@ -400,7 +540,7 @@ export default function CallManagement({
       }
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [members, mentors, tasks]);
+  }, [members, mentors, tasks, classFilter, liveAssignFilter, assignFilter, campusFilter]);
 
   const feedbackFilterMembers = useMemo(() => {
     if (currentUser.role === "member") {
@@ -504,6 +644,7 @@ export default function CallManagement({
   const [isDeletingClass, setIsDeletingClass] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [isUnassigning, setIsUnassigning] = useState(false);
+  const [selectedStatusSummaryMember, setSelectedStatusSummaryMember] = useState<any | null>(null);
 
   // Merit List Comparison State
   const [isMeritListModalOpen, setIsMeritListModalOpen] = useState(false);
@@ -665,6 +806,7 @@ export default function CallManagement({
         setLiveInstructorName(found.liveInstructorName || currentUser.name);
         setLiveInstructorPin(found.liveInstructorPin || currentUser.pin);
         setIsLiveInstructorTeacher(found.isLiveInstructorTeacher || false);
+        setLiveInstructionTime(found.liveInstructionTime || "");
         setLiveInstructionImages(parseMultipleImages(found.liveInstructionImage));
         setLiveInstructionLink(found.liveInstructionLink || "");
       } else {
@@ -705,6 +847,7 @@ export default function CallManagement({
         liveInstructorName,
         liveInstructorPin,
         isLiveInstructorTeacher,
+        liveInstructionTime,
         liveInstructionImage: imagesJson,
         liveInstructionLink,
         liveInstructionSubmitDate: submitDate,
@@ -718,6 +861,7 @@ export default function CallManagement({
               liveInstructorName,
               liveInstructorPin,
               isLiveInstructorTeacher,
+              liveInstructionTime,
               liveInstructionImage: imagesJson,
               liveInstructionLink,
               liveInstructionSubmitDate: submitDate,
@@ -1829,13 +1973,22 @@ export default function CallManagement({
         body: JSON.stringify(finalUpdates),
       });
       if (res.ok) {
-        setTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, ...finalUpdates } : t)),
-        );
+        const savedTask = await res.json();
+        const merged = { ...existingTask, ...finalUpdates, ...(savedTask || {}) };
+        setTasks((prev) => {
+          const next = prev.map((t) => (t.id === taskId ? { ...t, ...merged } : t));
+          try {
+            sessionStorage.setItem(`call_tasks_cache_${currentUser.pin}`, JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
         if (onRefreshEmails) onRefreshEmails();
+      } else {
+        toast.error("Failed to update task");
       }
     } catch (err) {
       console.error("Update task error:", err);
+      toast.error("Failed to update task");
     }
   };
 
@@ -3140,7 +3293,7 @@ export default function CallManagement({
         t.liveInstructionStatus === "Completed" ||
         t.liveInstructionSubmitDate
       ) {
-        const targetDate = t.liveInstructionSubmitDate || t.completedAt;
+        const targetDate = t.liveInstructionSubmitDate || t.completedAt || t.updatedAt;
         if (checkDateMatch(targetDate)) {
           const pin = t.liveInstructorPin || t.liveAssignedToPin;
           const name = t.liveInstructorName || t.liveAssignedToName || pin;
@@ -3163,7 +3316,7 @@ export default function CallManagement({
 
       // Feedback call on selected date
       if (t.feedbackStatus === "Completed" || t.feedbackSubmitDate) {
-        const targetDate = t.feedbackSubmitDate || t.completedAt;
+        const targetDate = t.feedbackSubmitDate || t.completedAt || t.updatedAt;
         if (checkDateMatch(targetDate)) {
           const pin = t.assignedToPin;
           const name = t.assignedToName || pin;
@@ -3214,6 +3367,104 @@ export default function CallManagement({
       return true;
     });
   }, [statusSummaryMemberData, statusSummaryFilterMode, statusSummarySearch]);
+
+  const selectedMemberCalls = useMemo(() => {
+    if (!selectedStatusSummaryMember) return [];
+    const pin = selectedStatusSummaryMember.pin;
+    const calls: Array<{
+      id: string;
+      studentName: string;
+      nickName: string;
+      rollNo: string;
+      registrationNo: string;
+      className: string;
+      callType: 'Live Instruction' | 'Feedback';
+      time: string;
+      isTeacher?: boolean;
+      rawDate: string;
+      task: any;
+    }> = [];
+
+    const checkDateMatch = (dStr?: string) => {
+      if (!dStr) return false;
+      const dateOnly = dStr.split("T")[0].split(" ")[0];
+      return dateOnly === statusSummaryDate;
+    };
+
+    const getTimeStr = (dStr?: string, task?: any) => {
+      const raw = dStr || task?.updatedAt || task?.completedAt || task?.createdAt;
+      if (!raw) return '';
+      if (typeof raw === 'string' && !raw.includes('T') && raw.length <= 10) {
+        return '';
+      }
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    };
+
+    tasks.forEach((t) => {
+      const tCamp = getTaskCampus(t) || t.campus || "";
+      if (
+        effectiveStatusSummaryCampus !== "all" &&
+        tCamp &&
+        tCamp.toLowerCase() !== effectiveStatusSummaryCampus.toLowerCase()
+      ) {
+        return;
+      }
+
+      if (
+        t.liveInstructionStatus === "Completed" ||
+        t.liveInstructionSubmitDate
+      ) {
+        const targetDate = t.liveInstructionSubmitDate || t.completedAt || t.updatedAt;
+        if (checkDateMatch(targetDate)) {
+          const lPin = t.liveInstructorPin || t.liveAssignedToPin;
+          if (lPin === pin) {
+            const submitTime = getTimeStr(t.liveInstructionUpdatedAt || t.updatedAt || t.completedAt || (t.liveInstructionSubmitDate?.includes('T') ? t.liveInstructionSubmitDate : undefined));
+            const displayTime = (t.isLiveInstructorTeacher && t.liveInstructionTime) ? t.liveInstructionTime : submitTime;
+            calls.push({
+              id: t.id + '_live',
+              studentName: t.nickName || t.studentName || t.fullName || 'Unknown Student',
+              nickName: t.nickName || '',
+              rollNo: t.rollNo || t.roll || '-',
+              registrationNo: t.registrationNo || t.pin || '-',
+              className: t.className || '-',
+              callType: 'Live Instruction',
+              time: displayTime,
+              isTeacher: !!t.isLiveInstructorTeacher,
+              rawDate: t.liveInstructionUpdatedAt || t.updatedAt || targetDate || '',
+              task: t,
+            });
+          }
+        }
+      }
+
+      if (t.feedbackStatus === "Completed" || t.feedbackSubmitDate) {
+        const targetDate = t.feedbackSubmitDate || t.completedAt || t.updatedAt;
+        if (checkDateMatch(targetDate)) {
+          const fPin = t.assignedToPin;
+          if (fPin === pin) {
+            const displayTime = t.liveInstructionTime || getTimeStr(t.feedbackUpdatedAt || t.updatedAt || t.completedAt || (t.feedbackSubmitDate?.includes('T') ? t.feedbackSubmitDate : undefined));
+            calls.push({
+              id: t.id + '_feedback',
+              studentName: t.nickName || t.studentName || t.fullName || 'Unknown Student',
+              nickName: t.nickName || '',
+              rollNo: t.rollNo || t.roll || '-',
+              registrationNo: t.registrationNo || t.pin || '-',
+              className: t.className || '-',
+              callType: 'Feedback',
+              time: displayTime,
+              isTeacher: !!t.isLiveInstructorTeacher,
+              rawDate: t.feedbackUpdatedAt || t.updatedAt || targetDate || '',
+              task: t,
+            });
+          }
+        }
+      }
+    });
+
+    return calls.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
+  }, [selectedStatusSummaryMember, tasks, statusSummaryDate, effectiveStatusSummaryCampus, getTaskCampus]);
 
   const summaryTotalCalls = useMemo(
     () => statusSummaryMemberData.reduce((acc, m) => acc + m.totalCount, 0),
@@ -4204,15 +4455,19 @@ export default function CallManagement({
                         </div>
                       </div>
                       <div className="flex items-end pb-1.5">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <input
                             type="checkbox"
                             id="liveTabTeacherCheckbox"
                             checked={isLiveInstructorTeacher}
-                            onChange={(e) =>
-                              setIsLiveInstructorTeacher(e.target.checked)
-                            }
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setIsLiveInstructorTeacher(checked);
+                              if (checked) {
+                                openTeacherClockModal(liveInstructionTime, "liveTab");
+                              }
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-4 h-4"
                           />
                           <label
                             htmlFor="liveTabTeacherCheckbox"
@@ -4220,6 +4475,17 @@ export default function CallManagement({
                           >
                             Teacher Role
                           </label>
+                          {isLiveInstructorTeacher && (
+                            <button
+                              type="button"
+                              onClick={() => openTeacherClockModal(liveInstructionTime, "liveTab")}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-all cursor-pointer border border-indigo-200 shadow-2xs"
+                              title="Set or change Live Instruction time"
+                            >
+                              <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>{liveInstructionTime || "Set Time (ঘড়ি)"}</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -4613,10 +4879,11 @@ export default function CallManagement({
                   {filteredStatusSummaryMembers.map((m) => (
                     <div
                       key={m.pin}
-                      className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+                      onClick={() => setSelectedStatusSummaryMember(m)}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer hover:scale-[1.02] hover:shadow-md ${
                         m.totalCount > 0
-                          ? "bg-gradient-to-br from-indigo-50/60 to-emerald-50/40 border-indigo-200 shadow-2xs"
-                          : "bg-slate-50/80 border-slate-200/90"
+                          ? "bg-gradient-to-br from-indigo-50/60 to-emerald-50/40 border-indigo-200 shadow-2xs hover:border-indigo-400"
+                          : "bg-slate-50/80 border-slate-200/90 hover:border-slate-300"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2 mb-3">
@@ -5227,7 +5494,6 @@ export default function CallManagement({
                     <th className="p-4 text-center">Feedback Date</th>
                     <th className="p-4 text-center">Feedback Assign Status</th>
                     <th className="p-4 text-center">Feedback Assigned Team Member</th>
-                    <th className="p-4 text-center">Assigned to Coordinator</th>
                     <th className="p-4 text-center">Action</th>
                   </tr>
                 </thead>
@@ -5438,9 +5704,24 @@ export default function CallManagement({
                           </div>
                         </td>
                         <td className="p-4">
-                          <div className="font-mono text-slate-600 text-[11px]">
-                            {task.liveInstructionSubmitDate || "-"}
-                          </div>
+                          {task.liveInstructionSubmitDate ? (
+                            <div className="font-mono text-[11px]">
+                              <div className="font-bold text-slate-700">
+                                {task.liveInstructionSubmitDate.split("T")[0]}
+                              </div>
+                              {((task.isLiveInstructorTeacher && task.liveInstructionTime)
+                                ? task.liveInstructionTime
+                                : getTimeStr(task.liveInstructionUpdatedAt || task.updatedAt || task.completedAt || (task.liveInstructionSubmitDate?.includes("T") ? task.liveInstructionSubmitDate : undefined))) && (
+                                <div className="text-[10px] text-emerald-600 font-extrabold mt-0.5">
+                                  {(task.isLiveInstructorTeacher && task.liveInstructionTime)
+                                    ? task.liveInstructionTime
+                                    : getTimeStr(task.liveInstructionUpdatedAt || task.updatedAt || task.completedAt || (task.liveInstructionSubmitDate?.includes("T") ? task.liveInstructionSubmitDate : undefined))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="font-mono text-slate-400 text-[11px]">-</div>
+                          )}
                         </td>
                         <td className="p-4 text-center">
                           <div
@@ -5507,9 +5788,20 @@ export default function CallManagement({
                           </div>
                         </td>
                         <td className="p-4">
-                          <div className="font-mono text-slate-600 text-[11px]">
-                            {task.feedbackSubmitDate || "-"}
-                          </div>
+                          {task.feedbackSubmitDate ? (
+                            <div className="font-mono text-[11px]">
+                              <div className="font-bold text-slate-700">
+                                {task.feedbackSubmitDate.split("T")[0]}
+                              </div>
+                              {getTimeStr(task.feedbackUpdatedAt || task.updatedAt || task.completedAt || (task.feedbackSubmitDate?.includes("T") ? task.feedbackSubmitDate : undefined)) && (
+                                <div className="text-[10px] text-indigo-600 font-extrabold mt-0.5">
+                                  {getTimeStr(task.feedbackUpdatedAt || task.updatedAt || task.completedAt || (task.feedbackSubmitDate?.includes("T") ? task.feedbackSubmitDate : undefined))}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="font-mono text-slate-400 text-[11px]">-</div>
+                          )}
                         </td>
                         <td className="p-4 text-center">
                           <div
@@ -5533,16 +5825,6 @@ export default function CallManagement({
                               Pin: {task.assignedToPin}
                             </div>
                           )}
-                        </td>
-                        <td className="p-4">
-                          <div className="font-medium text-indigo-600 text-[10px]">
-                            {task.liveAssignedToPin &&
-                            mentorPins.has(task.liveAssignedToPin)
-                              ? task.liveAssignedToName
-                              : task.assignedToPin
-                                ? task.assignedToName
-                                : "-"}
-                          </div>
                         </td>
                         <td className="p-4 text-right">
                           <div className="flex justify-end gap-1">
@@ -6017,7 +6299,7 @@ export default function CallManagement({
                       </label>
                       <input
                         type="date"
-                        value={modalFormData.liveInstructionSubmitDate || ""}
+                        value={modalFormData.liveInstructionSubmitDate?.split("T")[0] || ""}
                         onChange={(e) =>
                           setModalFormData({
                             ...modalFormData,
@@ -6101,25 +6383,42 @@ export default function CallManagement({
                       />
                     </div>
 
-                    <div className="sm:col-span-2 flex items-center gap-2 pt-0.5">
-                      <input
-                        type="checkbox"
-                        id="modalTeacherCheckbox"
-                        checked={modalFormData.isLiveInstructorTeacher || false}
-                        onChange={(e) =>
-                          setModalFormData({
-                            ...modalFormData,
-                            isLiveInstructorTeacher: e.target.checked,
-                          })
-                        }
-                        className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                      />
-                      <label
-                        htmlFor="modalTeacherCheckbox"
-                        className="text-xs font-bold text-emerald-900 cursor-pointer"
-                      >
-                        Teacher
-                      </label>
+                    <div className="sm:col-span-2 flex items-center gap-3 pt-0.5 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="modalTeacherCheckbox"
+                          checked={modalFormData.isLiveInstructorTeacher || false}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setModalFormData((prev) => ({
+                              ...prev,
+                              isLiveInstructorTeacher: checked,
+                            }));
+                            if (checked) {
+                              openTeacherClockModal(modalFormData.liveInstructionTime, "taskModal");
+                            }
+                          }}
+                          className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                        />
+                        <label
+                          htmlFor="modalTeacherCheckbox"
+                          className="text-xs font-bold text-emerald-900 cursor-pointer"
+                        >
+                          Teacher
+                        </label>
+                      </div>
+                      {modalFormData.isLiveInstructorTeacher && (
+                        <button
+                          type="button"
+                          onClick={() => openTeacherClockModal(modalFormData.liveInstructionTime, "taskModal")}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl text-xs font-bold transition-all cursor-pointer border border-emerald-300 shadow-2xs"
+                          title="Click to set or change Live Instruction time"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>{modalFormData.liveInstructionTime || "Set Time (ঘড়ি)"}</span>
+                        </button>
+                      )}
                     </div>
 
                     <div className="sm:col-span-2 space-y-2 border-t border-emerald-200/60 pt-3">
@@ -6397,7 +6696,7 @@ export default function CallManagement({
                       </label>
                       <input
                         type="date"
-                        value={modalFormData.feedbackSubmitDate || ""}
+                        value={modalFormData.feedbackSubmitDate?.split("T")[0] || ""}
                         onChange={(e) =>
                           setModalFormData({
                             ...modalFormData,
@@ -6910,18 +7209,21 @@ export default function CallManagement({
 
                       const liveSubmitDate =
                         newLiveStatus === "Completed"
-                          ? updatedData.liveInstructionSubmitDate
+                          ? (updatedData.liveInstructionSubmitDate?.split('T')[0] || getTodayLocalDate())
                           : undefined;
 
                       const feedbackSubmitDate =
                         newFeedbackStatus === "Completed"
-                          ? updatedData.feedbackSubmitDate
+                          ? (updatedData.feedbackSubmitDate?.split('T')[0] || getTodayLocalDate())
                           : undefined;
 
                       handleUpdateTask(editingTask.id, {
                         ...updatedData,
                         liveInstructionSubmitDate: liveSubmitDate,
                         feedbackSubmitDate: feedbackSubmitDate,
+                        liveInstructionUpdatedAt: newLiveStatus === "Completed" ? new Date().toISOString() : editingTask.liveInstructionUpdatedAt,
+                        feedbackUpdatedAt: newFeedbackStatus === "Completed" ? new Date().toISOString() : editingTask.feedbackUpdatedAt,
+                        updatedAt: new Date().toISOString(),
                         completedAt:
                           newLiveStatus === "Completed" &&
                           newFeedbackStatus === "Completed"
@@ -8897,6 +9199,370 @@ export default function CallManagement({
         }}
       />
       {/* ... could add a more detailed modal here if needed ... */}
+
+      {/* Teacher Clock Modal - Styled exactly like Attendance ClockInput (No Bengali) */}
+      <AnimatePresence>
+        {teacherClockModalOpen && (
+          <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs"
+              onClick={() => setTeacherClockModalOpen(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 15 }}
+              className="relative w-full max-w-[290px] sm:max-w-[310px] bg-white rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-100 flex flex-col z-10"
+            >
+              {/* Header Title */}
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-indigo-50 rounded-lg text-indigo-600">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800 tracking-tight">Live Instruction Time</h4>
+                    <p className="text-[10px] text-slate-400 font-medium">Teacher Call Time</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTeacherClockModalOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* AM/PM Segmented Control */}
+              <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl mb-3">
+                <button
+                  type="button"
+                  onClick={() => setClockPeriod("AM")}
+                  className={"py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer " + (
+                    clockPeriod === "AM"
+                      ? "bg-white text-indigo-600 shadow-xs"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  AM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClockPeriod("PM")}
+                  className={"py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer " + (
+                    clockPeriod === "PM"
+                      ? "bg-white text-indigo-600 shadow-xs"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                >
+                  PM
+                </button>
+              </div>
+
+              {/* Digital Time Preview */}
+              <div className="flex flex-col items-center justify-center p-3 bg-slate-50 border border-slate-100 rounded-2xl mb-2">
+                <div className="flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setClockMode("hour")}
+                    className={"text-2xl font-black font-mono transition-all px-2.5 py-0.5 rounded-lg cursor-pointer " + (
+                      clockMode === "hour"
+                        ? "text-indigo-600 bg-indigo-50/80 scale-105"
+                        : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    {clockHour}
+                  </button>
+                  <span className="text-2xl font-black text-slate-300 animate-pulse">:</span>
+                  <button
+                    type="button"
+                    onClick={() => setClockMode("minute")}
+                    className={"text-2xl font-black font-mono transition-all px-2.5 py-0.5 rounded-lg cursor-pointer " + (
+                      clockMode === "minute"
+                        ? "text-indigo-600 bg-indigo-50/80 scale-105"
+                        : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    {clockMinute}
+                  </button>
+                  <span className="text-sm font-extrabold text-slate-500 ml-2 uppercase font-mono">{clockPeriod}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    let h = now.getHours();
+                    const p = h >= 12 ? "PM" : "AM";
+                    h = h % 12 || 12;
+                    setClockHour(String(h).padStart(2, "0"));
+                    setClockMinute(String(now.getMinutes()).padStart(2, "0"));
+                    setClockPeriod(p);
+                  }}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 mt-1 cursor-pointer"
+                >
+                  Set to Current Time
+                </button>
+              </div>
+
+              {/* Selector Labels */}
+              <div className="flex justify-center gap-3 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setClockMode("hour")}
+                  className={"text-xs font-bold transition-all px-3 py-1 rounded-full cursor-pointer " + (
+                    clockMode === "hour" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-500 hover:bg-slate-100"
+                  )}
+                >
+                  Hours
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClockMode("minute")}
+                  className={"text-xs font-bold transition-all px-3 py-1 rounded-full cursor-pointer " + (
+                    clockMode === "minute" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-500 hover:bg-slate-100"
+                  )}
+                >
+                  Minutes
+                </button>
+              </div>
+
+              {/* Interactive Analog Dial */}
+              <div className="flex justify-center items-center py-2 relative">
+                <div className="relative w-44 h-44 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center shadow-inner">
+                  <div className="absolute inset-2.5 rounded-full border border-dashed border-slate-200/50" />
+                  <div className="absolute w-2.5 h-2.5 bg-indigo-600 rounded-full z-20 shadow-xs" />
+                  <motion.div
+                    className="absolute bottom-1/2 left-1/2 w-0.5 origin-bottom bg-indigo-500 z-10"
+                    style={{
+                      height: "38%",
+                      transformOrigin: "bottom center",
+                      x: "-50%",
+                    }}
+                    animate={{ rotate: getClockHandRotation() }}
+                    transition={{ type: "spring", stiffness: 120, damping: 15 }}
+                  >
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-indigo-600 border-2 border-white shadow-md flex items-center justify-center" />
+                  </motion.div>
+
+                  {clockMode === "hour" ? (
+                    hourDialPositions.map((h) => {
+                      const displayHour = String(h).padStart(2, "0");
+                      const isActive = clockHour === displayHour;
+                      const angleRad = (h * 30 * Math.PI) / 180;
+                      const left = (50 + Math.sin(angleRad) * 36) + "%";
+                      const top = (50 - Math.cos(angleRad) * 36) + "%";
+                      return (
+                        <button
+                          key={"dial-hour-" + h}
+                          type="button"
+                          onClick={() => {
+                            setClockHour(displayHour);
+                            setTimeout(() => setClockMode("minute"), 200);
+                          }}
+                          style={{ left, top }}
+                          className={"absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full text-xs font-black font-mono flex items-center justify-center transition-all duration-150 z-20 cursor-pointer " + (
+                            isActive
+                              ? "text-white scale-110"
+                              : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:scale-105"
+                          )}
+                        >
+                          {h}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    minuteDialPositions.map((m, index) => {
+                      const isActive = clockMinute === m;
+                      const angleRad = (index * 30 * Math.PI) / 180;
+                      const left = (50 + Math.sin(angleRad) * 36) + "%";
+                      const top = (50 - Math.cos(angleRad) * 36) + "%";
+                      return (
+                        <button
+                          key={"dial-min-" + m}
+                          type="button"
+                          onClick={() => setClockMinute(m)}
+                          style={{ left, top }}
+                          className={"absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full text-[11px] font-black font-mono flex items-center justify-center transition-all duration-150 z-20 cursor-pointer " + (
+                            isActive
+                              ? "text-white scale-110"
+                              : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:scale-105"
+                          )}
+                        >
+                          {m}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Fine tuning minute adjuster */}
+              <div className="flex items-center justify-between px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-xl mb-3">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fine Tune Minute</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      let currentMin = parseInt(clockMinute, 10);
+                      currentMin = (currentMin - 1 + 60) % 60;
+                      setClockMinute(String(currentMin).padStart(2, "0"));
+                    }}
+                    className="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:border-slate-300 active:bg-slate-50 flex items-center justify-center font-black font-mono text-slate-600 transition-all text-xs shadow-3xs cursor-pointer"
+                  >
+                    -1
+                  </button>
+                  <span className="text-xs font-bold text-indigo-600 font-mono w-5 text-center">{clockMinute}m</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      let currentMin = parseInt(clockMinute, 10);
+                      currentMin = (currentMin + 1) % 60;
+                      setClockMinute(String(currentMin).padStart(2, "0"));
+                    }}
+                    className="w-7 h-7 rounded-lg bg-white border border-slate-200 hover:border-slate-300 active:bg-slate-50 flex items-center justify-center font-black font-mono text-slate-600 transition-all text-xs shadow-3xs cursor-pointer"
+                  >
+                    +1
+                  </button>
+                </div>
+              </div>
+
+              {/* Done Button */}
+              <button
+                type="button"
+                onClick={handleConfirmTeacherClock}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/10 active:scale-[0.98]"
+              >
+                <Check className="w-4 h-4" /> Done
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Member Call Details Modal */}
+      <AnimatePresence>
+        {selectedStatusSummaryMember && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto relative shadow-2xl border border-slate-200"
+            >
+              <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 shadow-xs">
+                    <Phone className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 tracking-tight">
+                      {selectedStatusSummaryMember.name}
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      PIN: <span className="font-mono font-bold">{selectedStatusSummaryMember.pin}</span> | Date: <span className="font-bold text-indigo-600">{statusSummaryDate}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedStatusSummaryMember(null)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                <div className="bg-indigo-50/70 border border-indigo-100 p-3 rounded-2xl text-center">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase">Total Calls</p>
+                  <p className="text-lg font-black text-indigo-900">{selectedMemberCalls.length}</p>
+                </div>
+                <div className="bg-emerald-50/70 border border-emerald-100 p-3 rounded-2xl text-center">
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase">Live Instruction</p>
+                  <p className="text-lg font-black text-emerald-900">{selectedMemberCalls.filter(c => c.callType === 'Live Instruction').length}</p>
+                </div>
+                <div className="bg-purple-50/70 border border-purple-100 p-3 rounded-2xl text-center">
+                  <p className="text-[10px] font-bold text-purple-600 uppercase">Feedback</p>
+                  <p className="text-lg font-black text-purple-900">{selectedMemberCalls.filter(c => c.callType === 'Feedback').length}</p>
+                </div>
+              </div>
+
+              {selectedMemberCalls.length === 0 ? (
+                <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                  <Phone className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-500">
+                    No calls recorded for {selectedStatusSummaryMember.name} on {statusSummaryDate}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 sticky top-0 z-10">
+                      <tr>
+                        <th className="p-3 w-12 text-center">#</th>
+                        <th className="p-3">Time</th>
+                        <th className="p-3">Student Nickname</th>
+                        <th className="p-3">Roll / Reg</th>
+                        <th className="p-3">Class</th>
+                        <th className="p-3">Call Type</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {selectedMemberCalls.map((call, idx) => (
+                        <tr key={call.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                          <td className="p-3 font-mono font-bold text-indigo-600 whitespace-nowrap">
+                            {call.time}
+                            {call.isTeacher && (
+                              <span className="ml-1.5 px-1.5 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[9px] font-black uppercase tracking-wider">
+                                Teacher
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <span className="font-extrabold text-slate-800">
+                              {call.studentName}
+                            </span>
+                          </td>
+                          <td className="p-3 text-slate-600 font-medium">
+                            Roll: <strong className="text-slate-800 font-bold">{call.rollNo}</strong>
+                            <br />
+                            <span className="text-[10px] text-slate-400">Reg: {call.registrationNo}</span>
+                          </td>
+                          <td className="p-3 font-bold text-slate-700">
+                            {call.className}
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase ${
+                              call.callType === 'Live Instruction'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-purple-50 text-purple-700 border border-purple-200'
+                            }`}>
+                              {call.callType}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => setSelectedStatusSummaryMember(null)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
